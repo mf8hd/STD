@@ -9,6 +9,7 @@
 ;	sqlite.dll
 ;
 
+;Changelog
 #cs
 Versioning: "Incompatible changes to DB"."new feature"."bug fix"."minor fix"
 
@@ -48,6 +49,18 @@ Changelog
 			TreeClimber(): code cleanup
 			GetFileInfo(): increase buffersize for CRC and md5
 3.0.0.0		split filedata.attributes in DB into rattrib,aattrib,sattrib,hattrib,nattrib,dattrib,oattrib,cattrib,tattrib
+3.1.0.0		help extended
+			reorganize code in mainloop
+			clean up variable declarations
+			GetRuleSetFromDB()
+			GetRuleFromRuleSet()
+			sourcecode cleanup
+			InsertStatementInRuleSet()
+			IsFilepropertyIgnoredByRule()
+			Ignore file properties in report with the "Ign:"  statement
+			performance: sqlite in WAL mode and sync to normal
+			DoScan(), DoReport(): use GetRuleSetFromDB()
+
 
 #ce
 
@@ -55,7 +68,7 @@ Changelog
 FixMe:
 	  done - !!!!!!!!!!  /report is not working anymore !!!!!!!!!!!!
 	  - possible sql injection through value of "Rule:" in config file
-	  done - does /report "missing" realy work ???? GetAllRulenames() must return ALL rulenames from scanold AND scannew
+	  done - does /report "missing" realy work ???? GetAllRulenamesFromDB() must return ALL rulenames from scanold AND scannew
 ToDo:
 	  obsolete - change name of DB field "status" to "valid"
 	  - DoDeleteScan() sanitize DB tables rules and filenames !
@@ -114,7 +127,7 @@ End
 ;Set file infos
 #pragma compile(FileDescription,"Spot The Difference")
 #pragma compile(ProductName,"Spot The Difference")
-#pragma compile(ProductVersion,"3.0.0.0")
+#pragma compile(ProductVersion,"3.1.0.0")
 ;Versioning: "Incompatible changes to DB"."new feature"."bug fix"."minor fix"
 #pragma compile(LegalCopyright,"Reinhard Dittmann")
 #pragma compile(InternalName,"STD")
@@ -143,7 +156,29 @@ Opt("TrayIconHide", 1)
 
 
 ;Variables
-global $aRule[1][2]		;one rule form config File
+global $aRule[1][2]		;one rule form config db table
+						;$aRule
+						;.......................
+						;command    | parameter
+						;-----------------------
+						;Rule:      | Test
+						;IncDir:    | "c:\test"
+						;IncExt:    | txt
+						;.......................
+global $aRuleSet[1][3]	;all rules form config db table
+						;$aRuleSet
+						;.....................................
+						;command    | parameter | rulenumber
+						;-------------------------------------
+                        ;EmailFrom: | i@y.com   | 0
+			            ;EmailTo:   | y@i.com   | 0
+						;Rule:      | Test      | 1
+						;IncDir:    | "c:\test" | 1
+						;IncExt:    | txt       | 1
+						;Rule:      | Logfiles  | 2
+						;IncDir:    | "c:\tst1" | 2
+						;IncExt:    | log       | 2
+						;.....................................
 global $aFileInfo[22]	;array with informations about the file
 #cs
 		 $aFileInfo[0]	;name
@@ -178,7 +213,7 @@ Global $oMyRet[2]
 Global $oMyError = ObjEvent("AutoIt.Error", "MyErrFunc")
 
 
-
+#cs
 $Path = ""				;directory to process
 $Filename = ""			;File to process
 $ReportFilename = ""	;report filename
@@ -206,6 +241,8 @@ $sTempValid = ""		;"X" if scan is validated "-" if not yet validated
 local $aRulenames = 0	;all rulenames in a scan
 local $sTempText = ""	;
 local $iTempCount = ""	;
+#ce
+
 
 #cs
 db stucture
@@ -227,6 +264,23 @@ db stucture
 #ce
 
 
+#cs
+OpenDB("C:\Users\Reinhard\Desktop\std\alles.sqlite")
+GetRuleSetFromDB()
+_ArrayDisplay($aRuleSet)
+GetRuleFromRuleSet(0)
+_ArrayDisplay($aRule)
+GetRuleFromRuleSet(1)
+_ArrayDisplay($aRule)
+GetRuleFromRuleSet(2)
+_ArrayDisplay($aRule)
+GetRuleFromRuleSet(3)
+_ArrayDisplay($aRule)
+GetRuleFromRuleSet(4)
+_ArrayDisplay($aRule)
+CloseDB()
+exit(0)
+#ce
 
 
 
@@ -259,29 +313,13 @@ select
 		 exit (1)
 	  EndIf
 
-	  $sDBName = $CmdLine[2]
-	  $ConfigFilename = $CmdLine[3]
+	  ;$sDBName = $CmdLine[2]
+	  ;$ConfigFilename = $CmdLine[3]
 
-	  OpenDB($sDBName)
+	  OpenDB($CmdLine[2])
 
-	  ;recreate table config
-	  if FileExists($ConfigFilename) then
-		 _SQLite_Exec(-1,"DROP TABLE IF EXISTS config;")
-		 _SQLite_Exec(-1,"CREATE TABLE IF NOT EXISTS config (linenumber INTEGER PRIMARY KEY AUTOINCREMENT, line );")
+	  DoImportCfg($CmdLine[3])
 
-		 ;import $ConfigFilename into table config
-		 $iCfgLineNr = 1
-		 While True
-
-			$sTempCfgLine = ""
-			$sTempCfgLine = FileReadLine($ConfigFilename,$iCfgLineNr)
-			if @error then
-			   ExitLoop
-			EndIf
-			_SQLite_Exec(-1,"INSERT INTO config(line) values ('" & _StringToHex($sTempCfgLine) & "');")
-			$iCfgLineNr += 1
-		 WEnd
-	  EndIf
 	  CloseDB()
 
    Case $CmdLine[1] = "/exportcfg"
@@ -290,24 +328,13 @@ select
 		 exit (1)
 	  EndIf
 
-	  $sDBName = $CmdLine[2]
-	  $ConfigFilename = $CmdLine[3]
+	  ;$sDBName = $CmdLine[2]
+	  ;$ConfigFilename = $CmdLine[3]
 
-	  OpenDB($sDBName)
+	  OpenDB($CmdLine[2])
 
+	  DoExportCfg($CmdLine[3])
 
-	  if FileExists($ConfigFilename) then
-		 FileDelete($ConfigFilename)
-	  EndIf
-
-	  ;export table config into $ConfigFilename
-	  $aQueryResult = 0
-	  $hQuery = 0
-	  _SQLite_Query(-1, "SELECT line FROM config ORDER BY linenumber ASC;",$hQuery)
-	  While _SQLite_FetchData($hQuery, $aQueryResult) = $SQLITE_OK
-		 FileWriteLine($ConfigFilename,_HexToString($aQueryResult[0]))
-	  WEnd
-	  _SQLite_QueryFinalize($hQuery)
 	  CloseDB()
 
    Case $CmdLine[1] = "/validate"
@@ -375,9 +402,9 @@ select
 		 exit (1)
 	  EndIf
 
-	  $sDBName = $CmdLine[2]
+	  ;$sDBName = $CmdLine[2]
 
-	  OpenDB($sDBName)
+	  OpenDB($CmdLine[2])
 
 	  DoScan()
 
@@ -423,6 +450,57 @@ Exit(0)
 ;---------------------------------------------------
 ; Functions
 ;---------------------------------------------------
+
+;----- core functions -----
+
+Func DoImportCfg($ConfigFilename)
+
+   local $iCfgLineNr = 0
+   local $sTempCfgLine = ""
+
+   ;recreate table config
+   if FileExists($ConfigFilename) then
+	  _SQLite_Exec(-1,"DROP TABLE IF EXISTS config;")
+	  _SQLite_Exec(-1,"CREATE TABLE IF NOT EXISTS config (linenumber INTEGER PRIMARY KEY AUTOINCREMENT, line );")
+
+	  ;import $ConfigFilename into table config
+	  $iCfgLineNr = 1
+	  While True
+
+		 $sTempCfgLine = ""
+		 $sTempCfgLine = FileReadLine($ConfigFilename,$iCfgLineNr)
+		 if @error then
+			ExitLoop
+		 EndIf
+		 _SQLite_Exec(-1,"INSERT INTO config(line) values ('" & _StringToHex($sTempCfgLine) & "');")
+		 $iCfgLineNr += 1
+	  WEnd
+   EndIf
+
+EndFunc
+
+
+Func DoExportCfg($ConfigFilename)
+
+   local $aQueryResult = 0	;result of a query
+   local $hQuery = 0		;handle to a query
+
+   if FileExists($ConfigFilename) then
+	  FileDelete($ConfigFilename)
+   EndIf
+
+   ;export table config into $ConfigFilename
+   $aQueryResult = 0
+   $hQuery = 0
+   _SQLite_Query(-1, "SELECT line FROM config ORDER BY linenumber ASC;",$hQuery)
+   While _SQLite_FetchData($hQuery, $aQueryResult) = $SQLITE_OK
+	  FileWriteLine($ConfigFilename,_HexToString($aQueryResult[0]))
+   WEnd
+   _SQLite_QueryFinalize($hQuery)
+
+EndFunc
+
+
 Func DoReport($ReportFilename)
    local $rc = 0				;mailer return code
    local $iEmailReport = False	;send report per email (smtp)
@@ -446,7 +524,7 @@ Func DoReport($ReportFilename)
    local $hCfgQuery = 0			;handle to a query on table config
    local $sTempCfgLine = ""
 
-   local $aRulenames = 0	;all rulenames in a scan
+   ;local $aRulenames = 0	;all rulenames in a scan
 
    local $sTempText = ""	;
    local $iTempCount = ""	;
@@ -454,6 +532,9 @@ Func DoReport($ReportFilename)
    local $i = 0
 
    local $sTempSQL = ""
+
+
+   GetRuleSetFromDB()
 
 
    $sTempSQL = "SELECT "
@@ -549,8 +630,8 @@ Func DoReport($ReportFilename)
 
 
 	  ;SELECT scantime,rulename FROM files where scantime = '20160514212002' group by rulename order by rulename asc;
-	  $aRulenames = 0
-	  if GetAllRulenames($sScannameNew,$sScannameOld,$aRulenames) Then
+	  ;$aRulenames = 0
+	  if GetNumberOfRulesFromRuleSet() > 0 Then
 		 ;_ArrayDisplay($aRulenames)
 
 		 FileWriteLine($ReportFilename,@CRLF & "report for old scan:" & $sScannameOld & " <-> new scan:" & $sScannameNew & @CRLF)
@@ -562,8 +643,10 @@ Func DoReport($ReportFilename)
 		 FileWriteLine($ReportFilename,StringFormat("%-40s %7s %7s %7s","--------","-------","-------","-------"))
 
 		 ;summery per rule
-		 for $i = 2 to $aRulenames[0]
-			$sTempText = StringFormat("%-40s",$aRulenames[$i])
+		 for $i = 1 to GetNumberOfRulesFromRuleSet()
+			GetRuleFromRuleSet($i)
+
+			$sTempText = StringFormat("%-40s",GetRulename($aRule))
 
 			;return scan differences
 			$aQueryResult = 0
@@ -578,27 +661,33 @@ Func DoReport($ReportFilename)
 			$sTempSQL &= "WHERE "
 			$sTempSQL &= "scannew.path = scanold.path and "
 			$sTempSQL &= "scannew.rulename = scanold.rulename and "
-			$sTempSQL &= "scannew.rulename = '" & $aRulenames[$i] & "' and "
+			$sTempSQL &= "scannew.rulename = '" & GetRulename($aRule) & "' and "
 			$sTempSQL &= "("
-			$sTempSQL &= "scannew.status <> scanold.status or "
-			$sTempSQL &= "scannew.size <> scanold.size or "
+			if not IsFilepropertyIgnoredByRule("status",$aRule)       then $sTempSQL &= "scannew.status <> scanold.status or "
+			if not IsFilepropertyIgnoredByRule("size",$aRule)         then $sTempSQL &= "scannew.size <> scanold.size or "
 			;$sTempSQL &= "scannew.attributes <> scanold.attributes or "
-			$sTempSQL &= "scannew.mtime <> scanold.mtime or "
-			$sTempSQL &= "scannew.ctime <> scanold.ctime or "
-			$sTempSQL &= "scannew.version <> scanold.version or "
-			$sTempSQL &= "scannew.spath <> scanold.spath or "
-			$sTempSQL &= "scannew.crc32 <> scanold.crc32 or "
-			$sTempSQL &= "scannew.md5 <> scanold.md5 or "
-			$sTempSQL &= "scannew.rattrib <> scanold.rattrib or "
-			$sTempSQL &= "scannew.aattrib <> scanold.aattrib or "
-			$sTempSQL &= "scannew.sattrib <> scanold.sattrib or "
-			$sTempSQL &= "scannew.hattrib <> scanold.hattrib or "
-			$sTempSQL &= "scannew.nattrib <> scanold.nattrib or "
-			$sTempSQL &= "scannew.dattrib <> scanold.dattrib or "
-			$sTempSQL &= "scannew.oattrib <> scanold.oattrib or "
-			$sTempSQL &= "scannew.cattrib <> scanold.cattrib or "
-			$sTempSQL &= "scannew.tattrib <> scanold.tattrib"
+			if not IsFilepropertyIgnoredByRule("atime",$aRule)        then $sTempSQL &= "scannew.atime <> scanold.atime or "
+			if not IsFilepropertyIgnoredByRule("mtime",$aRule)        then $sTempSQL &= "scannew.mtime <> scanold.mtime or "
+			if not IsFilepropertyIgnoredByRule("ctime",$aRule)        then $sTempSQL &= "scannew.ctime <> scanold.ctime or "
+			if not IsFilepropertyIgnoredByRule("version",$aRule)      then $sTempSQL &= "scannew.version <> scanold.version or "
+			if not IsFilepropertyIgnoredByRule("spath",$aRule)        then $sTempSQL &= "scannew.spath <> scanold.spath or "
+			if not IsFilepropertyIgnoredByRule("crc32",$aRule)        then $sTempSQL &= "scannew.crc32 <> scanold.crc32 or "
+			if not IsFilepropertyIgnoredByRule("md5",$aRule)          then $sTempSQL &= "scannew.md5 <> scanold.md5 or "
+			if not IsFilepropertyIgnoredByRule("rattrib",$aRule)      then $sTempSQL &= "scannew.rattrib <> scanold.rattrib or "
+			if not IsFilepropertyIgnoredByRule("aattrib",$aRule)      then $sTempSQL &= "scannew.aattrib <> scanold.aattrib or "
+			if not IsFilepropertyIgnoredByRule("sattrib",$aRule)      then $sTempSQL &= "scannew.sattrib <> scanold.sattrib or "
+			if not IsFilepropertyIgnoredByRule("hattrib",$aRule)      then $sTempSQL &= "scannew.hattrib <> scanold.hattrib or "
+			if not IsFilepropertyIgnoredByRule("nattrib",$aRule)      then $sTempSQL &= "scannew.nattrib <> scanold.nattrib or "
+			if not IsFilepropertyIgnoredByRule("dattrib",$aRule)      then $sTempSQL &= "scannew.dattrib <> scanold.dattrib or "
+			if not IsFilepropertyIgnoredByRule("oattrib",$aRule)      then $sTempSQL &= "scannew.oattrib <> scanold.oattrib or "
+			if not IsFilepropertyIgnoredByRule("cattrib",$aRule)      then $sTempSQL &= "scannew.cattrib <> scanold.cattrib or "
+			if not IsFilepropertyIgnoredByRule("tattrib",$aRule)      then $sTempSQL &= "scannew.tattrib <> scanold.tattrib or "
 			$sTempSQL &= ");"
+
+			;fix sql statement
+			$sTempSQL = StringReplace($sTempSQL," and ();",";")
+			$sTempSQL = StringReplace($sTempSQL," or );",");")
+
 
 			_SQLite_Query(-1, $sTempSQL,$hQuery)
 			While _SQLite_FetchData($hQuery, $aQueryResult) = $SQLITE_OK
@@ -614,7 +703,7 @@ Func DoReport($ReportFilename)
 			$aQueryResult = 0
 			$hQuery = 0
 			$iTempCount = 0
-			_SQLite_Query(-1,"SELECT scannew.rulename,count(scannew.rulename) FROM scannew LEFT JOIN scanold ON scannew.path = scanold.path and scannew.rulename = scanold.rulename WHERE scannew.rulename = '" & $aRulenames[$i] & "' and scanold.path IS NULL;" ,$hQuery)
+			_SQLite_Query(-1,"SELECT scannew.rulename,count(scannew.rulename) FROM scannew LEFT JOIN scanold ON scannew.path = scanold.path and scannew.rulename = scanold.rulename WHERE scannew.rulename = '" & GetRulename($aRule) & "' and scanold.path IS NULL;" ,$hQuery)
 			While _SQLite_FetchData($hQuery, $aQueryResult) = $SQLITE_OK
 			   ;OutputLineOfQueryResultSummary($aQueryResult,$ReportFilename)
 			   $iTempCount = $aQueryResult[1]
@@ -627,7 +716,7 @@ Func DoReport($ReportFilename)
 			$aQueryResult = 0
 			$hQuery = 0
 			$iTempCount = 0
-			_SQLite_Query(-1,"SELECT scanold.rulename,count(scanold.rulename) FROM scanold LEFT JOIN scannew ON scannew.path = scanold.path and scannew.rulename = scanold.rulename WHERE scanold.rulename = '" & $aRulenames[$i] & "' and scannew.path IS NULL;",$hQuery)
+			_SQLite_Query(-1,"SELECT scanold.rulename,count(scanold.rulename) FROM scanold LEFT JOIN scannew ON scannew.path = scanold.path and scannew.rulename = scanold.rulename WHERE scanold.rulename = '" & GetRulename($aRule) & "' and scannew.path IS NULL;",$hQuery)
 			While _SQLite_FetchData($hQuery, $aQueryResult) = $SQLITE_OK
 			   ;OutputLineOfQueryResultSummary($aQueryResult,$ReportFilename)
 			   $iTempCount = $aQueryResult[1]
@@ -642,8 +731,10 @@ Func DoReport($ReportFilename)
 
 
 		 ;list per rule
-		 for $i = 2 to $aRulenames[0]
-			FileWriteLine($ReportFilename,@crlf & "---- rule: " & $aRulenames[$i] & " ----")
+		 for $i = 1 to GetNumberOfRulesFromRuleSet()
+			GetRuleFromRuleSet($i)
+
+			FileWriteLine($ReportFilename,@crlf & "---- rule: " & GetRulename($aRule) & " ----")
 
 			;return scan differences
 			$aQueryResult = 0
@@ -655,27 +746,33 @@ Func DoReport($ReportFilename)
 			$sTempSQL &= "WHERE "
 			$sTempSQL &= "scannew.path = scanold.path and "
 			$sTempSQL &= "scannew.rulename = scanold.rulename and "
-			$sTempSQL &= "scannew.rulename = '" & $aRulenames[$i] & "' and "
+			$sTempSQL &= "scannew.rulename = '" & GetRulename($aRule) & "' and "
 			$sTempSQL &= "("
-			$sTempSQL &= "scannew.status <> scanold.status or "
-			$sTempSQL &= "scannew.size <> scanold.size or "
+			if not IsFilepropertyIgnoredByRule("status",$aRule)       then $sTempSQL &= "scannew.status <> scanold.status or "
+			if not IsFilepropertyIgnoredByRule("size",$aRule)         then $sTempSQL &= "scannew.size <> scanold.size or "
 			;$sTempSQL &= "scannew.attributes <> scanold.attributes or "
-			$sTempSQL &= "scannew.mtime <> scanold.mtime or "
-			$sTempSQL &= "scannew.ctime <> scanold.ctime or "
-			$sTempSQL &= "scannew.version <> scanold.version or "
-			$sTempSQL &= "scannew.spath <> scanold.spath or "
-			$sTempSQL &= "scannew.crc32 <> scanold.crc32 or "
-			$sTempSQL &= "scannew.md5 <> scanold.md5 or "
-			$sTempSQL &= "scannew.rattrib <> scanold.rattrib or "
-			$sTempSQL &= "scannew.aattrib <> scanold.aattrib or "
-			$sTempSQL &= "scannew.sattrib <> scanold.sattrib or "
-			$sTempSQL &= "scannew.hattrib <> scanold.hattrib or "
-			$sTempSQL &= "scannew.nattrib <> scanold.nattrib or "
-			$sTempSQL &= "scannew.dattrib <> scanold.dattrib or "
-			$sTempSQL &= "scannew.oattrib <> scanold.oattrib or "
-			$sTempSQL &= "scannew.cattrib <> scanold.cattrib or "
-			$sTempSQL &= "scannew.tattrib <> scanold.tattrib"
+			if not IsFilepropertyIgnoredByRule("atime",$aRule)        then $sTempSQL &= "scannew.atime <> scanold.atime or "
+			if not IsFilepropertyIgnoredByRule("mtime",$aRule)        then $sTempSQL &= "scannew.mtime <> scanold.mtime or "
+			if not IsFilepropertyIgnoredByRule("ctime",$aRule)        then $sTempSQL &= "scannew.ctime <> scanold.ctime or "
+			if not IsFilepropertyIgnoredByRule("version",$aRule)      then $sTempSQL &= "scannew.version <> scanold.version or "
+			if not IsFilepropertyIgnoredByRule("spath",$aRule)        then $sTempSQL &= "scannew.spath <> scanold.spath or "
+			if not IsFilepropertyIgnoredByRule("crc32",$aRule)        then $sTempSQL &= "scannew.crc32 <> scanold.crc32 or "
+			if not IsFilepropertyIgnoredByRule("md5",$aRule)          then $sTempSQL &= "scannew.md5 <> scanold.md5 or "
+			if not IsFilepropertyIgnoredByRule("rattrib",$aRule)      then $sTempSQL &= "scannew.rattrib <> scanold.rattrib or "
+			if not IsFilepropertyIgnoredByRule("aattrib",$aRule)      then $sTempSQL &= "scannew.aattrib <> scanold.aattrib or "
+			if not IsFilepropertyIgnoredByRule("sattrib",$aRule)      then $sTempSQL &= "scannew.sattrib <> scanold.sattrib or "
+			if not IsFilepropertyIgnoredByRule("hattrib",$aRule)      then $sTempSQL &= "scannew.hattrib <> scanold.hattrib or "
+			if not IsFilepropertyIgnoredByRule("nattrib",$aRule)      then $sTempSQL &= "scannew.nattrib <> scanold.nattrib or "
+			if not IsFilepropertyIgnoredByRule("dattrib",$aRule)      then $sTempSQL &= "scannew.dattrib <> scanold.dattrib or "
+			if not IsFilepropertyIgnoredByRule("oattrib",$aRule)      then $sTempSQL &= "scannew.oattrib <> scanold.oattrib or "
+			if not IsFilepropertyIgnoredByRule("cattrib",$aRule)      then $sTempSQL &= "scannew.cattrib <> scanold.cattrib or "
+			if not IsFilepropertyIgnoredByRule("tattrib",$aRule)      then $sTempSQL &= "scannew.tattrib <> scanold.tattrib or "
 			$sTempSQL &= ");"
+
+			;fix sql statement
+			$sTempSQL = StringReplace($sTempSQL," and ();",";")
+			$sTempSQL = StringReplace($sTempSQL," or );",");")
+
 
 			_SQLite_Query(-1, $sTempSQL,$hQuery)
 			While _SQLite_FetchData($hQuery, $aQueryResult) = $SQLITE_OK
@@ -687,7 +784,7 @@ Func DoReport($ReportFilename)
 			;return new files
 			$aQueryResult = 0
 			$hQuery = 0
-			_SQLite_Query(-1,"SELECT scannew.path FROM scannew LEFT JOIN scanold ON scannew.path = scanold.path and scannew.rulename = scanold.rulename WHERE scannew.rulename = '" & $aRulenames[$i] & "' and scanold.path IS NULL;" ,$hQuery)
+			_SQLite_Query(-1,"SELECT scannew.path FROM scannew LEFT JOIN scanold ON scannew.path = scanold.path and scannew.rulename = scanold.rulename WHERE scannew.rulename = '" & GetRulename($aRule) & "' and scanold.path IS NULL;" ,$hQuery)
 			While _SQLite_FetchData($hQuery, $aQueryResult) = $SQLITE_OK
 			   ;OutputLineOfQueryResult($aQueryResult,$ReportFilename)
 			   FileWriteLine($ReportFilename,StringFormat("%-8s : %s","new",_HexToString($aQueryResult[0])))
@@ -697,7 +794,7 @@ Func DoReport($ReportFilename)
 			;return deleted files
 			$aQueryResult = 0
 			$hQuery = 0
-			_SQLite_Query(-1,"SELECT scanold.path FROM scanold LEFT JOIN scannew ON scannew.path = scanold.path and scannew.rulename = scanold.rulename WHERE scanold.rulename = '" & $aRulenames[$i] & "' and scannew.path IS NULL;",$hQuery)
+			_SQLite_Query(-1,"SELECT scanold.path FROM scanold LEFT JOIN scannew ON scannew.path = scanold.path and scannew.rulename = scanold.rulename WHERE scanold.rulename = '" & GetRulename($aRule) & "' and scannew.path IS NULL;",$hQuery)
 			While _SQLite_FetchData($hQuery, $aQueryResult) = $SQLITE_OK
 			   ;OutputLineOfQueryResult($aQueryResult,$ReportFilename)
 			   FileWriteLine($ReportFilename,StringFormat("%-8s : %s","missing",_HexToString($aQueryResult[0])))
@@ -708,8 +805,10 @@ Func DoReport($ReportFilename)
 		 FileWriteLine($ReportFilename,@CRLF & "======================================================================" & @CRLF)
 
 		 ;details per rule
-		 for $i = 2 to $aRulenames[0]
-			FileWriteLine($ReportFilename,@crlf & "---- rule: " & $aRulenames[$i] & " ----")
+		 for $i = 1 to GetNumberOfRulesFromRuleSet()
+			GetRuleFromRuleSet($i)
+
+			FileWriteLine($ReportFilename,@crlf & "---- rule: " & GetRulename($aRule) & " ----")
 
 			;return scan differences
 			$aQueryResult = 0
@@ -721,27 +820,33 @@ Func DoReport($ReportFilename)
 			$sTempSQL &= "WHERE "
 			$sTempSQL &= "scannew.path = scanold.path and "
 			$sTempSQL &= "scannew.rulename = scanold.rulename and "
-			$sTempSQL &= "scannew.rulename = '" & $aRulenames[$i] & "' and "
+			$sTempSQL &= "scannew.rulename = '" & GetRulename($aRule) & "' and "
 			$sTempSQL &= "("
-			$sTempSQL &= "scannew.status <> scanold.status or "
-			$sTempSQL &= "scannew.size <> scanold.size or "
+			if not IsFilepropertyIgnoredByRule("status",$aRule)       then $sTempSQL &= "scannew.status <> scanold.status or "
+			if not IsFilepropertyIgnoredByRule("size",$aRule)         then $sTempSQL &= "scannew.size <> scanold.size or "
 			;$sTempSQL &= "scannew.attributes <> scanold.attributes or "
-			$sTempSQL &= "scannew.mtime <> scanold.mtime or "
-			$sTempSQL &= "scannew.ctime <> scanold.ctime or "
-			$sTempSQL &= "scannew.version <> scanold.version or "
-			$sTempSQL &= "scannew.spath <> scanold.spath or "
-			$sTempSQL &= "scannew.crc32 <> scanold.crc32 or "
-			$sTempSQL &= "scannew.md5 <> scanold.md5 or "
-			$sTempSQL &= "scannew.rattrib <> scanold.rattrib or "
-			$sTempSQL &= "scannew.aattrib <> scanold.aattrib or "
-			$sTempSQL &= "scannew.sattrib <> scanold.sattrib or "
-			$sTempSQL &= "scannew.hattrib <> scanold.hattrib or "
-			$sTempSQL &= "scannew.nattrib <> scanold.nattrib or "
-			$sTempSQL &= "scannew.dattrib <> scanold.dattrib or "
-			$sTempSQL &= "scannew.oattrib <> scanold.oattrib or "
-			$sTempSQL &= "scannew.cattrib <> scanold.cattrib or "
-			$sTempSQL &= "scannew.tattrib <> scanold.tattrib"
+			if not IsFilepropertyIgnoredByRule("atime",$aRule)        then $sTempSQL &= "scannew.atime <> scanold.atime or "
+			if not IsFilepropertyIgnoredByRule("mtime",$aRule)        then $sTempSQL &= "scannew.mtime <> scanold.mtime or "
+			if not IsFilepropertyIgnoredByRule("ctime",$aRule)        then $sTempSQL &= "scannew.ctime <> scanold.ctime or "
+			if not IsFilepropertyIgnoredByRule("version",$aRule)      then $sTempSQL &= "scannew.version <> scanold.version or "
+			if not IsFilepropertyIgnoredByRule("spath",$aRule)        then $sTempSQL &= "scannew.spath <> scanold.spath or "
+			if not IsFilepropertyIgnoredByRule("crc32",$aRule)        then $sTempSQL &= "scannew.crc32 <> scanold.crc32 or "
+			if not IsFilepropertyIgnoredByRule("md5",$aRule)          then $sTempSQL &= "scannew.md5 <> scanold.md5 or "
+			if not IsFilepropertyIgnoredByRule("rattrib",$aRule)      then $sTempSQL &= "scannew.rattrib <> scanold.rattrib or "
+			if not IsFilepropertyIgnoredByRule("aattrib",$aRule)      then $sTempSQL &= "scannew.aattrib <> scanold.aattrib or "
+			if not IsFilepropertyIgnoredByRule("sattrib",$aRule)      then $sTempSQL &= "scannew.sattrib <> scanold.sattrib or "
+			if not IsFilepropertyIgnoredByRule("hattrib",$aRule)      then $sTempSQL &= "scannew.hattrib <> scanold.hattrib or "
+			if not IsFilepropertyIgnoredByRule("nattrib",$aRule)      then $sTempSQL &= "scannew.nattrib <> scanold.nattrib or "
+			if not IsFilepropertyIgnoredByRule("dattrib",$aRule)      then $sTempSQL &= "scannew.dattrib <> scanold.dattrib or "
+			if not IsFilepropertyIgnoredByRule("oattrib",$aRule)      then $sTempSQL &= "scannew.oattrib <> scanold.oattrib or "
+			if not IsFilepropertyIgnoredByRule("cattrib",$aRule)      then $sTempSQL &= "scannew.cattrib <> scanold.cattrib or "
+			if not IsFilepropertyIgnoredByRule("tattrib",$aRule)      then $sTempSQL &= "scannew.tattrib <> scanold.tattrib or "
 			$sTempSQL &= ");"
+
+			;fix sql statement
+			$sTempSQL = StringReplace($sTempSQL," and ();",";")
+			$sTempSQL = StringReplace($sTempSQL," or );",");")
+
 
 			_SQLite_Query(-1, $sTempSQL,$hQuery)
 			While _SQLite_FetchData($hQuery, $aQueryResult) = $SQLITE_OK
@@ -752,7 +857,7 @@ Func DoReport($ReportFilename)
 			;return new files
 			$aQueryResult = 0
 			$hQuery = 0
-			_SQLite_Query(-1,"SELECT scanold.*,scannew.* FROM scannew LEFT JOIN scanold ON scannew.path = scanold.path and scannew.rulename = scanold.rulename WHERE scannew.rulename = '" & $aRulenames[$i] & "' and scanold.path IS NULL;" ,$hQuery)
+			_SQLite_Query(-1,"SELECT scanold.*,scannew.* FROM scannew LEFT JOIN scanold ON scannew.path = scanold.path and scannew.rulename = scanold.rulename WHERE scannew.rulename = '" & GetRulename($aRule) & "' and scanold.path IS NULL;" ,$hQuery)
 			While _SQLite_FetchData($hQuery, $aQueryResult) = $SQLITE_OK
 			   OutputLineOfQueryResult($aQueryResult,$ReportFilename)
 			WEnd
@@ -761,7 +866,7 @@ Func DoReport($ReportFilename)
 			;return deleted files
 			$aQueryResult = 0
 			$hQuery = 0
-			_SQLite_Query(-1,"SELECT scanold.*,scannew.* FROM scanold LEFT JOIN scannew ON scannew.path = scanold.path and scannew.rulename = scanold.rulename WHERE scanold.rulename = '" & $aRulenames[$i] & "' and scannew.path IS NULL;",$hQuery)
+			_SQLite_Query(-1,"SELECT scanold.*,scannew.* FROM scanold LEFT JOIN scannew ON scannew.path = scanold.path and scannew.rulename = scanold.rulename WHERE scanold.rulename = '" & GetRulename($aRule) & "' and scannew.path IS NULL;",$hQuery)
 			While _SQLite_FetchData($hQuery, $aQueryResult) = $SQLITE_OK
 			   OutputLineOfQueryResult($aQueryResult,$ReportFilename)
 			WEnd
@@ -979,8 +1084,11 @@ Func DoExportScan($sScanname,$sCSVFilename)
 
    local $aQueryResult = 0		;result of a query
 
-   local $aCfgQueryResult = 0	;result of a query on table config
-   local $hCfgQuery = 0			;handle to a query on table config
+   ;local $aCfgQueryResult = 0	;result of a query on table config
+   ;local $hCfgQuery = 0		;handle to a query on table config
+
+   local $aCSVQueryResult = 0	;result of a query on table config
+   local $hCSVQuery = 0			;handle to a query on table config
 
 
    #cs
@@ -1072,525 +1180,28 @@ EndFunc
 
 Func DoScan()
 
-	  local $iLastRuleRead = False
 
-	  local $aQueryResult = 0		;result of a query
-	  local $hQuery = 0				;handle to a query
+   local $iRuleNr = 0					;rule number
+   local $i = 0							;counter
 
-	  local $iCfgLineNr = 0
-	  local $sTempCfgLine = ""
-	  local $aCfgQueryResult = 0	;result of a query on table config
-	  local $hCfgQuery = 0			;handle to a query on table config
+   GetRuleSetFromDB()
 
+   $sScantime = @YEAR & @MON & @MDAY & @HOUR & @MIN & @SEC
+   $iScanId = GetScanIDFromDB($sScantime)
 
+   ;read every rule
+   for $iRuleNr = 1 to GetNumberOfRulesFromRuleSet()
+	  GetRuleFromRuleSet($iRuleNr)
 
-	  $sScantime = @YEAR & @MON & @MDAY & @HOUR & @MIN & @SEC
-	  $iScanId = GetScanIDFromDB($sScantime)
+	  ;process rule
+	  for $i=1 to UBound($aRule,1)-1
 
-	  ;read the rules from table config
-	  $iCfgLineNr = 1
-	  $iLastRuleRead = False
-	  $aCfgQueryResult = 0
-	  $hCfgQuery = 0
-	  _SQLite_Query(-1, "SELECT line FROM config ORDER BY linenumber ASC;",$hCfgQuery)
-	  While True
-		 ;read one rule from table config
-		 dim $aRule[1][2]
-		 While True
-			#cs
-			;read one rule form $ConfigFilename
-			$sTempCfgLine = ""
-			$sTempCfgLine = FileReadLine($ConfigFilename,$iCfgLineNr)
-			if @error then
-			   $iLastRuleRead = True
-			   ExitLoop
-			EndIf
-			#ce
+		 if $aRule[$i][0] = "IncDirRec:" then TreeClimber($aRule[$i][1],$aRule,True)
+		 if $aRule[$i][0] = "IncDir:" 	then TreeClimber($aRule[$i][1],$aRule,False)
 
-			;read one line form table config
-			$sTempCfgLine = ""
-			if _SQLite_FetchData($hCfgQuery, $aCfgQueryResult) = $SQLITE_OK Then
-			   $sTempCfgLine = _HexToString($aCfgQueryResult[0])
-			   ;_ArrayDisplay($aQueryResult[0])
-			Else
-			   $iLastRuleRead = True
-			   ExitLoop
-			EndIf
+	  Next
 
-			;Output line of rule
-			;ConsoleWrite($sTempCfgLine & @CRLF)
-			#cs
-			file format config.cfg
-
-			Rule:RULENAME			;name of rule
-			IncDirRec:PATH			;directory to include, including all subdirectories
-			ExcDirRec:PATH			;directory to exclude, including all subdirectories
-			IncDir:PATH				;directory to include, only this directory
-			ExcDir:PATH				;directory to exclude, only this directory
-			IncExt:FILEEXTENTION	;file extention to include
-			ExcExt:FILEEXTENTION	;file extention to exclude
-			IncExe					;all executable files, no matter what the extention is
-			IncAll					;all files, no matter what the extention is aka *.*
-			ExcExe					;no executable files, no matter what the extention is
-			ExcAll					;no files, no matter what the extention is aka *.*, only directories
-			End
-			#ce
-
-			;strip whitespaces at begin of line
-			$sTempCfgLine = StringStripWS($sTempCfgLine,$STR_STRIPLEADING )
-
-			;tranfer rule lines to $aRule
-			;strip leading and trailing " from directories
-			;strip trailing \ from directories
-			Select
-			   Case stringleft($sTempCfgLine,stringlen("Rule:")) = "Rule:"
-				  redim $aRule[UBound($aRule,1)+1][2]
-				  $aRule[UBound($aRule,1)-1][0] = "Rule:"
-				  $aRule[UBound($aRule,1)-1][1] = StringTrimLeft($sTempCfgLine,stringlen("Rule:"))
-				  redim $aRule[UBound($aRule,1)+1][2]
-				  $aRule[UBound($aRule,1)-1][0] = "RuleId:"
-				  $aRule[UBound($aRule,1)-1][1] = GetRuleIDFromDB($aRule[UBound($aRule,1)-2][1])
-			   Case stringleft($sTempCfgLine,stringlen("IncDirRec:")) = "IncDirRec:"
-  				  redim $aRule[UBound($aRule,1)+1][2]
-				  $aRule[UBound($aRule,1)-1][0] = "IncDirRec:"
-				  $aRule[UBound($aRule,1)-1][1] = StringReplace(StringTrimLeft($sTempCfgLine,stringlen("IncDirRec:")),"""","")
-				  if StringRight($aRule[UBound($aRule,1)-1][1],1) = "\" then $aRule[UBound($aRule,1)-1][1] = StringTrimRight($aRule[UBound($aRule,1)-1][1],1)
-			   Case stringleft($sTempCfgLine,stringlen("ExcDirRec:")) = "ExcDirRec:"
-  				  redim $aRule[UBound($aRule,1)+1][2]
-				  $aRule[UBound($aRule,1)-1][0] = "ExcDirRec:"
-				  $aRule[UBound($aRule,1)-1][1] = StringReplace(StringTrimLeft($sTempCfgLine,stringlen("ExcDirRec:")),"""","")
-				  if StringRight($aRule[UBound($aRule,1)-1][1],1) = "\" then $aRule[UBound($aRule,1)-1][1] = StringTrimRight($aRule[UBound($aRule,1)-1][1],1)
-			   Case stringleft($sTempCfgLine,stringlen("IncDir:")) = "IncDir:"
-  				  redim $aRule[UBound($aRule,1)+1][2]
-				  $aRule[UBound($aRule,1)-1][0] = "IncDir:"
-				  $aRule[UBound($aRule,1)-1][1] = StringReplace(StringTrimLeft($sTempCfgLine,stringlen("IncDir:")),"""","")
-				  if StringRight($aRule[UBound($aRule,1)-1][1],1) = "\" then $aRule[UBound($aRule,1)-1][1] = StringTrimRight($aRule[UBound($aRule,1)-1][1],1)
-			   Case stringleft($sTempCfgLine,stringlen("ExcDir:")) = "ExcDir:"
-  				  redim $aRule[UBound($aRule,1)+1][2]
-				  $aRule[UBound($aRule,1)-1][0] = "ExcDir:"
-				  $aRule[UBound($aRule,1)-1][1] = StringReplace(StringTrimLeft($sTempCfgLine,stringlen("ExcDir:")),"""","")
-				  if StringRight($aRule[UBound($aRule,1)-1][1],1) = "\" then $aRule[UBound($aRule,1)-1][1] = StringTrimRight($aRule[UBound($aRule,1)-1][1],1)
-			   Case stringleft($sTempCfgLine,stringlen("IncExt:")) = "IncExt:"
-  				  redim $aRule[UBound($aRule,1)+1][2]
-				  $aRule[UBound($aRule,1)-1][0] = "IncExt:"
-				  $aRule[UBound($aRule,1)-1][1] = StringTrimLeft($sTempCfgLine,stringlen("IncExt:"))
-			   Case stringleft($sTempCfgLine,stringlen("ExcExt:")) = "ExcExt:"
-  				  redim $aRule[UBound($aRule,1)+1][2]
-				  $aRule[UBound($aRule,1)-1][0] = "ExcExt:"
-				  $aRule[UBound($aRule,1)-1][1] = StringTrimLeft($sTempCfgLine,stringlen("ExcExt:"))
-			   Case StringStripWS($sTempCfgLine,$STR_STRIPALL ) = "IncExe"
-  				  redim $aRule[UBound($aRule,1)+1][2]
-				  $aRule[UBound($aRule,1)-1][0] = "IncExe"
-				  $aRule[UBound($aRule,1)-1][1] = ""
-			   Case StringStripWS($sTempCfgLine,$STR_STRIPALL ) = "ExcExe"
-  				  redim $aRule[UBound($aRule,1)+1][2]
-				  $aRule[UBound($aRule,1)-1][0] = "ExcExe"
-				  $aRule[UBound($aRule,1)-1][1] = ""
-			   Case StringStripWS($sTempCfgLine,$STR_STRIPALL ) = "IncAll"
-  				  redim $aRule[UBound($aRule,1)+1][2]
-				  $aRule[UBound($aRule,1)-1][0] = "IncAll"
-				  $aRule[UBound($aRule,1)-1][1] = ""
-			   Case StringStripWS($sTempCfgLine,$STR_STRIPALL ) = "ExcAll"
-  				  redim $aRule[UBound($aRule,1)+1][2]
-				  $aRule[UBound($aRule,1)-1][0] = "ExcAll"
-				  $aRule[UBound($aRule,1)-1][1] = ""
-			   Case StringStripWS($sTempCfgLine,$STR_STRIPALL ) = "ExcDirs"
-  				  redim $aRule[UBound($aRule,1)+1][2]
-				  $aRule[UBound($aRule,1)-1][0] = "ExcDirs"
-				  $aRule[UBound($aRule,1)-1][1] = ""
-
-			   case Else
-			EndSelect
-
-
-
-			$iCfgLineNr = $iCfgLineNr + 1
-			if StringStripWS($sTempCfgLine,$STR_STRIPALL ) = "End" then
-			   ExitLoop
-			EndIf
-		 WEnd
-		 ;last line of config file is read
-		 if $iLastRuleRead = True then ExitLoop
-
-
-		 ;_ArrayDisplay($aRule)
-		 ;exit(0)
-
-
-
-		 ;process rule
-		 for $i=1 to UBound($aRule,1)-1
-			;MsgBox(0,"UBound",$aRule[$i][0] & @crlf & $aRule[$i][1])
-			if $aRule[$i][0] = "IncDirRec:" then TreeClimber($aRule[$i][1],$aRule,True)
-			if $aRule[$i][0] = "IncDir:" 	then TreeClimber($aRule[$i][1],$aRule,False)
-		 ;TreeClimber($Path)
-		 Next
-
-	  WEnd
-	  ;end read $ConfigFilename
-
-	  _SQLite_QueryFinalize($hCfgQuery)
-
-EndFunc
-
-
-Func GetFilenameIDFromDB($sPath,$sSPath)
-
-   ;get filenameid from DB for $sPath and $sSPath and
-   ;insert new filename in DB table filenames if not exists
-   ;------------------------------------------------
-
-   $aRow = 0	;Returned data row
-
-
-   if _SQLite_QuerySingleRow(-1,'SELECT filenameid FROM filenames where path="' & $sPath & '" and spath="' & $sSPath & '"',$aRow) = $SQLITE_OK Then
-	  ;get filenameid
-	  return $aRow[0]
-   Else
-	  ;filename does not exist in DB so create it
-	  _SQLite_Exec(-1,'INSERT INTO filenames VALUES(NULL,"' & $sPath & '","' & $sSPath & '")')
-	  if _SQLite_QuerySingleRow(-1,'SELECT filenameid FROM filenames where path="' & $sPath & '" and spath="' & $sSPath & '"',$aRow) = $SQLITE_OK Then
-		 ;get filenameid
-		 return $aRow[0]
-	  EndIf
-
-   EndIf
-
-   Return 0
-EndFunc
-
-
-Func GetScanIDFromDB($sScanname)
-
-   ;get scanid from DB for $sScanname And
-   ;insert new scan in DB table scans if not exists
-   ;------------------------------------------------
-
-   $aRow = 0	;Returned data row
-
-
-   if _SQLite_QuerySingleRow(-1,'SELECT scanid FROM scans where scantime="' & $sScanname & '"',$aRow) = $SQLITE_OK Then
-	  ;get scanid
-	  ;_ArrayDisplay($aRow)
-	  return $aRow[0]
-   Else
-	  ;scan does not exist in DB so create it
-	  _SQLite_Exec(-1,'INSERT INTO scans VALUES(NULL,"' & $sScanname & '",0)')
-	  if _SQLite_QuerySingleRow(-1,'SELECT scanid FROM scans where scantime="' & $sScanname & '"',$aRow) = $SQLITE_OK Then
-		 ;get scanid
-		 ;_ArrayDisplay($aRow)
-		 return $aRow[0]
-	  EndIf
-
-   EndIf
-
-   Return 0
-EndFunc
-
-
-Func GetRuleIDFromDB($sRulename)
-
-   ;get ruleid from DB for $sRulename And
-   ;insert new rule in DB table rules if not exists
-   ;------------------------------------------------
-
-   $aRow = 0	;Returned data row
-
-
-   if _SQLite_QuerySingleRow(-1,'SELECT ruleid FROM rules where rulename="' & $sRulename & '"',$aRow) = $SQLITE_OK Then
-	  ;get ruleid
-	  return $aRow[0]
-   Else
-	  ;Rule does not exist in DB so create it
-	  _SQLite_Exec(-1,'INSERT INTO rules VALUES(NULL,"' & $sRulename & '")')
-	  if _SQLite_QuerySingleRow(-1,'SELECT ruleid FROM rules where rulename="' & $sRulename & '"',$aRow) = $SQLITE_OK Then
-		 ;get ruleid
-		 return $aRow[0]
-	  EndIf
-
-   EndIf
-
-   Return 0
-EndFunc
-
-
-Func IncludeDirDataInDBByRule(ByRef $aRule)
-
-   ;Returns True, if the rule demands to put directory information in the DB
-   ;------------------------------------------------------------------------
-
-   #cs
-	  file format config.cfg
-
-	  Rule:RULENAME				;name of rule
-	  IncDirRec:PATH			;directory to include, including all subdirectories
-	  ExcDirRec:PATH			;directory to exclude, including all subdirectories
-	  IncDir:PATH				;directory to include, only this directory
-	  ExcDir:PATH				;directory to exclude, only this directory
-	  IncExt:FILEEXTENTION		;file extention to include
-	  ExcExt:FILEEXTENTION		;file extention to exclude
-	  IncExe					;all executable files, no matter what the extention is
-	  IncAll					;all files, no matter what the extention is aka *.*
-	  ExcExe					;no executable files, no matter what the extention is
-	  ExcAll					;no files, no matter what the extention is aka *.*, only directories
-	  ExcDirs					;no directory information (attribs,name etc.)
-	  End
-   #ce
-
-   local $iIsIncluded = True
-   local $i = 0
-   local $iMax = 0
-
-
-   $iMax = UBound($aRule,1)-1
-   ;msgbox(0,"iMax",$iMax)
-   for $i = 1 to $iMax
-	  ;$aRule[$i][0]
-	  ;$aRule[$i][1]
-	  ;msgbox(0,"Cmd","#" & $aRule[$i][0] & "#" & @CRLF & "#" & $aRule[$i][1] & "#" & @CRLF & "#" & $PathOrFile & "#" & @CRLF & "#" & StringLeft($PathOrFile,stringlen($aRule[$i][1] & "\")) & "#" & @CRLF & "#" & $aRule[$i][1] & "\")
-	  Select
-		 case $aRule[$i][0] = "ExcDirs"
-			$iIsIncluded = False
-
-		 case Else
-	  EndSelect
    Next
-
-   Return $iIsIncluded
-EndFunc
-
-
-Func ShowVersions()
-
-   ;show version information
-   ;---------------------------------------
-
-   local $sText = ""
-   local $sSQliteVersion = ""
-   Local $sSQliteDll
-
-   $sSQliteDll = _SQLite_Startup()
-   if @error Then
-	  $sSQliteVersion = "*** sqlite.dll not found ***"
-   Else
-	  $sSQliteVersion = _SQLite_LibVersion()
-   EndIf
-
-   $sText &= "Spot The Difference (" & $cVersion & ")" & @CRLF
-   $sText &= "A poor mans file integrity checker." & @CRLF
-   $sText &= @CRLF
-   $sText &= "AutoIT version:     " & @AutoItVersion & @CRLF
-   $sText &= @CRLF
-   $sText &= "SQLite.dll version: " & $sSQliteVersion & @CRLF
-   $sText &= "SQLite.dll path:    " & $sSQliteDll & @CRLF
-   $sText &= @CRLF
-
-   ConsoleWrite($sText)
-
-   _SQLite_Shutdown()
-
-EndFunc
-
-
-#cs
-   ;Start Mailer Setup
-
-   $SmtpServer = "ntmail.za-netz.lokal"
-   $FromName = "Freier Platz auf C:"
-   $FromAddress = "freespace@za-netz.lokal"
-   $ToAddress = "admin@zieglersche.de"
-   $Subject = ""
-   $Body = ""
-   $AttachFiles = ""
-   $CcAddress = ""
-   $BccAddress = ""
-   $Importance = "Normal"
-   $Username = ""
-   $Password = ""
-   $IPPort = 25             ; bleibt so
-   $ssl = 0
-
-   Global $oMyRet[2]
-   Global $oMyError = ObjEvent("AutoIt.Error", "MyErrFunc")
-
-   ;Ende MAiler Setup
-
-#ce
-
-
-Func _INetSmtpMailCom($s_SmtpServer, $s_FromName, $s_FromAddress, $s_ToAddress, $s_Subject = "", $as_Body = "", $s_AttachFiles = "", $s_CcAddress = "", $s_BccAddress = "", $s_Importance="Normal", $s_Username = "", $s_Password = "", $IPPort = 25, $ssl = 0)
-;###################################################################################################################
-; Mailer
-;###################################################################################################################
-
-#cs
-#Include<file.au3>
-
-$SmtpServer = "MailServer"
-$FromName = "Name"
-$FromAddress = "your@Email.Address.com"
-$ToAddress = "your@Email.Address.com"
-$Subject = "Userinfo"
-$Body = ""
-$AttachFiles = ""
-$CcAddress = "CCadress1@test.com"
-$BccAddress = "BCCadress1@test.com"
-$Importance = "Normal"
-$Username = "******"
-$Password = "********"
-$IPPort = 25             ; bleibt so
-$ssl = 0
-
-
-
-
-Global $oMyRet[2]
-Global $oMyError = ObjEvent("AutoIt.Error", "MyErrFunc")
-$rc = _INetSmtpMailCom($SmtpServer, $FromName, $FromAddress, $ToAddress, $Subject, $Body, $AttachFiles, $CcAddress, $BccAddress, $Importance, $Username, $Password, $IPPort, $ssl)
-If @error Then
-    MsgBox(0, "Error sending message", "Error code:" & @error & "  Description:" & $rc)
-EndIf
-
-#ce
-
-    Local $objEmail = ObjCreate("CDO.Message")
-    $objEmail.From = '"' & $s_FromName & '" <' & $s_FromAddress & '>'
-    $objEmail.To = $s_ToAddress
-    Local $i_Error = 0
-    Local $i_Error_desciption = ""
-    If $s_CcAddress <> "" Then $objEmail.Cc = $s_CcAddress
-    If $s_BccAddress <> "" Then $objEmail.Bcc = $s_BccAddress
-    $objEmail.Subject = $s_Subject
-    If StringInStr($as_Body, "<") And StringInStr($as_Body, ">") Then
-        $objEmail.HTMLBody = $as_Body
-    Else
-        $objEmail.Textbody = $as_Body & @CRLF
-    EndIf
-    If $s_AttachFiles <> "" Then
-        Local $S_Files2Attach = StringSplit($s_AttachFiles, ";")
-        For $x = 1 To $S_Files2Attach[0]
-            $S_Files2Attach[$x] = _PathFull($S_Files2Attach[$x])
-            ;ConsoleWrite('@@ Debug(62) : $S_Files2Attach = ' & $S_Files2Attach & @LF & '>Error code: ' & @error & @LF)
-            If FileExists($S_Files2Attach[$x]) Then
-                $objEmail.AddAttachment ($S_Files2Attach[$x])
-            Else
-                ConsoleWrite('!> File not found to attach: ' & $S_Files2Attach[$x] & @LF)
-                SetError(1)
-                Return 0
-            EndIf
-        Next
-    EndIf
-    $objEmail.Configuration.Fields.Item ("http://schemas.microsoft.com/cdo/configuration/sendusing") = 2
-    $objEmail.Configuration.Fields.Item ("http://schemas.microsoft.com/cdo/configuration/smtpserver") = $s_SmtpServer
-    If Number($IPPort) = 0 then $IPPort = 25
-    $objEmail.Configuration.Fields.Item ("http://schemas.microsoft.com/cdo/configuration/smtpserverport") = $IPPort
-
-    If $s_Username <> "" Then
-        $objEmail.Configuration.Fields.Item ("http://schemas.microsoft.com/cdo/configuration/smtpauthenticate") = 1
-        $objEmail.Configuration.Fields.Item ("http://schemas.microsoft.com/cdo/configuration/sendusername") = $s_Username
-        $objEmail.Configuration.Fields.Item ("http://schemas.microsoft.com/cdo/configuration/sendpassword") = $s_Password
-    EndIf
-    If $ssl Then
-        $objEmail.Configuration.Fields.Item ("http://schemas.microsoft.com/cdo/configuration/smtpusessl") = True
-    EndIf
-
-    $objEmail.Configuration.Fields.Update
-
-    Switch $s_Importance
-        Case "High"
-            $objEmail.Fields.Item ("urn:schemas:mailheader:Importance") = "High"
-        Case "Normal"
-            $objEmail.Fields.Item ("urn:schemas:mailheader:Importance") = "Normal"
-        Case "Low"
-            $objEmail.Fields.Item ("urn:schemas:mailheader:Importance") = "Low"
-    EndSwitch
-    $objEmail.Fields.Update
-
-    $objEmail.Send
-    If @error Then
-        SetError(2)
-        Return $oMyRet[1]
-    EndIf
-    $objEmail=""
-EndFunc
-
-
-Func MyErrFunc()
-    $HexNumber = Hex($oMyError.number, 8)
-    $oMyRet[0] = $HexNumber
-    $oMyRet[1] = StringStripWS($oMyError.description, 3)
-    ConsoleWrite("### COM Error !  Number: " & $HexNumber & "   ScriptLine: " & $oMyError.scriptline & "   Description:" & $oMyRet[1] & @LF)
-    SetError(1)
-    Return
-EndFunc
-
-
-Func GetAllRulenames($sScan1,$sScan2, ByRef $aRules)
-
-   ;return all the rules in scan $sScan
-   ;----------------------------------------------------------------
-
-   local $sSQL = ""
-
-   local $iTempQueryRows = 0
-   local $iTempQueryColumns = 0
-
-   ;$sSQL = "SELECT rulename FROM files where scantime = '" & $sScan1 & "' or scantime = '" & $sScan2 & "' group by rulename order by rulename asc;"
-   $sSQL = "SELECT rulename FROM rules order by rulename asc;"
-
-   _SQLite_GetTable(-1, $sSQL, $aRules, $iTempQueryRows, $iTempQueryColumns)
-   if not @error Then
-	  if $iTempQueryRows >= 1 then
-		 ;MsgBox(0,"Test",$iQueryRows & @CRLF & $iQueryColumns)
-		 ;_ArrayDisplay($aScans)
-		 Return True
-	  EndIf
-   EndIf
-
-   Return False
-
-EndFunc
-
-
-Func GetScannamesFromDB($sScan,ByRef $aScans)
-
-   ;return the scans described by $sScan
-   ;$sScan can be "all","last","invalid","valid","lastinvalid","lastvalid","oldvalid" or the name of a scan
-   ;----------------------------------------------------------------
-
-   local $sSQL = ""
-
-   local $iTempQueryRows = 0
-   local $iTempQueryColumns = 0
-   Select
-	  Case $sScan = "all"
-		 $sSQL = "SELECT scantime from scans group by scantime order by scantime desc limit " & $cScannameLimit & ";"
-	  Case $sScan = "last"
-		 $sSQL = "SELECT scantime from scans group by scantime order by scantime desc limit 1;"
-	  Case $sScan = "invalid"
-		 $sSQL = "SELECT scantime from scans where valid = 0 group by scantime order by scantime desc limit " & $cScannameLimit & ";"
-	  Case $sScan = "valid"
-		 $sSQL = "SELECT scantime from scans where valid = 1 group by scantime order by scantime desc limit " & $cScannameLimit & ";"
-	  Case $sScan = "lastinvalid"
-		 $sSQL = "SELECT scantime from scans where valid = 0 group by scantime order by scantime desc limit 1;"
-	  Case $sScan = "lastvalid"
-		 $sSQL = "SELECT scantime from scans where valid = 1 group by scantime order by scantime desc limit 1;"
-	  Case $sScan = "oldvalid"
-		 $sSQL = "SELECT scantime from scans where valid = 1 group by scantime order by scantime desc limit " & $cScannameLimit & " offset 1;"
-	  case Else
-		 $sSQL = "SELECT scantime from scans where scantime = '" & $sScan & "' group by scantime order by scantime desc limit 1;"
-   EndSelect
-
-   _SQLite_GetTable(-1, $sSQL, $aScans, $iTempQueryRows, $iTempQueryColumns)
-   if not @error Then
-	  if $iTempQueryRows >= 1 then
-		 ;MsgBox(0,"Test",$iQueryRows & @CRLF & $iQueryColumns)
-		 ;_ArrayDisplay($aScans)
-		 Return True
-	  EndIf
-   EndIf
-
-   Return False
 
 EndFunc
 
@@ -1738,12 +1349,15 @@ Func ShowHelp()
    $sText &= "IncExe                 all executable files, no matter what the extention is." & @CRLF
    $sText &= "                       This statement is very slow, since the first two bytes of" & @CRLF
    $sText &= "                       EVERY file in the IncDir are read!" & @CRLF
-   $sText &= "IncAll                 all files, no matter what the extention is aka *.*" & @CRLF
    $sText &= "ExcExe                 no executable files, no matter what the extention is" & @CRLF
+   $sText &= "                       This statement is very slow, since the first two bytes of" & @CRLF
+   $sText &= "                       EVERY file in the IncDir are read!" & @CRLF
+   $sText &= "IncAll                 all files, no matter what the extention is aka *.*" & @CRLF
    $sText &= "ExcAll                 no files, no matter what the extention is aka *.*," & @CRLF
    $sText &= "                       only directories" & @CRLF
    $sText &= "ExcDirs                no directory information, only file information." & @CRLF
    $sText &= "                       The default is to gather information on all scaned directories." & @CRLF
+   $sText &= "Ign:FILEPROPERTIY      ignore changes to this file property." & @CRLF
    $sText &= "End                    end of rule" & @CRLF
    $sText &= "" & @CRLF
 
@@ -1758,6 +1372,28 @@ Func ShowHelp()
    $sText &= "                       e.g.: peter.miller@example.com" & @CRLF
    $sText &= "FILEEXTENTION          one file extention" & @CRLF
    $sText &= '                       e.g.: doc,xls,xlsx,txt,pdf,PDF,TxT,Doc' & @CRLF
+
+   $sText &= "FILEPROPERTIY          one file property" & @CRLF
+   $sText &= '                       status    was the file accessible' & @CRLF
+   $sText &= '                       size      size of the file' & @CRLF
+   $sText &= '                       mtime     modification time' & @CRLF
+   $sText &= '                       ctime     creation time' & @CRLF
+   $sText &= '                       atime     access time' & @CRLF
+   $sText &= '                       version   file version' & @CRLF
+   $sText &= '                       crc32     crc32 checksum' & @CRLF
+   $sText &= '                       md5       md5 checksum' & @CRLF
+   $sText &= '                       rattrib   read only attribute' & @CRLF
+   $sText &= '                       aattrib   archive attribute' & @CRLF
+   $sText &= '                       sattrib   system attribute' & @CRLF
+   $sText &= '                       hattrib   hidden attribute' & @CRLF
+   $sText &= '                       nattrib   normal attribute' & @CRLF
+   $sText &= '                       dattrib   directory attribute' & @CRLF
+   $sText &= '                       oattrib   offline attribute' & @CRLF
+   $sText &= '                       cattrib   compressed attribute' & @CRLF
+   $sText &= '                       tattrib   temporary attribute' & @CRLF
+   $sText &= '                       e.g.: mtime,size,aattrib,nATTRIB,aAttrib' & @CRLF
+
+
    $sText &= "RULENAME               name of rule" & @CRLF
    $sText &= "                       e.g.: My first Rule" & @CRLF
    $sText &= "SMTPPORT               smtp portnumber" & @CRLF
@@ -1784,6 +1420,9 @@ Func ShowHelp()
    $sText &= '  IncExt:docx' & @CRLF
    $sText &= '  IncExt:xls' & @CRLF
    $sText &= '  IncExt:xlsx' & @CRLF
+   $sText &= '  Ign:size' & @CRLF
+   $sText &= '  Ign:aattrib' & @CRLF
+   $sText &= '  Ign:nattrib' & @CRLF
    $sText &= 'End' & @CRLF
 
    $sText &= @CRLF
@@ -1815,6 +1454,364 @@ Func ShowHelp()
 EndFunc
 
 
+Func ShowVersions()
+
+   ;show version information
+   ;---------------------------------------
+
+   local $sText = ""
+   local $sSQliteVersion = ""
+   Local $sSQliteDll
+
+   $sSQliteDll = _SQLite_Startup()
+   if @error Then
+	  $sSQliteVersion = "*** sqlite.dll not found ***"
+   Else
+	  $sSQliteVersion = _SQLite_LibVersion()
+   EndIf
+
+   $sText &= "Spot The Difference (" & $cVersion & ")" & @CRLF
+   $sText &= "A poor mans file integrity checker." & @CRLF
+   $sText &= @CRLF
+   $sText &= "AutoIT version:     " & @AutoItVersion & @CRLF
+   $sText &= @CRLF
+   $sText &= "SQLite.dll version: " & $sSQliteVersion & @CRLF
+   $sText &= "SQLite.dll path:    " & $sSQliteDll & @CRLF
+   $sText &= @CRLF
+
+   ConsoleWrite($sText)
+
+   _SQLite_Shutdown()
+
+EndFunc
+
+
+;----- get stuff from DB functions -----
+
+Func GetAllRulenamesFromDB($sScan1,$sScan2, ByRef $aRules)
+
+   ;return all the rules in scan $sScan
+   ;----------------------------------------------------------------
+
+   local $sSQL = ""
+
+   local $iTempQueryRows = 0
+   local $iTempQueryColumns = 0
+
+   ;$sSQL = "SELECT rulename FROM files where scantime = '" & $sScan1 & "' or scantime = '" & $sScan2 & "' group by rulename order by rulename asc;"
+   $sSQL = "SELECT rulename FROM rules order by rulename asc;"
+
+   _SQLite_GetTable(-1, $sSQL, $aRules, $iTempQueryRows, $iTempQueryColumns)
+   if not @error Then
+	  if $iTempQueryRows >= 1 then
+		 ;MsgBox(0,"Test",$iQueryRows & @CRLF & $iQueryColumns)
+		 ;_ArrayDisplay($aScans)
+		 Return True
+	  EndIf
+   EndIf
+
+   Return False
+
+EndFunc
+
+
+Func GetRuleIDFromDB($sRulename)
+
+   ;get ruleid from DB for $sRulename And
+   ;insert new rule in DB table rules if not exists
+   ;------------------------------------------------
+
+   local $aRow = 0	;Returned data row
+
+
+   if _SQLite_QuerySingleRow(-1,'SELECT ruleid FROM rules where rulename="' & $sRulename & '"',$aRow) = $SQLITE_OK Then
+	  ;get ruleid
+	  return $aRow[0]
+   Else
+	  ;Rule does not exist in DB so create it
+	  _SQLite_Exec(-1,'INSERT INTO rules VALUES(NULL,"' & $sRulename & '")')
+	  if _SQLite_QuerySingleRow(-1,'SELECT ruleid FROM rules where rulename="' & $sRulename & '"',$aRow) = $SQLITE_OK Then
+		 ;get ruleid
+		 return $aRow[0]
+	  EndIf
+
+   EndIf
+
+   Return 0
+EndFunc
+
+
+Func GetRuleSetFromDB()
+
+   ;parse all rules from table config in DB into $aRuleSet
+   ;------------------------------------------------
+
+
+   ;global $aRuleSet[1][3]	;all rules form config db table
+						   ;$aRuleSet
+						   ;.....................................
+						   ;command    | parameter | rulenumber
+						   ;-------------------------------------
+						   ;EmailFrom: | i@y.com   | 0
+						   ;EmailTo:   | y@i.com   | 0
+						   ;Rule:      | Test      | 1
+						   ;IncDir:    | "c:\test" | 1
+						   ;IncExt:    | txt       | 1
+						   ;Rule:      | Logfiles  | 2
+						   ;IncDir:    | "c:\tst1" | 2
+						   ;IncExt:    | log       | 2
+						   ;.....................................
+
+
+   local $iLastRuleRead = False
+
+   local $iCfgLineNr = 0
+   local $sTempCfgLine = ""
+   local $aCfgQueryResult = 0	;result of a query on table config
+   local $hCfgQuery = 0			;handle to a query on table config
+
+   local $iRuleCurrent = 0		;current rule number (rule 0 is global setting)
+   local $iRuleCount = 0		    ;number of rules so far (rule 0 is global setting)
+
+   dim $aRuleSet[1][3]			;reset/clear $aRuleSet
+
+   ;read the rules from table config
+   $iCfgLineNr = 1
+   $iLastRuleRead = False
+   $aCfgQueryResult = 0
+   $hCfgQuery = 0
+   _SQLite_Query(-1, "SELECT line FROM config ORDER BY linenumber ASC;",$hCfgQuery)
+   While True
+	  ;read one rule from table config
+	  ;dim $aRuleSet[1][3]
+	  While True
+
+		 ;read one line form table config
+		 $sTempCfgLine = ""
+		 if _SQLite_FetchData($hCfgQuery, $aCfgQueryResult) = $SQLITE_OK Then
+			$sTempCfgLine = _HexToString($aCfgQueryResult[0])
+			;_ArrayDisplay($aQueryResult[0])
+		 Else
+			$iLastRuleRead = True
+			ExitLoop
+		 EndIf
+
+		 ;Output line of rule
+		 ;ConsoleWrite($sTempCfgLine & @CRLF)
+		 #cs
+		 file format config.cfg
+
+		 Rule:RULENAME			;name of rule
+		 IncDirRec:PATH			;directory to include, including all subdirectories
+		 ExcDirRec:PATH			;directory to exclude, including all subdirectories
+		 IncDir:PATH				;directory to include, only this directory
+		 ExcDir:PATH				;directory to exclude, only this directory
+		 IncExt:FILEEXTENTION	;file extention to include
+		 ExcExt:FILEEXTENTION	;file extention to exclude
+		 IncExe					;all executable files, no matter what the extention is
+		 IncAll					;all files, no matter what the extention is aka *.*
+		 ExcExe					;no executable files, no matter what the extention is
+		 ExcAll					;no files, no matter what the extention is aka *.*, only directories
+		 End
+
+		 EmailFrom:EMAILADDRESS			;sender email address
+		 EmailTo:EMAILADDRESS			;recipient email address
+		 EmailSubject:SUBJECT			;email subject
+		 EmailServer:SMTPSERVERNAME		;name of smtp server (hostname or ip-address)
+		 EmailPort:SMTPPORT				;smtp port on SMTPSERVERNAME, defaults to 25
+
+		 #ce
+
+
+
+		 ;strip whitespaces at begin of line
+		 $sTempCfgLine = StringStripWS($sTempCfgLine,$STR_STRIPLEADING )
+
+		 ;tranfer rule lines to $aRuleSet
+		 ;strip leading and trailing " from directories
+		 ;strip trailing \ from directories
+		 Select
+
+		 ;---------------------------------------- global ----------------------------------------------------
+			Case stringleft($sTempCfgLine,stringlen("EmailFrom:")) = "EmailFrom:"
+			   InsertStatementInRuleSet(1,"EmailFrom:",$sTempCfgLine,$iRuleCurrent)
+			Case stringleft($sTempCfgLine,stringlen("EmailTo:")) = "EmailTo:"
+			   InsertStatementInRuleSet(1,"EmailTo:",$sTempCfgLine,$iRuleCurrent)
+			Case stringleft($sTempCfgLine,stringlen("EmailSubject:")) = "EmailSubject:"
+			   InsertStatementInRuleSet(1,"EmailSubject:",$sTempCfgLine,$iRuleCurrent)
+			Case stringleft($sTempCfgLine,stringlen("EmailServer:")) = "EmailServer:"
+			   InsertStatementInRuleSet(1,"EmailServer:",$sTempCfgLine,$iRuleCurrent)
+			Case stringleft($sTempCfgLine,stringlen("EmailPort:")) = "EmailPort:"
+			   InsertStatementInRuleSet(1,"EmailPort:",$sTempCfgLine,$iRuleCurrent)
+		 ;----------------------------------------------------------------------------------------------------
+
+		 ;---------------------------------------- rules ----------------------------------------------------
+			Case stringleft($sTempCfgLine,stringlen("Rule:")) = "Rule:"
+			   $iRuleCount += 1
+			   $iRuleCurrent = $iRuleCount
+
+			   InsertStatementInRuleSet(1,"Rule:",$sTempCfgLine,$iRuleCurrent)
+
+			   redim $aRuleSet[UBound($aRuleSet,1)+1][3]
+			   $aRuleSet[UBound($aRuleSet,1)-1][0] = "RuleId:"
+			   $aRuleSet[UBound($aRuleSet,1)-1][1] = GetRuleIDFromDB($aRuleSet[UBound($aRuleSet,1)-2][1])
+			   $aRuleSet[UBound($aRuleSet,1)-1][2] = $iRuleCurrent
+
+			;----- scan statements -----
+			Case stringleft($sTempCfgLine,stringlen("IncDirRec:")) = "IncDirRec:"
+			   InsertStatementInRuleSet(2,"IncDirRec:",$sTempCfgLine,$iRuleCurrent)
+			Case stringleft($sTempCfgLine,stringlen("ExcDirRec:")) = "ExcDirRec:"
+			   InsertStatementInRuleSet(2,"ExcDirRec:",$sTempCfgLine,$iRuleCurrent)
+			Case stringleft($sTempCfgLine,stringlen("IncDir:")) = "IncDir:"
+			   InsertStatementInRuleSet(2,"IncDir:",$sTempCfgLine,$iRuleCurrent)
+			Case stringleft($sTempCfgLine,stringlen("ExcDir:")) = "ExcDir:"
+			   InsertStatementInRuleSet(2,"ExcDir:",$sTempCfgLine,$iRuleCurrent)
+			Case stringleft($sTempCfgLine,stringlen("IncExt:")) = "IncExt:"
+			   InsertStatementInRuleSet(1,"IncExt:",$sTempCfgLine,$iRuleCurrent)
+			Case stringleft($sTempCfgLine,stringlen("ExcExt:")) = "ExcExt:"
+			   InsertStatementInRuleSet(1,"ExcExt:",$sTempCfgLine,$iRuleCurrent)
+			Case StringStripWS($sTempCfgLine,$STR_STRIPALL ) = "IncExe"
+			   InsertStatementInRuleSet(0,"IncExe",$sTempCfgLine,$iRuleCurrent)
+			Case StringStripWS($sTempCfgLine,$STR_STRIPALL ) = "ExcExe"
+			   InsertStatementInRuleSet(0,"ExcExe",$sTempCfgLine,$iRuleCurrent)
+			Case StringStripWS($sTempCfgLine,$STR_STRIPALL ) = "IncAll"
+			   InsertStatementInRuleSet(0,"IncAll",$sTempCfgLine,$iRuleCurrent)
+			Case StringStripWS($sTempCfgLine,$STR_STRIPALL ) = "ExcAll"
+			   InsertStatementInRuleSet(0,"ExcAll",$sTempCfgLine,$iRuleCurrent)
+			Case StringStripWS($sTempCfgLine,$STR_STRIPALL ) = "ExcDirs"
+			   InsertStatementInRuleSet(0,"ExcDirs",$sTempCfgLine,$iRuleCurrent)
+
+			;----- report statements -----
+			Case stringleft($sTempCfgLine,stringlen("Ign:")) = "Ign:"
+			   InsertStatementInRuleSet(1,"Ign:",$sTempCfgLine,$iRuleCurrent)
+
+			case Else
+		 EndSelect
+
+		 $iCfgLineNr = $iCfgLineNr + 1
+		 if StringStripWS($sTempCfgLine,$STR_STRIPALL ) = "End" then
+			;outside of a rule block we are in the global settings rule
+			$iRuleCurrent = 0
+			ExitLoop
+		 EndIf
+		 ;----------------------------------------------------------------------------------------------------
+
+	  WEnd
+	  ;last line of config file is read
+	  if $iLastRuleRead = True then ExitLoop
+
+
+	  ;_ArrayDisplay($aRuleSet)
+	  ;exit(0)
+
+
+   WEnd
+   ;end read $ConfigFilename
+
+   _SQLite_QueryFinalize($hCfgQuery)
+
+EndFunc
+
+
+Func GetFilenameIDFromDB($sPath,$sSPath)
+
+   ;get filenameid from DB for $sPath and $sSPath and
+   ;insert new filename in DB table filenames if not exists
+   ;------------------------------------------------
+
+   local $aRow = 0	;Returned data row
+
+
+   if _SQLite_QuerySingleRow(-1,'SELECT filenameid FROM filenames where path="' & $sPath & '" and spath="' & $sSPath & '"',$aRow) = $SQLITE_OK Then
+	  ;get filenameid
+	  return $aRow[0]
+   Else
+	  ;filename does not exist in DB so create it
+	  _SQLite_Exec(-1,'INSERT INTO filenames VALUES(NULL,"' & $sPath & '","' & $sSPath & '")')
+	  if _SQLite_QuerySingleRow(-1,'SELECT filenameid FROM filenames where path="' & $sPath & '" and spath="' & $sSPath & '"',$aRow) = $SQLITE_OK Then
+		 ;get filenameid
+		 return $aRow[0]
+	  EndIf
+
+   EndIf
+
+   Return 0
+EndFunc
+
+
+Func GetScanIDFromDB($sScanname)
+
+   ;get scanid from DB for $sScanname And
+   ;insert new scan in DB table scans if not exists
+   ;------------------------------------------------
+
+   local $aRow = 0	;Returned data row
+
+
+   if _SQLite_QuerySingleRow(-1,'SELECT scanid FROM scans where scantime="' & $sScanname & '"',$aRow) = $SQLITE_OK Then
+	  ;get scanid
+	  ;_ArrayDisplay($aRow)
+	  return $aRow[0]
+   Else
+	  ;scan does not exist in DB so create it
+	  _SQLite_Exec(-1,'INSERT INTO scans VALUES(NULL,"' & $sScanname & '",0)')
+	  if _SQLite_QuerySingleRow(-1,'SELECT scanid FROM scans where scantime="' & $sScanname & '"',$aRow) = $SQLITE_OK Then
+		 ;get scanid
+		 ;_ArrayDisplay($aRow)
+		 return $aRow[0]
+	  EndIf
+
+   EndIf
+
+   Return 0
+EndFunc
+
+
+Func GetScannamesFromDB($sScan,ByRef $aScans)
+
+   ;return the scans described by $sScan
+   ;$sScan can be "all","last","invalid","valid","lastinvalid","lastvalid","oldvalid" or the name of a scan
+   ;----------------------------------------------------------------
+
+   local $sSQL = ""
+
+   local $iTempQueryRows = 0
+   local $iTempQueryColumns = 0
+   Select
+	  Case $sScan = "all"
+		 $sSQL = "SELECT scantime from scans group by scantime order by scantime desc limit " & $cScannameLimit & ";"
+	  Case $sScan = "last"
+		 $sSQL = "SELECT scantime from scans group by scantime order by scantime desc limit 1;"
+	  Case $sScan = "invalid"
+		 $sSQL = "SELECT scantime from scans where valid = 0 group by scantime order by scantime desc limit " & $cScannameLimit & ";"
+	  Case $sScan = "valid"
+		 $sSQL = "SELECT scantime from scans where valid = 1 group by scantime order by scantime desc limit " & $cScannameLimit & ";"
+	  Case $sScan = "lastinvalid"
+		 $sSQL = "SELECT scantime from scans where valid = 0 group by scantime order by scantime desc limit 1;"
+	  Case $sScan = "lastvalid"
+		 $sSQL = "SELECT scantime from scans where valid = 1 group by scantime order by scantime desc limit 1;"
+	  Case $sScan = "oldvalid"
+		 $sSQL = "SELECT scantime from scans where valid = 1 group by scantime order by scantime desc limit " & $cScannameLimit & " offset 1;"
+	  case Else
+		 $sSQL = "SELECT scantime from scans where scantime = '" & $sScan & "' group by scantime order by scantime desc limit 1;"
+   EndSelect
+
+   _SQLite_GetTable(-1, $sSQL, $aScans, $iTempQueryRows, $iTempQueryColumns)
+   if not @error Then
+	  if $iTempQueryRows >= 1 then
+		 ;MsgBox(0,"Test",$iQueryRows & @CRLF & $iQueryColumns)
+		 ;_ArrayDisplay($aScans)
+		 Return True
+	  EndIf
+   EndIf
+
+   Return False
+
+EndFunc
+
+
+;----- other DB functions
+
 Func OpenDB($sDBName)
 
    ;open and initialize database if needed
@@ -1843,6 +1840,9 @@ Func OpenDB($sDBName)
 	  "T" = TEMPORARY
    #ce
 
+   ;performance tuning ...
+    _SQLite_Exec(-1,"PRAGMA journal_mode=WAL;")
+    _SQLite_Exec(-1,"PRAGMA synchronous = NORMAL;")
 
 
    ;create new db structure if needed
@@ -1876,12 +1876,15 @@ Func CloseDB()
 EndFunc
 
 
+;----- rule related functions -----
+
 Func GetRulename(ByRef $aRule)
 
    ;get name of the rule
    ;--------------------
 
    local $sRulename = ""
+   local $iMax = 0
 
    $iMax = UBound($aRule,1)-1
    for $i = 1 to $iMax
@@ -1894,12 +1897,55 @@ Func GetRulename(ByRef $aRule)
 EndFunc
 
 
+Func GetRuleFromRuleSet($iRuleNumber)
+
+   ;copy commands of rule $iRuleNumber from $aRuleSet into $aRule
+   ;------------------------------------------------
+
+   dim $aRule[1][2]			;reset/clear $aRuleSet
+   local $iCount = 0		;counter
+   local $iCountMax = UBound($aRuleSet,1)-1
+
+   for $iCount = 1 to $iCountMax
+	  if $aRuleSet[$iCount][2] = $iRuleNumber then
+
+		 redim $aRule[UBound($aRule,1)+1][2]
+		 $aRule[UBound($aRule,1)-1][0] = $aRuleSet[$iCount][0]
+		 $aRule[UBound($aRule,1)-1][1] = $aRuleSet[$iCount][1]
+
+	  EndIf
+   Next
+EndFunc
+
+
+Func GetNumberOfRulesFromRuleSet()
+
+   ;return the number of rules in $aRuleSet
+   ;------------------------------------------------
+
+
+   local $iCount = 0		;counter
+   local $iCountMax = UBound($aRuleSet,1)-1
+   local $iRuleNumber = 0
+
+   for $iCount = 1 to $iCountMax
+	  if $aRuleSet[$iCount][2] > $iRuleNumber then
+		 $iRuleNumber = $aRuleSet[$iCount][2]
+	  EndIf
+   Next
+
+   return $iRuleNumber
+EndFunc
+
+
+
 Func GetRuleId(ByRef $aRule)
 
    ;get id of the rule
    ;--------------------
 
    local $sRuleId = ""
+   local $iMax = 0
 
    $iMax = UBound($aRule,1)-1
    for $i = 1 to $iMax
@@ -1909,6 +1955,120 @@ Func GetRuleId(ByRef $aRule)
    Next
 
    return $sRuleId
+EndFunc
+
+
+Func InsertStatementInRuleSet($iMode,$sStatement,$sCfgLine,$iRuleNr)
+
+   ;Transfer a statement from a line in the configuration table
+   ;into the gobal $aRuleSet
+   ;
+   ;$iMode = 0			statement has no parameter
+   ;$iMode = 1			statement has one parameter
+   ;$iMode = 2			statement has one parameter, paramenter is a directory name
+   ;------------------------------------------------
+
+   select
+   case $iMode = 0
+	  redim $aRuleSet[UBound($aRuleSet,1)+1][3]
+	  $aRuleSet[UBound($aRuleSet,1)-1][0] = $sStatement
+	  $aRuleSet[UBound($aRuleSet,1)-1][1] = ""
+	  $aRuleSet[UBound($aRuleSet,1)-1][2] = $iRuleNr
+
+   case $iMode = 1
+	  redim $aRuleSet[UBound($aRuleSet,1)+1][3]
+	  $aRuleSet[UBound($aRuleSet,1)-1][0] = $sStatement
+	  $aRuleSet[UBound($aRuleSet,1)-1][1] = StringTrimLeft($sCfgLine,stringlen($sStatement))
+	  $aRuleSet[UBound($aRuleSet,1)-1][2] = $iRuleNr
+
+   case $iMode = 2
+	  redim $aRuleSet[UBound($aRuleSet,1)+1][3]
+	  $aRuleSet[UBound($aRuleSet,1)-1][0] = $sStatement
+	  $aRuleSet[UBound($aRuleSet,1)-1][1] = StringReplace(StringTrimLeft($sCfgLine,stringlen($sStatement)),"""","")
+	  if StringRight($aRuleSet[UBound($aRuleSet,1)-1][1],1) = "\" then $aRuleSet[UBound($aRuleSet,1)-1][1] = StringTrimRight($aRuleSet[UBound($aRuleSet,1)-1][1],1)
+	  $aRuleSet[UBound($aRuleSet,1)-1][2] = $iRuleNr
+
+   case Else
+   EndSelect
+
+   Return 0
+EndFunc
+
+
+
+Func IsFilepropertyIgnoredByRule($sFileproperty,ByRef $aRule)
+
+   ;determin if $sFileproperty is ignored by the current rule
+   ;--------------------------------------------------
+
+
+   local $iIsIgnored = False
+   local $i = 0
+   local $iMax = 0
+
+	  ;_ArrayDisplay($aRule)
+	  $iMax = UBound($aRule,1)-1
+	  for $i = 1 to $iMax
+		 ;$aRule[$i][0]
+		 ;$aRule[$i][1]
+
+		 Select
+			case $aRule[$i][0] = "Ign:"
+			   if StringStripWS($sFileproperty,$STR_STRIPALL) = StringStripWS($aRule[$i][1],$STR_STRIPALL) then $iIsIgnored = True
+			   ;ConsoleWrite(StringStripWS($sFileproperty,$STR_STRIPALL) & ":" & StringStripWS($aRule[$i][1],$STR_STRIPALL) & @CRLF)
+			case Else
+		 EndSelect
+	  Next
+
+   Return $iIsIgnored
+EndFunc
+
+
+
+
+Func IncludeDirDataInDBByRule(ByRef $aRule)
+
+   ;Returns True, if the rule demands to put directory information in the DB
+   ;------------------------------------------------------------------------
+
+   #cs
+	  file format config.cfg
+
+	  Rule:RULENAME				;name of rule
+	  IncDirRec:PATH			;directory to include, including all subdirectories
+	  ExcDirRec:PATH			;directory to exclude, including all subdirectories
+	  IncDir:PATH				;directory to include, only this directory
+	  ExcDir:PATH				;directory to exclude, only this directory
+	  IncExt:FILEEXTENTION		;file extention to include
+	  ExcExt:FILEEXTENTION		;file extention to exclude
+	  IncExe					;all executable files, no matter what the extention is
+	  IncAll					;all files, no matter what the extention is aka *.*
+	  ExcExe					;no executable files, no matter what the extention is
+	  ExcAll					;no files, no matter what the extention is aka *.*, only directories
+	  ExcDirs					;no directory information (attribs,name etc.)
+	  End
+   #ce
+
+   local $iIsIncluded = True
+   local $i = 0
+   local $iMax = 0
+
+
+   $iMax = UBound($aRule,1)-1
+   ;msgbox(0,"iMax",$iMax)
+   for $i = 1 to $iMax
+	  ;$aRule[$i][0]
+	  ;$aRule[$i][1]
+	  ;msgbox(0,"Cmd","#" & $aRule[$i][0] & "#" & @CRLF & "#" & $aRule[$i][1] & "#" & @CRLF & "#" & $PathOrFile & "#" & @CRLF & "#" & StringLeft($PathOrFile,stringlen($aRule[$i][1] & "\")) & "#" & @CRLF & "#" & $aRule[$i][1] & "\")
+	  Select
+		 case $aRule[$i][0] = "ExcDirs"
+			$iIsIncluded = False
+
+		 case Else
+	  EndSelect
+   Next
+
+   Return $iIsIncluded
 EndFunc
 
 
@@ -2033,6 +2193,29 @@ Func IsIncludedByRule($PathOrFile,ByRef $aRule)
 
    Return $iIsIncluded
 EndFunc
+
+
+Func IsExecutable($Filename)
+
+   ;Check if $Filename is a windows executable
+   ;by looking at the magic number
+   ;--------------------------------------------
+
+   local $sBuffer = ""
+   local $FileHandle = 0
+
+   $FileHandle = FileOpen($Filename, 16)
+   $sBuffer = FileRead($FileHandle,2)
+   FileClose($FileHandle)
+
+   if $sBuffer = "MZ" or $sBuffer = "ZM" then
+	  return True
+   Else
+	  return False
+   EndIf
+
+EndFunc
+
 
 
 Func OutputLineOfQueryResult(ByRef $aQueryResult,$ReportFilename)
@@ -2219,28 +2402,6 @@ Func TreeClimber($sStartPath,ByRef $aRule,$iScanSubdirs)
 EndFunc
 
 
-Func IsExecutable($Filename)
-
-   ;Check if $Filename is a windows executable
-   ;by looking at the magic number
-   ;--------------------------------------------
-
-   $sBuffer = ""
-   $FileHandle = 0
-
-   $FileHandle = FileOpen($Filename, 16)
-   $sBuffer = FileRead($FileHandle,2)
-   FileClose($FileHandle)
-
-   if $sBuffer = "MZ" or $sBuffer = "ZM" then
-	  return True
-   Else
-	  return False
-   EndIf
-
-EndFunc
-
-
 Func GetFileInfo( ByRef $aFileInfo, $Filename )
 
    ;Retrieves all information about $Filename
@@ -2279,7 +2440,7 @@ Func GetFileInfo( ByRef $aFileInfo, $Filename )
    local $TempBuffer = ""	;File read buffer
    local $CRC32 = 0			;CRC32 value of file
    local $MD5CTX = 0		;MD5 interim value
-
+   local $Timer = 0			;Timer
 
    $aFileInfo[0] = $Filename
    ;$aFileInfo[1] = 0	;not validated
@@ -2376,6 +2537,140 @@ Func GetFileInfo( ByRef $aFileInfo, $Filename )
    return 0
 EndFunc
 
+
+;----- mailer functions -----
+
+#cs
+   ;Start Mailer Setup
+
+   $SmtpServer = "ntmail.za-netz.lokal"
+   $FromName = "Freier Platz auf C:"
+   $FromAddress = "freespace@za-netz.lokal"
+   $ToAddress = "admin@zieglersche.de"
+   $Subject = ""
+   $Body = ""
+   $AttachFiles = ""
+   $CcAddress = ""
+   $BccAddress = ""
+   $Importance = "Normal"
+   $Username = ""
+   $Password = ""
+   $IPPort = 25             ; bleibt so
+   $ssl = 0
+
+   Global $oMyRet[2]
+   Global $oMyError = ObjEvent("AutoIt.Error", "MyErrFunc")
+
+   ;Ende MAiler Setup
+
+#ce
+
+
+Func _INetSmtpMailCom($s_SmtpServer, $s_FromName, $s_FromAddress, $s_ToAddress, $s_Subject = "", $as_Body = "", $s_AttachFiles = "", $s_CcAddress = "", $s_BccAddress = "", $s_Importance="Normal", $s_Username = "", $s_Password = "", $IPPort = 25, $ssl = 0)
+;###################################################################################################################
+; Mailer
+;###################################################################################################################
+
+#cs
+#Include<file.au3>
+
+$SmtpServer = "MailServer"
+$FromName = "Name"
+$FromAddress = "your@Email.Address.com"
+$ToAddress = "your@Email.Address.com"
+$Subject = "Userinfo"
+$Body = ""
+$AttachFiles = ""
+$CcAddress = "CCadress1@test.com"
+$BccAddress = "BCCadress1@test.com"
+$Importance = "Normal"
+$Username = "******"
+$Password = "********"
+$IPPort = 25             ; bleibt so
+$ssl = 0
+
+
+
+
+Global $oMyRet[2]
+Global $oMyError = ObjEvent("AutoIt.Error", "MyErrFunc")
+$rc = _INetSmtpMailCom($SmtpServer, $FromName, $FromAddress, $ToAddress, $Subject, $Body, $AttachFiles, $CcAddress, $BccAddress, $Importance, $Username, $Password, $IPPort, $ssl)
+If @error Then
+    MsgBox(0, "Error sending message", "Error code:" & @error & "  Description:" & $rc)
+EndIf
+
+#ce
+
+    Local $objEmail = ObjCreate("CDO.Message")
+    $objEmail.From = '"' & $s_FromName & '" <' & $s_FromAddress & '>'
+    $objEmail.To = $s_ToAddress
+    Local $i_Error = 0
+    Local $i_Error_desciption = ""
+    If $s_CcAddress <> "" Then $objEmail.Cc = $s_CcAddress
+    If $s_BccAddress <> "" Then $objEmail.Bcc = $s_BccAddress
+    $objEmail.Subject = $s_Subject
+    If StringInStr($as_Body, "<") And StringInStr($as_Body, ">") Then
+        $objEmail.HTMLBody = $as_Body
+    Else
+        $objEmail.Textbody = $as_Body & @CRLF
+    EndIf
+    If $s_AttachFiles <> "" Then
+        Local $S_Files2Attach = StringSplit($s_AttachFiles, ";")
+        For $x = 1 To $S_Files2Attach[0]
+            $S_Files2Attach[$x] = _PathFull($S_Files2Attach[$x])
+            ;ConsoleWrite('@@ Debug(62) : $S_Files2Attach = ' & $S_Files2Attach & @LF & '>Error code: ' & @error & @LF)
+            If FileExists($S_Files2Attach[$x]) Then
+                $objEmail.AddAttachment ($S_Files2Attach[$x])
+            Else
+                ConsoleWrite('!> File not found to attach: ' & $S_Files2Attach[$x] & @LF)
+                SetError(1)
+                Return 0
+            EndIf
+        Next
+    EndIf
+    $objEmail.Configuration.Fields.Item ("http://schemas.microsoft.com/cdo/configuration/sendusing") = 2
+    $objEmail.Configuration.Fields.Item ("http://schemas.microsoft.com/cdo/configuration/smtpserver") = $s_SmtpServer
+    If Number($IPPort) = 0 then $IPPort = 25
+    $objEmail.Configuration.Fields.Item ("http://schemas.microsoft.com/cdo/configuration/smtpserverport") = $IPPort
+
+    If $s_Username <> "" Then
+        $objEmail.Configuration.Fields.Item ("http://schemas.microsoft.com/cdo/configuration/smtpauthenticate") = 1
+        $objEmail.Configuration.Fields.Item ("http://schemas.microsoft.com/cdo/configuration/sendusername") = $s_Username
+        $objEmail.Configuration.Fields.Item ("http://schemas.microsoft.com/cdo/configuration/sendpassword") = $s_Password
+    EndIf
+    If $ssl Then
+        $objEmail.Configuration.Fields.Item ("http://schemas.microsoft.com/cdo/configuration/smtpusessl") = True
+    EndIf
+
+    $objEmail.Configuration.Fields.Update
+
+    Switch $s_Importance
+        Case "High"
+            $objEmail.Fields.Item ("urn:schemas:mailheader:Importance") = "High"
+        Case "Normal"
+            $objEmail.Fields.Item ("urn:schemas:mailheader:Importance") = "Normal"
+        Case "Low"
+            $objEmail.Fields.Item ("urn:schemas:mailheader:Importance") = "Low"
+    EndSwitch
+    $objEmail.Fields.Update
+
+    $objEmail.Send
+    If @error Then
+        SetError(2)
+        Return $oMyRet[1]
+    EndIf
+    $objEmail=""
+EndFunc
+
+
+Func MyErrFunc()
+    local $HexNumber = Hex($oMyError.number, 8)
+    $oMyRet[0] = $HexNumber
+    $oMyRet[1] = StringStripWS($oMyError.description, 3)
+    ConsoleWrite("### COM Error !  Number: " & $HexNumber & "   ScriptLine: " & $oMyError.scriptline & "   Description:" & $oMyRet[1] & @LF)
+    SetError(1)
+    Return
+EndFunc
 
 
 
