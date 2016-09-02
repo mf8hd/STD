@@ -47,6 +47,7 @@ Changelog
 			TreeClimber(): remove 2x FileGetAttrib() in inner loop and use @extended of FileFindNextFile() instead
 			TreeClimber(): code cleanup
 			GetFileInfo(): increase buffersize for CRC and md5
+3.0.0.0		split filedata.attributes in DB into rattrib,aattrib,sattrib,hattrib,nattrib,dattrib,oattrib,cattrib,tattrib
 
 #ce
 
@@ -113,7 +114,7 @@ End
 ;Set file infos
 #pragma compile(FileDescription,"Spot The Difference")
 #pragma compile(ProductName,"Spot The Difference")
-#pragma compile(ProductVersion,"2.1.0.2")
+#pragma compile(ProductVersion,"3.0.0.0")
 ;Versioning: "Incompatible changes to DB"."new feature"."bug fix"."minor fix"
 #pragma compile(LegalCopyright,"Reinhard Dittmann")
 #pragma compile(InternalName,"STD")
@@ -143,12 +144,12 @@ Opt("TrayIconHide", 1)
 
 ;Variables
 global $aRule[1][2]		;one rule form config File
-global $aFileInfo[13]	;array with informations about the file
+global $aFileInfo[22]	;array with informations about the file
 #cs
 		 $aFileInfo[0]	;name
 		 $aFileInfo[1]	;file could not be read 1 else 0
 		 $aFileInfo[2]	;size
-		 $aFileInfo[3]	;attributes
+		 $aFileInfo[3]	;attributes (obsolete)
 		 $aFileInfo[4]	;file modification timestamp
 		 $aFileInfo[5]	;file creation timestamp
 		 $aFileInfo[6]	;file accessed timestamp
@@ -158,6 +159,15 @@ global $aFileInfo[13]	;array with informations about the file
 		 $aFileInfo[10]	;md5 hash
 		 $aFileInfo[11]	;time it took to process the file
 		 $aFileInfo[12]	;rulename
+		 $aFileInfo[13]	;1 if the "R" = READONLY attribute is set
+		 $aFileInfo[14]	;1 if the "A" = ARCHIVE attribute is set
+		 $aFileInfo[15]	;1 if the "S" = SYSTEM attribute is set
+		 $aFileInfo[16]	;1 if the "H" = HIDDEN attribute is set
+		 $aFileInfo[17]	;1 if the "N" = NORMAL attribute is set
+		 $aFileInfo[18]	;1 if the "D" = DIRECTORY attribute is set
+		 $aFileInfo[19]	;1 if the "O" = OFFLINE attribute is set
+		 $aFileInfo[20]	;1 if the "C" = COMPRESSED (NTFS compression, not ZIP compression) attribute is set
+		 $aFileInfo[21]	;1 if the "T" = TEMPORARY attribute is set
 #ce
 global $sScantime = ""	;date and time of the scan
 global $iScanId	= 0		;scanid
@@ -463,7 +473,16 @@ Func DoReport($ReportFilename)
    $sTempSQL &= "filedata.crc32,"
    $sTempSQL &= "filedata.md5,"
    $sTempSQL &= "filedata.ptime,"
-   $sTempSQL &= "rules.rulename "
+   $sTempSQL &= "rules.rulename,"
+   $sTempSQL &= "filedata.rattrib,"
+   $sTempSQL &= "filedata.aattrib,"
+   $sTempSQL &= "filedata.sattrib,"
+   $sTempSQL &= "filedata.hattrib,"
+   $sTempSQL &= "filedata.nattrib,"
+   $sTempSQL &= "filedata.dattrib,"
+   $sTempSQL &= "filedata.oattrib,"
+   $sTempSQL &= "filedata.cattrib,"
+   $sTempSQL &= "filedata.tattrib "
    $sTempSQL &= "FROM filedata,filenames,rules,scans "
    $sTempSQL &= "WHERE "
    $sTempSQL &= "filedata.filenameid = filenames.filenameid AND "
@@ -551,7 +570,37 @@ Func DoReport($ReportFilename)
 			$hQuery = 0
 			$iTempCount = 0
 			;_SQLite_Query(-1, "SELECT scannew.rulename,count(scannew.rulename) FROM scannew,scanold WHERE scannew.path = scanold.path and scannew.rulename = scanold.rulename and scannew.rulename = '" & $aRulenames[$i] & "' and (scannew.size <> scanold.size or scannew.attributes <> scanold.attributes or scannew.mtime <> scanold.mtime or scannew.ctime <> scanold.ctime or scannew.atime <> scanold.atime or scannew.version <> scanold.version or scannew.spath <> scanold.spath or scannew.crc32 <> scanold.crc32 or scannew.md5 <> scanold.md5);",$hQuery)
-			_SQLite_Query(-1, "SELECT scannew.rulename,count(scannew.rulename) FROM scannew,scanold WHERE scannew.path = scanold.path and scannew.rulename = scanold.rulename and scannew.rulename = '" & $aRulenames[$i] & "' and (scannew.status <> scanold.status or scannew.size <> scanold.size or scannew.attributes <> scanold.attributes or scannew.mtime <> scanold.mtime or scannew.ctime <> scanold.ctime or scannew.version <> scanold.version or scannew.spath <> scanold.spath or scannew.crc32 <> scanold.crc32 or scannew.md5 <> scanold.md5);",$hQuery)
+
+			$sTempSQL =  "SELECT "
+			$sTempSQL &= "scannew.rulename,"
+			$sTempSQL &= "count(scannew.rulename) "
+			$sTempSQL &= "FROM scannew,scanold "
+			$sTempSQL &= "WHERE "
+			$sTempSQL &= "scannew.path = scanold.path and "
+			$sTempSQL &= "scannew.rulename = scanold.rulename and "
+			$sTempSQL &= "scannew.rulename = '" & $aRulenames[$i] & "' and "
+			$sTempSQL &= "("
+			$sTempSQL &= "scannew.status <> scanold.status or "
+			$sTempSQL &= "scannew.size <> scanold.size or "
+			;$sTempSQL &= "scannew.attributes <> scanold.attributes or "
+			$sTempSQL &= "scannew.mtime <> scanold.mtime or "
+			$sTempSQL &= "scannew.ctime <> scanold.ctime or "
+			$sTempSQL &= "scannew.version <> scanold.version or "
+			$sTempSQL &= "scannew.spath <> scanold.spath or "
+			$sTempSQL &= "scannew.crc32 <> scanold.crc32 or "
+			$sTempSQL &= "scannew.md5 <> scanold.md5 or "
+			$sTempSQL &= "scannew.rattrib <> scanold.rattrib or "
+			$sTempSQL &= "scannew.aattrib <> scanold.aattrib or "
+			$sTempSQL &= "scannew.sattrib <> scanold.sattrib or "
+			$sTempSQL &= "scannew.hattrib <> scanold.hattrib or "
+			$sTempSQL &= "scannew.nattrib <> scanold.nattrib or "
+			$sTempSQL &= "scannew.dattrib <> scanold.dattrib or "
+			$sTempSQL &= "scannew.oattrib <> scanold.oattrib or "
+			$sTempSQL &= "scannew.cattrib <> scanold.cattrib or "
+			$sTempSQL &= "scannew.tattrib <> scanold.tattrib"
+			$sTempSQL &= ");"
+
+			_SQLite_Query(-1, $sTempSQL,$hQuery)
 			While _SQLite_FetchData($hQuery, $aQueryResult) = $SQLITE_OK
 			   ;_ArrayDisplay($aQueryResult)
 			   ;OutputLineOfQueryResultSummary($aQueryResult,$ReportFilename)
@@ -599,7 +648,36 @@ Func DoReport($ReportFilename)
 			;return scan differences
 			$aQueryResult = 0
 			$hQuery = 0
-			_SQLite_Query(-1, "SELECT scannew.path FROM scannew,scanold WHERE scannew.path = scanold.path and scannew.rulename = scanold.rulename and scannew.rulename = '" & $aRulenames[$i] & "' and (scannew.status <> scanold.status or scannew.size <> scanold.size or scannew.attributes <> scanold.attributes or scannew.mtime <> scanold.mtime or scannew.ctime <> scanold.ctime or scannew.atime <> scanold.atime or scannew.version <> scanold.version or scannew.spath <> scanold.spath or scannew.crc32 <> scanold.crc32 or scannew.md5 <> scanold.md5);",$hQuery)
+
+			$sTempSQL =  "SELECT "
+			$sTempSQL &= "scannew.path "
+			$sTempSQL &= "FROM scannew,scanold "
+			$sTempSQL &= "WHERE "
+			$sTempSQL &= "scannew.path = scanold.path and "
+			$sTempSQL &= "scannew.rulename = scanold.rulename and "
+			$sTempSQL &= "scannew.rulename = '" & $aRulenames[$i] & "' and "
+			$sTempSQL &= "("
+			$sTempSQL &= "scannew.status <> scanold.status or "
+			$sTempSQL &= "scannew.size <> scanold.size or "
+			;$sTempSQL &= "scannew.attributes <> scanold.attributes or "
+			$sTempSQL &= "scannew.mtime <> scanold.mtime or "
+			$sTempSQL &= "scannew.ctime <> scanold.ctime or "
+			$sTempSQL &= "scannew.version <> scanold.version or "
+			$sTempSQL &= "scannew.spath <> scanold.spath or "
+			$sTempSQL &= "scannew.crc32 <> scanold.crc32 or "
+			$sTempSQL &= "scannew.md5 <> scanold.md5 or "
+			$sTempSQL &= "scannew.rattrib <> scanold.rattrib or "
+			$sTempSQL &= "scannew.aattrib <> scanold.aattrib or "
+			$sTempSQL &= "scannew.sattrib <> scanold.sattrib or "
+			$sTempSQL &= "scannew.hattrib <> scanold.hattrib or "
+			$sTempSQL &= "scannew.nattrib <> scanold.nattrib or "
+			$sTempSQL &= "scannew.dattrib <> scanold.dattrib or "
+			$sTempSQL &= "scannew.oattrib <> scanold.oattrib or "
+			$sTempSQL &= "scannew.cattrib <> scanold.cattrib or "
+			$sTempSQL &= "scannew.tattrib <> scanold.tattrib"
+			$sTempSQL &= ");"
+
+			_SQLite_Query(-1, $sTempSQL,$hQuery)
 			While _SQLite_FetchData($hQuery, $aQueryResult) = $SQLITE_OK
 			   ;OutputLineOfQueryResult($aQueryResult,$ReportFilename)
 			   FileWriteLine($ReportFilename,StringFormat("%-8s : %s","changed",_HexToString($aQueryResult[0])))
@@ -636,7 +714,36 @@ Func DoReport($ReportFilename)
 			;return scan differences
 			$aQueryResult = 0
 			$hQuery = 0
-			_SQLite_Query(-1, "SELECT scanold.*,scannew.* FROM scannew,scanold WHERE scannew.path = scanold.path and scannew.rulename = scanold.rulename and scannew.rulename = '" & $aRulenames[$i] & "' and (scannew.status <> scanold.status or scannew.size <> scanold.size or scannew.attributes <> scanold.attributes or scannew.mtime <> scanold.mtime or scannew.ctime <> scanold.ctime or scannew.atime <> scanold.atime or scannew.version <> scanold.version or scannew.spath <> scanold.spath or scannew.crc32 <> scanold.crc32 or scannew.md5 <> scanold.md5);",$hQuery)
+
+			$sTempSQL =  "SELECT "
+			$sTempSQL &= "scanold.*,scannew.* "
+			$sTempSQL &= "FROM scannew,scanold "
+			$sTempSQL &= "WHERE "
+			$sTempSQL &= "scannew.path = scanold.path and "
+			$sTempSQL &= "scannew.rulename = scanold.rulename and "
+			$sTempSQL &= "scannew.rulename = '" & $aRulenames[$i] & "' and "
+			$sTempSQL &= "("
+			$sTempSQL &= "scannew.status <> scanold.status or "
+			$sTempSQL &= "scannew.size <> scanold.size or "
+			;$sTempSQL &= "scannew.attributes <> scanold.attributes or "
+			$sTempSQL &= "scannew.mtime <> scanold.mtime or "
+			$sTempSQL &= "scannew.ctime <> scanold.ctime or "
+			$sTempSQL &= "scannew.version <> scanold.version or "
+			$sTempSQL &= "scannew.spath <> scanold.spath or "
+			$sTempSQL &= "scannew.crc32 <> scanold.crc32 or "
+			$sTempSQL &= "scannew.md5 <> scanold.md5 or "
+			$sTempSQL &= "scannew.rattrib <> scanold.rattrib or "
+			$sTempSQL &= "scannew.aattrib <> scanold.aattrib or "
+			$sTempSQL &= "scannew.sattrib <> scanold.sattrib or "
+			$sTempSQL &= "scannew.hattrib <> scanold.hattrib or "
+			$sTempSQL &= "scannew.nattrib <> scanold.nattrib or "
+			$sTempSQL &= "scannew.dattrib <> scanold.dattrib or "
+			$sTempSQL &= "scannew.oattrib <> scanold.oattrib or "
+			$sTempSQL &= "scannew.cattrib <> scanold.cattrib or "
+			$sTempSQL &= "scannew.tattrib <> scanold.tattrib"
+			$sTempSQL &= ");"
+
+			_SQLite_Query(-1, $sTempSQL,$hQuery)
 			While _SQLite_FetchData($hQuery, $aQueryResult) = $SQLITE_OK
 			   OutputLineOfQueryResult($aQueryResult,$ReportFilename)
 			WEnd
@@ -1723,15 +1830,31 @@ Func OpenDB($sDBName)
    $hDBHandle = _SQLite_Open($sDBName)
 
 
+   #cs
+	  FileGetAttrib()
+	  "R" = READONLY
+	  "A" = ARCHIVE
+	  "S" = SYSTEM
+	  "H" = HIDDEN
+	  "N" = NORMAL
+	  "D" = DIRECTORY
+	  "O" = OFFLINE
+	  "C" = COMPRESSED (NTFS compression, not ZIP compression)
+	  "T" = TEMPORARY
+   #ce
+
+
+
    ;create new db structure if needed
    _SQLite_Exec(-1,"CREATE TABLE IF NOT EXISTS config (linenumber INTEGER PRIMARY KEY AUTOINCREMENT, line );")
 
    ;_SQLite_Exec(-1,"CREATE TABLE IF NOT EXISTS files (scantime,name,status,size,attributes,mtime,ctime,atime,version,spath,crc32,md5,ptime,rulename, PRIMARY KEY(scantime,name));")
    ;_SQLite_Exec(-1,"CREATE TABLE IF NOT EXISTS files (scanid not null,ruleid not null,filenameid not null );")
-   _SQLite_Exec(-1,"CREATE TABLE IF NOT EXISTS scans (scanid INTEGER PRIMARY KEY AUTOINCREMENT, scantime, valid );")
+   _SQLite_Exec(-1,"CREATE TABLE IF NOT EXISTS scans (scanid INTEGER PRIMARY KEY AUTOINCREMENT, scantime, valid INTEGER);")
    _SQLite_Exec(-1,"CREATE TABLE IF NOT EXISTS rules (ruleid INTEGER PRIMARY KEY AUTOINCREMENT, rulename );")
+   ;_SQLite_Exec(-1,"CREATE TABLE IF NOT EXISTS filenames (filenameid INTEGER PRIMARY KEY AUTOINCREMENT, path, spath, filename );")
    _SQLite_Exec(-1,"CREATE TABLE IF NOT EXISTS filenames (filenameid INTEGER PRIMARY KEY AUTOINCREMENT, path, spath );")
-   _SQLite_Exec(-1,"CREATE TABLE IF NOT EXISTS filedata (scanid not null,ruleid not null,filenameid not null, status,size,attributes,mtime,ctime,atime,version,crc32,md5,ptime, PRIMARY KEY(scanid,ruleid,filenameid) );")
+   _SQLite_Exec(-1,"CREATE TABLE IF NOT EXISTS filedata (scanid INTEGER NOT NULL,ruleid INTEGER NOT NULL,filenameid INTEGER NOT NULL, status INTEGER,size INTEGER,attributes,mtime,ctime,atime,version,crc32,md5,ptime,rattrib INTEGER,aattrib INTEGER,sattrib INTEGER,hattrib INTEGER,nattrib INTEGER,dattrib INTEGER,oattrib INTEGER,cattrib INTEGER,tattrib INTEGER, PRIMARY KEY(scanid,ruleid,filenameid) );")
 
    ;_SQLite_Exec(-1,"CREATE INDEX IF NOT EXISTS config_index ON config (linenumber);")
    _SQLite_Exec(-1,"CREATE INDEX IF NOT EXISTS filenames_path ON filenames (path);")
@@ -1920,48 +2043,50 @@ Func OutputLineOfQueryResult(ByRef $aQueryResult,$ReportFilename)
 
    ;Output single line of a sql query result
    ;--------------------------------------------
-   ;"CREATE TABLE IF NOT EXISTS files (scantime,name,status,size,attributes,mtime,ctime,atime,version,spath,crc32,md5,ptime,rulename, PRIMARY KEY(scantime,name));"
-   ;     old                                 0   1      2     3       4        5     6    7      8     9      10   11  12      13
-   ;     new                                 14  15     16    17      18       19    20   21     22    23     24   25  26      27
+   ;"           scantime,name,status,size,attributes,mtime,ctime,atime,version,spath,crc32,md5,ptime,rulename,rattrib,aattrib,sattrib,hattrib,nattrib,dattrib,oattrib,cattrib,tattrib"
+   ;     old         0    1      2     3       4        5     6    7      8     9      10   11  12      13        14      15      16      17      18      19     20      21       22
+   ;     new        23   24     25    26      27       28    29   30     31    32      33   34  35      36        37      38      39      40      41      42     43      44       45
 
-   ;local $aDesc[] = ["scantime","name","valid","size","attributes","mtime","ctime","atime","version","spath","crc32","md5","ptime","rulename"]
-   local $aDesc[] = ["scantime","name","status","size","attributes","mtime","ctime","atime","version","spath","crc32","md5","ptime","rulename"]
+
+   local $aDesc[] = ["scantime","name","status","size","attributes","mtime","ctime","atime","version","spath","crc32","md5","ptime","rulename","rattrib","aattrib","sattrib","hattrib","nattrib","dattrib","oattrib","cattrib","tattrib"]
    local $i = 0
    local $sTempOld = ""
    local $sTempNew = ""
 
 
-   if $aQueryResult[1] = "" Then FileWriteLine($ReportFilename,"-- new     --"  & @CRLF & _HexToString($aQueryResult[15]) & @CRLF & @CRLF)
+   if $aQueryResult[1] = "" Then FileWriteLine($ReportFilename,"-- new     --"  & @CRLF & _HexToString($aQueryResult[24]) & @CRLF & @CRLF)
 
-   if $aQueryResult[15] = "" Then FileWriteLine($ReportFilename,"-- missing --"  & @CRLF & _HexToString($aQueryResult[1]) & @CRLF & @CRLF)
+   if $aQueryResult[24] = "" Then FileWriteLine($ReportFilename,"-- missing --"  & @CRLF & _HexToString($aQueryResult[1]) & @CRLF & @CRLF)
 
-   if $aQueryResult[1] = $aQueryResult[15] Then FileWriteLine($ReportFilename,"-- changed --"  & @CRLF & _HexToString($aQueryResult[1]) & @CRLF & @CRLF)
+   if $aQueryResult[1] = $aQueryResult[24] Then FileWriteLine($ReportFilename,"-- changed --"  & @CRLF & _HexToString($aQueryResult[1]) & @CRLF & @CRLF)
 
    $sTempOld = ""
    $sTempNew = ""
    $sTempOld = $aQueryResult[0]
-   $sTempNew = $aQueryResult[0 + 14]
+   $sTempNew = $aQueryResult[0 + 23]
    if $sTempOld = "" then $sTempOld = "-"
    if $sTempNew = "" then $sTempNew = "-"
    FileWriteLine($ReportFilename,StringFormat("%-15s %1s %35s %-35s","","","expected","observed"))
    FileWriteLine($ReportFilename,StringFormat("%-15s %1s %35s %-35s",$aDesc[$i] & ":"," ",$sTempOld,$sTempNew))
 
-   for $i = 2 to 12
+   for $i = 2 to 22
 	  $sTempOld = ""
 	  $sTempNew = ""
 	  $sTempOld = $aQueryResult[$i]
-	  $sTempNew = $aQueryResult[$i + 14]
+	  $sTempNew = $aQueryResult[$i + 23]
 	  if $sTempOld = "" then $sTempOld = "-"
 	  if $sTempNew = "" then $sTempNew = "-"
 
 	  if $i = 9 Then
 	  ElseIf $i = 13 Then
 	  ElseIf $i = 4 Then
+#cs
 		 if $sTempOld = $sTempNew  then
 			FileWriteLine($ReportFilename,StringFormat("%-15s %1s %35s %-35s",$aDesc[$i] & ":"," ",$sTempOld,$sTempNew))
 		 Else
 			FileWriteLine($ReportFilename,StringFormat("%-15s %1s %35s %-35s",$aDesc[$i] & ":","*",$sTempOld,$sTempNew))
 		 EndIf
+#ce
 	  ElseIf $i = 7 Then
 		 FileWriteLine($ReportFilename,StringFormat("%-15s %1s %35s %-35s",$aDesc[$i] & ":"," ",$sTempOld,$sTempNew))
 	  else
@@ -1977,7 +2102,7 @@ Func OutputLineOfQueryResult(ByRef $aQueryResult,$ReportFilename)
    $sTempOld = ""
    $sTempNew = ""
    $sTempOld = $aQueryResult[9]
-   $sTempNew = $aQueryResult[9 + 14]
+   $sTempNew = $aQueryResult[9 + 23]
    if $sTempOld = "" then $sTempOld = "-"
    if $sTempNew = "" then $sTempNew = "-"
    FileWriteLine($ReportFilename,"")
@@ -2078,17 +2203,8 @@ Func TreeClimber($sStartPath,ByRef $aRule,$iScanSubdirs)
 		 if $iIsDirectory and not IncludeDirDataInDBByRule($aRule) Then
 			;its a directory and the rule doesn´t want directory infos in the DB
 		 Else
-			#cs
-			$iScanId  GetRuleId($aRule)   $iFilenameId GetFilenameIDFromDB()
 
-
-			_SQLite_Exec(-1,"CREATE TABLE IF NOT EXISTS scans (scanid INTEGER PRIMARY KEY AUTOINCREMENT, scantime, valid );")
-			_SQLite_Exec(-1,"CREATE TABLE IF NOT EXISTS rules (ruleid INTEGER PRIMARY KEY AUTOINCREMENT, rulename );")
-			_SQLite_Exec(-1,"CREATE TABLE IF NOT EXISTS filenames (filenameid INTEGER PRIMARY KEY AUTOINCREMENT, path, spath );")
-			_SQLite_Exec(-1,"CREATE TABLE IF NOT EXISTS filedata (scanid not null,ruleid not null,filenameid not null, status,size,attributes,mtime,ctime,atime,version,crc32,md5,ptime, PRIMARY KEY(scanid,ruleid,filenameid) );")
-			#ce
-
-			_SQLite_Exec(-1,"INSERT INTO filedata (scanid,ruleid,filenameid,status,size,attributes,mtime,ctime,atime,version,crc32,md5,ptime)  values ('" & $iScanId & "', '" & GetRuleId($aRule) & "', '" & GetFilenameIDFromDB(_StringToHex($aFileInfo[0]),$aFileInfo[8]) & "','" & $aFileInfo[1] & "','" & $aFileInfo[2] & "','" & $aFileInfo[3] & "','" & $aFileInfo[4] & "','" & $aFileInfo[5] & "','" & $aFileInfo[6] & "','" & $aFileInfo[7] & "','" & $aFileInfo[9] & "','" & $aFileInfo[10] & "','" & $aFileInfo[11] & "');")
+			_SQLite_Exec(-1,"INSERT INTO filedata (scanid,ruleid,filenameid,status,size,attributes,mtime,ctime,atime,version,crc32,md5,ptime,rattrib,aattrib,sattrib,hattrib,nattrib,dattrib,oattrib,cattrib,tattrib)  values ('" & $iScanId & "', '" & GetRuleId($aRule) & "', '" & GetFilenameIDFromDB(_StringToHex($aFileInfo[0]),$aFileInfo[8]) & "','" & $aFileInfo[1] & "','" & $aFileInfo[2] & "','" & $aFileInfo[3] & "','" & $aFileInfo[4] & "','" & $aFileInfo[5] & "','" & $aFileInfo[6] & "','" & $aFileInfo[7] & "','" & $aFileInfo[9] & "','" & $aFileInfo[10] & "','" & $aFileInfo[11] & "','" & $aFileInfo[13] & "','" & $aFileInfo[14] & "','" & $aFileInfo[15] & "','" & $aFileInfo[16] & "','" & $aFileInfo[17] & "','" & $aFileInfo[18] & "','" & $aFileInfo[19] & "','" & $aFileInfo[20] & "','" & $aFileInfo[21] & "');")
 			;_SQLite_Exec(-1,"INSERT INTO files(scantime,name,status,size,attributes,mtime,ctime,atime,version,spath,crc32,md5,ptime,rulename) values ('" & $sScantime & "','" & _StringToHex($aFileInfo[0]) & "','" & $aFileInfo[1] & "','" & $aFileInfo[2] & "','" & $aFileInfo[3] & "','" & $aFileInfo[4] & "','" & $aFileInfo[5] & "','" & $aFileInfo[6] & "','" & $aFileInfo[7] & "','" & $aFileInfo[8] & "','" & $aFileInfo[9] & "','" & $aFileInfo[10] & "','" & $aFileInfo[11] & "','" & $aRule[1][1] & "');")
 
 		 EndIf
@@ -2130,6 +2246,31 @@ Func GetFileInfo( ByRef $aFileInfo, $Filename )
    ;Retrieves all information about $Filename
    ;--------------------------------------------
 
+#cs
+   $aFileInfo[0]	;name
+   $aFileInfo[1]	;file could not be read 1 else 0
+   $aFileInfo[2]	;size
+   $aFileInfo[3]	;attributes (obsolete)
+   $aFileInfo[4]	;file modification timestamp
+   $aFileInfo[5]	;file creation timestamp
+   $aFileInfo[6]	;file accessed timestamp
+   $aFileInfo[7]	;version
+   $aFileInfo[8]	;8.3 short path+name
+   $aFileInfo[9]	;crc32
+   $aFileInfo[10]	;md5 hash
+   $aFileInfo[11]	;time it took to process the file
+   $aFileInfo[12]	;rulename
+   $aFileInfo[13]	;1 if the "R" = READONLY attribute is set
+   $aFileInfo[14]	;1 if the "A" = ARCHIVE attribute is set
+   $aFileInfo[15]	;1 if the "S" = SYSTEM attribute is set
+   $aFileInfo[16]	;1 if the "H" = HIDDEN attribute is set
+   $aFileInfo[17]	;1 if the "N" = NORMAL attribute is set
+   $aFileInfo[18]	;1 if the "D" = DIRECTORY attribute is set
+   $aFileInfo[19]	;1 if the "O" = OFFLINE attribute is set
+   $aFileInfo[20]	;1 if the "C" = COMPRESSED (NTFS compression, not ZIP compression) attribute is set
+   $aFileInfo[21]	;1 if the "T" = TEMPORARY attribute is set
+#ce
+
 
    ;local const $BufferSize = 0x20000
    local const $BufferSize = 0x100000
@@ -2150,6 +2291,7 @@ Func GetFileInfo( ByRef $aFileInfo, $Filename )
 
    ;Start processing
    $aFileInfo[3] = FileGetAttrib($Filename)
+
 
    $FileSize = 0
    if 0 < StringInStr($aFileInfo[3],"D") Then
@@ -2206,9 +2348,29 @@ Func GetFileInfo( ByRef $aFileInfo, $Filename )
    $aFileInfo[8] = FileGetShortName($Filename)
 
 
+   ;Attribs
+   $aFileInfo[13] = 0
+   $aFileInfo[14] = 0
+   $aFileInfo[15] = 0
+   $aFileInfo[16] = 0
+   $aFileInfo[17] = 0
+   $aFileInfo[18] = 0
+   $aFileInfo[19] = 0
+   $aFileInfo[20] = 0
+   $aFileInfo[21] = 0
+
+   if 0 < StringInStr($aFileInfo[3],"R") Then $aFileInfo[13] = 1
+   if 0 < StringInStr($aFileInfo[3],"A") Then $aFileInfo[14] = 1
+   if 0 < StringInStr($aFileInfo[3],"S") Then $aFileInfo[15] = 1
+   if 0 < StringInStr($aFileInfo[3],"H") Then $aFileInfo[16] = 1
+   if 0 < StringInStr($aFileInfo[3],"N") Then $aFileInfo[17] = 1
+   if 0 < StringInStr($aFileInfo[3],"D") Then $aFileInfo[18] = 1
+   if 0 < StringInStr($aFileInfo[3],"O") Then $aFileInfo[19] = 1
+   if 0 < StringInStr($aFileInfo[3],"C") Then $aFileInfo[20] = 1
+   if 0 < StringInStr($aFileInfo[3],"T") Then $aFileInfo[21] = 1
+
 
    ;End processing
-
    $aFileInfo[11] = Round(TimerDiff($Timer))
 
    return 0
@@ -2258,5 +2420,6 @@ unterschiede zurückgeben
    Next
    $aFileInfo[10] = _MD5Result($MD5CTX)
 #ce
+
 
 
