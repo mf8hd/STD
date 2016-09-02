@@ -60,7 +60,8 @@ Changelog
 			Ignore file properties in report with the "Ign:"  statement
 			performance: sqlite in WAL mode and sync to normal
 			DoScan(), DoReport(): use GetRuleSetFromDB()
-
+3.1.1.0		GetFileInfo(): new version that uses _WinAPI_GetFileAttributes() for performance (kind of)
+			Old_GetFileInfo(): obsolete old version of GetFileInfo() that uses FileGetAttrib()
 
 #ce
 
@@ -127,7 +128,7 @@ End
 ;Set file infos
 #pragma compile(FileDescription,"Spot The Difference")
 #pragma compile(ProductName,"Spot The Difference")
-#pragma compile(ProductVersion,"3.1.0.0")
+#pragma compile(ProductVersion,"3.1.1.0")
 ;Versioning: "Incompatible changes to DB"."new feature"."bug fix"."minor fix"
 #pragma compile(LegalCopyright,"Reinhard Dittmann")
 #pragma compile(InternalName,"STD")
@@ -143,6 +144,10 @@ End
 #include <SQLite.dll.au3>
 #include <MsgBoxConstants.au3>
 #include <StringConstants.au3>
+#include <WinAPIFiles.au3>
+#include <Date.au3>
+
+
 
 ;Constants
 global const $cVersion = FileGetVersion(@ScriptName,"ProductVersion")
@@ -261,25 +266,6 @@ db stucture
    ptime			time to process the file while scanning in ms
    rulename			name of the rule from config file, according to that the file was processed
 
-#ce
-
-
-#cs
-OpenDB("C:\Users\Reinhard\Desktop\std\alles.sqlite")
-GetRuleSetFromDB()
-_ArrayDisplay($aRuleSet)
-GetRuleFromRuleSet(0)
-_ArrayDisplay($aRule)
-GetRuleFromRuleSet(1)
-_ArrayDisplay($aRule)
-GetRuleFromRuleSet(2)
-_ArrayDisplay($aRule)
-GetRuleFromRuleSet(3)
-_ArrayDisplay($aRule)
-GetRuleFromRuleSet(4)
-_ArrayDisplay($aRule)
-CloseDB()
-exit(0)
 #ce
 
 
@@ -1184,6 +1170,8 @@ Func DoScan()
    local $iRuleNr = 0					;rule number
    local $i = 0							;counter
 
+   local $ScanTimer = TimerInit()
+
    GetRuleSetFromDB()
 
    $sScantime = @YEAR & @MON & @MDAY & @HOUR & @MIN & @SEC
@@ -1202,6 +1190,8 @@ Func DoScan()
 	  Next
 
    Next
+
+   ConsoleWrite("Duration: " & Round(TimerDiff($ScanTimer)) & @CRLF)
 
 EndFunc
 
@@ -2408,6 +2398,235 @@ Func GetFileInfo( ByRef $aFileInfo, $Filename )
    ;--------------------------------------------
 
 #cs
+   Global Const $FILE_ATTRIBUTE_READONLY = 0x00000001
+   Global Const $FILE_ATTRIBUTE_HIDDEN = 0x00000002
+   Global Const $FILE_ATTRIBUTE_SYSTEM = 0x00000004
+   Global Const $FILE_ATTRIBUTE_DIRECTORY = 0x00000010
+   Global Const $FILE_ATTRIBUTE_ARCHIVE = 0x00000020
+   Global Const $FILE_ATTRIBUTE_DEVICE = 0x00000040
+   Global Const $FILE_ATTRIBUTE_NORMAL = 0x00000080
+   Global Const $FILE_ATTRIBUTE_TEMPORARY = 0x00000100
+   Global Const $FILE_ATTRIBUTE_SPARSE_FILE = 0x00000200
+   Global Const $FILE_ATTRIBUTE_REPARSE_POINT = 0x00000400
+   Global Const $FILE_ATTRIBUTE_COMPRESSED = 0x00000800
+   Global Const $FILE_ATTRIBUTE_OFFLINE = 0x00001000
+   Global Const $FILE_ATTRIBUTE_NOT_CONTENT_INDEXED = 0x00002000
+   Global Const $FILE_ATTRIBUTE_ENCRYPTED = 0x00004000
+#ce
+
+
+#cs
+   File Attribute Constants
+
+   FILE_ATTRIBUTE_ARCHIVE:	32 (0x20)
+   A file or directory that is an archive file or directory. Applications typically use this attribute to mark files for backup or removal .
+
+   FILE_ATTRIBUTE_COMPRESSED:	2048 (0x800)
+   A file or directory that is compressed. For a file, all of the data in the file is compressed. For a directory, compression is the default for newly created files and subdirectories.
+
+   FILE_ATTRIBUTE_DEVICE:	64 (0x40)
+   This value is reserved for system use.
+
+   FILE_ATTRIBUTE_DIRECTORY:	16 (0x10)
+   The handle that identifies a directory.
+
+   FILE_ATTRIBUTE_ENCRYPTED:	16384 (0x4000)
+   A file or directory that is encrypted. For a file, all data streams in the file are encrypted. For a directory, encryption is the default for newly created files and subdirectories.
+
+   FILE_ATTRIBUTE_HIDDEN:	2 (0x2)
+   The file or directory is hidden. It is not included in an ordinary directory listing.
+
+   FILE_ATTRIBUTE_INTEGRITY_STREAM:	32768 (0x8000)
+   The directory or user data stream is configured with integrity (only supported on ReFS volumes). It is not included in an ordinary directory listing. The integrity setting persists with the file if it's renamed. If a file is copied the destination file will have integrity set if either the source file or destination directory have integrity set.
+
+   Windows Server 2008 R2, Windows 7, Windows Server 2008, Windows Vista, Windows Server 2003 and Windows XP:  This flag is not supported until Windows Server 2012.
+
+   FILE_ATTRIBUTE_NORMAL:	128 (0x80)
+   A file that does not have other attributes set. This attribute is valid only when used alone.
+
+   FILE_ATTRIBUTE_NOT_CONTENT_INDEXED:	8192 (0x2000)
+   The file or directory is not to be indexed by the content indexing service.
+
+   FILE_ATTRIBUTE_NO_SCRUB_DATA:	131072 (0x20000)
+   The user data stream not to be read by the background data integrity scanner (AKA scrubber). When set on a directory it only provides inheritance. This flag is only supported on Storage Spaces and ReFS volumes. It is not included in an ordinary directory listing.
+
+   Windows Server 2008 R2, Windows 7, Windows Server 2008, Windows Vista, Windows Server 2003 and Windows XP:  This flag is not supported until Windows 8 and Windows Server 2012.
+
+   FILE_ATTRIBUTE_OFFLINE:	4096 (0x1000)
+   The data of a file is not available immediately. This attribute indicates that the file data is physically moved to offline storage. This attribute is used by Remote Storage, which is the hierarchical storage management software. Applications should not arbitrarily change this attribute.
+
+   FILE_ATTRIBUTE_READONLY:	1 (0x1)
+   A file that is read-only. Applications can read the file, but cannot write to it or delete it. This attribute is not honored on directories. For more information, see You cannot view or change the Read-only or the System attributes of folders in Windows Server 2003, in Windows XP, in Windows Vista or in Windows 7.
+
+   FILE_ATTRIBUTE_REPARSE_POINT:	1024 (0x400)
+   A file or directory that has an associated reparse point, or a file that is a symbolic link.
+
+   FILE_ATTRIBUTE_SPARSE_FILE:	512 (0x200)
+   A file that is a sparse file.
+
+   FILE_ATTRIBUTE_SYSTEM:	4 (0x4)
+   A file or directory that the operating system uses a part of, or uses exclusively.
+
+   FILE_ATTRIBUTE_TEMPORARY:	256 (0x100)
+   A file that is being used for temporary storage. File systems avoid writing data back to mass storage if sufficient cache memory is available, because typically, an application deletes a temporary file after the handle is closed. In that scenario, the system can entirely avoid writing the data. Otherwise, the data is written after the handle is closed.
+
+   FILE_ATTRIBUTE_VIRTUAL:	65536 (0x10000)
+   This value is reserved for system use.
+
+#ce
+
+
+   ;local const $BufferSize = 0x20000
+   local const $BufferSize = 0x100000
+   local $FileHandle = 0	;Handle of file to process
+   local $FileSize = 0		;Size of file to process
+   local $TempBuffer = ""	;File read buffer
+   local $CRC32 = 0			;CRC32 value of file
+   local $MD5CTX = 0		;MD5 interim value
+   local $Timer = 0			;Timer
+
+
+   $aFileInfo[0]  = $Filename	;name
+   $aFileInfo[1]  = 0			;file could not be read 1 else 0
+   $aFileInfo[2]  = 0			;size
+   $aFileInfo[3]  = ""			;attributes (obsolete)
+   $aFileInfo[4]  = ""			;file modification timestamp
+   $aFileInfo[5]  = ""			;file creation timestamp
+   $aFileInfo[6]  = ""			;file accessed timestamp
+   $aFileInfo[7]  = ""			;version
+   $aFileInfo[8]  = ""			;8.3 short path+name
+   $aFileInfo[9]  = 0			;crc32
+   $aFileInfo[10] = 0			;md5 hash
+   $aFileInfo[11] = 0			;time it took to process the file
+   ;$aFileInfo[12] =	""		;rulename
+   $aFileInfo[13] = 0			;1 if the "R" = READONLY attribute is set
+   $aFileInfo[14] = 0			;1 if the "A" = ARCHIVE attribute is set
+   $aFileInfo[15] = 0			;1 if the "S" = SYSTEM attribute is set
+   $aFileInfo[16] = 0			;1 if the "H" = HIDDEN attribute is set
+   $aFileInfo[17] = 0			;1 if the "N" = NORMAL attribute is set
+   $aFileInfo[18] = 0			;1 if the "D" = DIRECTORY attribute is set
+   $aFileInfo[19] = 0			;1 if the "O" = OFFLINE attribute is set
+   $aFileInfo[20] = 0			;1 if the "C" = COMPRESSED (NTFS compression, not ZIP compression) attribute is set
+   $aFileInfo[21] = 0			;1 if the "T" = TEMPORARY attribute is set
+
+
+   $Timer = TimerInit()
+
+
+   Local $hFile = _WinAPI_CreateFile($Filename, 2, 2, 2)
+   Local $aInfo = _WinAPI_GetFileInformationByHandle($hFile)
+   If IsArray($aInfo) Then
+
+	  ;Manage file attributes
+	  If BitAND ( $aInfo[0], $FILE_ATTRIBUTE_READONLY ) 	Then $aFileInfo[13] = 1
+	  If BitAND ( $aInfo[0], $FILE_ATTRIBUTE_ARCHIVE ) 		Then $aFileInfo[14] = 1
+	  If BitAND ( $aInfo[0], $FILE_ATTRIBUTE_SYSTEM ) 		Then $aFileInfo[15] = 1
+	  If BitAND ( $aInfo[0], $FILE_ATTRIBUTE_HIDDEN ) 		Then $aFileInfo[16] = 1
+	  If BitAND ( $aInfo[0], $FILE_ATTRIBUTE_NORMAL ) 		Then $aFileInfo[17] = 1
+	  If BitAND ( $aInfo[0], $FILE_ATTRIBUTE_DIRECTORY ) 	Then $aFileInfo[18] = 1
+	  If BitAND ( $aInfo[0], $FILE_ATTRIBUTE_OFFLINE ) 		Then $aFileInfo[19] = 1
+	  If BitAND ( $aInfo[0], $FILE_ATTRIBUTE_COMPRESSED ) 	Then $aFileInfo[20] = 1
+	  If BitAND ( $aInfo[0], $FILE_ATTRIBUTE_TEMPORARY ) 	Then $aFileInfo[21] = 1
+
+#cs
+	  ConsoleWrite('Attributes:    ' & $aInfo[0] & @CRLF)
+	  If BitAND ( $aInfo[0], $FILE_ATTRIBUTE_READONLY ) Then ConsoleWrite("R")
+	  If BitAND ( $aInfo[0], $FILE_ATTRIBUTE_ARCHIVE ) Then ConsoleWrite("A")
+	  If BitAND ( $aInfo[0], $FILE_ATTRIBUTE_SYSTEM ) Then ConsoleWrite("S")
+	  If BitAND ( $aInfo[0], $FILE_ATTRIBUTE_HIDDEN ) Then ConsoleWrite("H")
+	  If BitAND ( $aInfo[0], $FILE_ATTRIBUTE_NORMAL ) Then ConsoleWrite("N")
+	  If BitAND ( $aInfo[0], $FILE_ATTRIBUTE_DIRECTORY ) Then ConsoleWrite("D")
+	  If BitAND ( $aInfo[0], $FILE_ATTRIBUTE_OFFLINE ) Then ConsoleWrite("O")
+	  If BitAND ( $aInfo[0], $FILE_ATTRIBUTE_COMPRESSED ) Then ConsoleWrite("C")
+	  If BitAND ( $aInfo[0], $FILE_ATTRIBUTE_TEMPORARY ) Then ConsoleWrite("T")
+	  ConsoleWrite(@CRLF)
+#ce
+
+	  ;Manage file times
+	  For $i = 1 To 3
+		 If IsDllStruct($aInfo[$i]) Then
+			Local $tFILETIME = _Date_Time_FileTimeToLocalFileTime(DllStructGetPtr($aInfo[$i]))
+			$aInfo[$i] = _Date_Time_FileTimeToSystemTime(DllStructGetPtr($tFILETIME))
+			$aInfo[$i] = _Date_Time_SystemTimeToDateTimeStr($aInfo[$i],1)
+			$aInfo[$i] = StringReplace($aInfo[$i],"/","")
+			$aInfo[$i] = StringReplace($aInfo[$i]," ","")
+			$aInfo[$i] = StringReplace($aInfo[$i],":","")
+		 Else
+			$aInfo[$i] = ""
+		 EndIf
+	  Next
+	  $aFileInfo[5] = $aInfo[1]
+	  ;ConsoleWrite('Created:       ' & $aInfo[1] & @CRLF)
+	  $aFileInfo[6] = $aInfo[2]
+	  ;ConsoleWrite('Accessed:      ' & $aInfo[2] & @CRLF)
+	  $aFileInfo[4] = $aInfo[3]
+	  ;ConsoleWrite('Modified:      ' & $aInfo[3] & @CRLF)
+
+
+	  ;ConsoleWrite('Volume serial: ' & $aInfo[4] & @CRLF)
+	  ;ConsoleWrite('Size:          ' & $aInfo[5] & @CRLF)
+	  $FileSize = $aInfo[5]
+	  $aFileInfo[2] = $FileSize
+	  ;ConsoleWrite('Links:         ' & $aInfo[6] & @CRLF)
+	  ;ConsoleWrite('ID:            ' & $aInfo[7] & @CRLF)
+   Else
+	  ;unable to read file
+	  $aFileInfo[1] = 1
+   EndIf
+   _WinAPI_CloseHandle($hFile)
+
+
+
+   ; calculate checksums
+   if not $aFileInfo[18] Then
+	  ;it´s not a directory it´s a file, so md5 and crc32 DO work !
+
+	  ;read file and calculate md5 and crc32
+	  $FileHandle = 0
+	  $FileHandle = FileOpen($Filename, 16)
+	  if @error or $FileSize = 0 Then
+		 ;unable to open file or filesize is 0
+
+		 ;if filesize not 0 and we can not open the file something is fishy
+		 if $FileSize > 0 then $aFileInfo[1] = 1
+
+	  Else
+		 ; ### CRC32 + MD5###
+		 $CRC32 = 0
+		 $MD5CTX = _MD5Init()
+
+		 For $i = 1 To Ceiling($FileSize / $BufferSize)
+			$TempBuffer = FileRead($FileHandle, $BufferSize)
+			$CRC32 = _CRC32($TempBuffer, BitNot($CRC32))
+			_MD5Input($MD5CTX, $TempBuffer)
+		 Next
+
+		 $aFileInfo[9] = $CRC32
+		 $aFileInfo[10] = _MD5Result($MD5CTX)
+
+		 ;close file
+		 FileClose($FileHandle)
+	  EndIf
+   EndIf
+
+   $aFileInfo[7] = FileGetVersion($Filename)
+
+   $aFileInfo[8] = FileGetShortName($Filename)
+
+
+   ;End processing
+   $aFileInfo[11] = Round(TimerDiff($Timer))
+
+   return 0
+EndFunc
+
+
+Func Old_GetFileInfo( ByRef $aFileInfo, $Filename )
+
+   ;Retrieves all information about $Filename
+   ;--------------------------------------------
+
+#cs
    $aFileInfo[0]	;name
    $aFileInfo[1]	;file could not be read 1 else 0
    $aFileInfo[2]	;size
@@ -2715,6 +2934,7 @@ unterschiede zurückgeben
    Next
    $aFileInfo[10] = _MD5Result($MD5CTX)
 #ce
+
 
 
 
