@@ -62,7 +62,18 @@ Changelog
 			DoScan(), DoReport(): use GetRuleSetFromDB()
 3.1.1.0		GetFileInfo(): new version that uses _WinAPI_GetFileAttributes() for performance (kind of)
 			Old_GetFileInfo(): obsolete old version of GetFileInfo() that uses FileGetAttrib()
-
+3.2.0.0		DoScan(): iterate over directories not rules !
+			TreeClimber(): iterate over directories not rules !
+			IsClimbTargetByRule()
+			DoScanWithSecondProcess(), TreeClimberSecondProcess(), DoSecondProcess(): /scan now uses two processes
+			   1. get the filenames
+			   2. get the fileinformation and put it in the db
+			   better performance, but higher cpu usage
+			   second process is started with: @ScriptName /secondprocess DBNAME
+			   /scan-obsolete is the obsolete single process version of /scan
+			IsIncludedByRule(): ExcDirs moved from IncludeDirDataInDBByRule()
+			IncludeDirDataInDBByRule(): function is now obsolete because of IsClimbTargetByRule() and a fixed IsIncludedByRule()
+			OutputLineOfQueryResult(): all file attributes printed on one line
 #ce
 
 #cs
@@ -74,12 +85,15 @@ ToDo:
 	  obsolete - change name of DB field "status" to "valid"
 	  - DoDeleteScan() sanitize DB tables rules and filenames !
 	  - unused field "filedata.status" in DB
+	  - unused field "filedata.attributes" in DB
 	  - count directory entries and put the count in the DB
 	  done - email report via smtp
 	  done - redesign DB structure, so all name-strings are referenced with foreign keys etc. (DB size !)
 	  - report: ignore differences of certain fileinfos (size,mtime etc.)
 	  done - export scan data to csv
 	  - read directories in ONE pass and check ALL the rule on each file, not the other way round
+	  - record total scan time and save it in DB
+	  done - /scan2 use
 #ce
 
 
@@ -128,7 +142,7 @@ End
 ;Set file infos
 #pragma compile(FileDescription,"Spot The Difference")
 #pragma compile(ProductName,"Spot The Difference")
-#pragma compile(ProductVersion,"3.1.1.0")
+#pragma compile(ProductVersion,"3.2.0.0")
 ;Versioning: "Incompatible changes to DB"."new feature"."bug fix"."minor fix"
 #pragma compile(LegalCopyright,"Reinhard Dittmann")
 #pragma compile(InternalName,"STD")
@@ -146,6 +160,7 @@ End
 #include <StringConstants.au3>
 #include <WinAPIFiles.au3>
 #include <Date.au3>
+#include <Constants.au3>
 
 
 
@@ -382,7 +397,26 @@ select
 
 	  CloseDB()
 
-   Case $CmdLine[1] = "/scan"
+
+   Case $CmdLine[1] = "/secondprocess"
+	  if $CmdLine[0] < 2 then
+ 		 ShowHelp()
+		 exit (1)
+	  EndIf
+
+	  ;$sDBName = $CmdLine[2]
+
+	  OpenDB($CmdLine[2])
+
+	  DoSecondProcess()
+
+	  CloseDB()
+
+
+
+
+   Case $CmdLine[1] = "/scan-obsolete"
+	  ;obsolete scan with one process
 	  if $CmdLine[0] < 2 then
  		 ShowHelp()
 		 exit (1)
@@ -395,6 +429,23 @@ select
 	  DoScan()
 
 	  CloseDB()
+
+
+   Case $CmdLine[1] = "/scan"
+	  ;scan with two processes
+	  if $CmdLine[0] < 2 then
+ 		 ShowHelp()
+		 exit (1)
+	  EndIf
+
+	  ;$sDBName = $CmdLine[2]
+
+	  OpenDB($CmdLine[2])
+
+	  DoScanWithSecondProcess($CmdLine[2])
+
+	  CloseDB()
+
 
    Case $CmdLine[1] = "/report"
 
@@ -1164,34 +1215,215 @@ Func DoExportScan($sScanname,$sCSVFilename)
 EndFunc
 
 
+Func DoScanWithSecondProcess($sDBName)
+
+   ;generate a list with all the files and directories
+   ;we need to scan and sends them to the "Second Process"
+   ;that retrieves the file information and writes them
+   ;into database
+   ;------------------------------------------------
+
+   local $iRuleNr = 0					;rule number
+   local $i = 0							;counter
+   local $j = 0							;counter
+   local $iFound = False
+   Local $iPID = 0						;process id of second process
+   local $ScanTimer = TimerInit()
+
+   local $aAllIncDirs[1]				;all the root directries we have to include
+
+   GetRuleSetFromDB()
+
+   ;make a unique list ($aAllIncDirs) of only the top most dirs from the "IncDirRec:" and "IncDir:" statements in the ruleset
+
+   ;read every line in the ruleset
+   for $i=1 to UBound($aRuleSet,1)-1
+
+	  if $aRuleSet[$i][0] = "IncDirRec:" or $aRuleSet[$i][0] = "IncDir:" then
+		 $iFound = False
+
+		 for $j=1 To UBound($aAllIncDirs,1)-1
+			;ConsoleWrite(StringLeft($aAllIncDirs[$j],StringLen($aRuleSet[$i][1])) & @crlf & StringLeft($aRuleSet[$i][1],StringLen($aRuleSet[$i][1])) & @CRLF)
+			if StringLen($aAllIncDirs[$j]) >= StringLen($aRuleSet[$i][1]) and StringLeft($aAllIncDirs[$j],StringLen($aRuleSet[$i][1])) = StringLeft($aRuleSet[$i][1],StringLen($aRuleSet[$i][1])) then
+			   ;replace existing dir in $aAllIncDirs with a shorter, higher level dir in the same path
+			   ;here doublicate entries get into $aAllIncDirs
+			   $aAllIncDirs[$j] = $aRuleSet[$i][1]
+			   $iFound = True
+			ElseIf StringLen($aAllIncDirs[$j]) < StringLen($aRuleSet[$i][1]) and StringLeft($aAllIncDirs[$j],StringLen($aAllIncDirs[$j])) = StringLeft($aRuleSet[$i][1],StringLen($aAllIncDirs[$j])) then
+			   ;the dir in $aAllIncDirs is already a shorter and higher level dir in the same path as $aRuleSet[$i][1]
+			   $iFound = True
+			EndIf
+		 Next
+
+		 ;append new dir entry to $aAllIncDirs
+		 if $iFound = False then
+			redim $aAllIncDirs[UBound($aAllIncDirs,1)+1]
+			$aAllIncDirs[UBound($aAllIncDirs,1)-1] = $aRuleSet[$i][1]
+		 EndIf
+	  EndIf
+
+   Next
+   ;remove doublicates in $aAllIncDirs
+   $aAllIncDirs = _ArrayUnique($aAllIncDirs,1,0,0,0)
+
+   ;_ArrayDisplay($aAllIncDirs)
+
+   ;start the second process we send the filelist to
+   ;$iPID = Run( @scriptname & " /secondprocess " & $sDBName, @WorkingDir, @SW_MINIMIZE, $STDIN_CHILD + $RUN_CREATE_NEW_CONSOLE)
+   $iPID = Run( @scriptname & " /secondprocess " & $sDBName, @WorkingDir, @SW_MINIMIZE, $STDIN_CHILD)
+   if @error then Exit
+
+   ;process all dirs in $aAllIncDirs
+   for $i=1 to UBound($aAllIncDirs,1)-1
+	  ;ConsoleWrite($aAllIncDirs[$i] & @CRLF)
+	  TreeClimberSecondProcess($aAllIncDirs[$i],$iPID)
+   Next
+
+   StdioClose($iPID)
+   ;ConsoleWrite("Duration: " & Round(TimerDiff($ScanTimer)) & @CRLF)
+
+   $ScanTimer = Round(TimerDiff($ScanTimer))
+
+   ;wait for "second process" to end
+   ProcessWaitClose($iPID)
+
+   ConsoleWrite("List: " & $ScanTimer & @CRLF)
+EndFunc
+
+
 Func DoScan()
 
 
    local $iRuleNr = 0					;rule number
    local $i = 0							;counter
-
+   local $j = 0							;counter
+   local $iFound = False
    local $ScanTimer = TimerInit()
+
+   local $aAllIncDirs[1]				;all the root directries we have to include
 
    GetRuleSetFromDB()
 
    $sScantime = @YEAR & @MON & @MDAY & @HOUR & @MIN & @SEC
    $iScanId = GetScanIDFromDB($sScantime)
 
-   ;read every rule
-   for $iRuleNr = 1 to GetNumberOfRulesFromRuleSet()
-	  GetRuleFromRuleSet($iRuleNr)
 
-	  ;process rule
-	  for $i=1 to UBound($aRule,1)-1
+   ;make a unique list ($aAllIncDirs) of only the top most dirs from the "IncDirRec:" and "IncDir:" statements in the ruleset
 
-		 if $aRule[$i][0] = "IncDirRec:" then TreeClimber($aRule[$i][1],$aRule,True)
-		 if $aRule[$i][0] = "IncDir:" 	then TreeClimber($aRule[$i][1],$aRule,False)
+   ;read every line in the ruleset
+   for $i=1 to UBound($aRuleSet,1)-1
 
-	  Next
+	  if $aRuleSet[$i][0] = "IncDirRec:" or $aRuleSet[$i][0] = "IncDir:" then
+		 $iFound = False
 
+		 for $j=1 To UBound($aAllIncDirs,1)-1
+			;ConsoleWrite(StringLeft($aAllIncDirs[$j],StringLen($aRuleSet[$i][1])) & @crlf & StringLeft($aRuleSet[$i][1],StringLen($aRuleSet[$i][1])) & @CRLF)
+			if StringLen($aAllIncDirs[$j]) >= StringLen($aRuleSet[$i][1]) and StringLeft($aAllIncDirs[$j],StringLen($aRuleSet[$i][1])) = StringLeft($aRuleSet[$i][1],StringLen($aRuleSet[$i][1])) then
+			   ;replace existing dir in $aAllIncDirs with a shorter, higher level dir in the same path
+			   ;here doublicate entries get into $aAllIncDirs
+			   $aAllIncDirs[$j] = $aRuleSet[$i][1]
+			   $iFound = True
+			ElseIf StringLen($aAllIncDirs[$j]) < StringLen($aRuleSet[$i][1]) and StringLeft($aAllIncDirs[$j],StringLen($aAllIncDirs[$j])) = StringLeft($aRuleSet[$i][1],StringLen($aAllIncDirs[$j])) then
+			   ;the dir in $aAllIncDirs is already a shorter and higher level dir in the same path as $aRuleSet[$i][1]
+			   $iFound = True
+			EndIf
+		 Next
+
+		 ;append new dir entry to $aAllIncDirs
+		 if $iFound = False then
+			redim $aAllIncDirs[UBound($aAllIncDirs,1)+1]
+			$aAllIncDirs[UBound($aAllIncDirs,1)-1] = $aRuleSet[$i][1]
+		 EndIf
+	  EndIf
+
+   Next
+   ;remove doublicates in $aAllIncDirs
+   $aAllIncDirs = _ArrayUnique($aAllIncDirs,1,0,0,0)
+
+   ;_ArrayDisplay($aAllIncDirs)
+
+   ;process all dirs in $aAllIncDirs
+   for $i=1 to UBound($aAllIncDirs,1)-1
+	  ;ConsoleWrite($aAllIncDirs[$i] & @CRLF)
+	  TreeClimber($aAllIncDirs[$i],True)
    Next
 
    ConsoleWrite("Duration: " & Round(TimerDiff($ScanTimer)) & @CRLF)
+
+EndFunc
+
+
+Func DoSecondProcess()
+
+   ;read a list with all the files and directories
+   ;we need to scan from stdin and
+   ;retrieves the file information and writes them
+   ;into database
+   ;------------------------------------------------
+
+
+   local $sFullPath = ""				;directory or filename read from stdin
+   local $sInputBuffer = ""				;buffer for stdin
+   local $iRuleCounter = 0
+   local $iRuleCounterMax = 0
+   local $sTempText = ""
+   local $ScanTimer = TimerInit()
+
+   GetRuleSetFromDB()
+
+   ; how many rules are there in the ruleset
+   $iRuleCounterMax = GetNumberOfRulesFromRuleSet()
+
+
+   $sScantime = @YEAR & @MON & @MDAY & @HOUR & @MIN & @SEC
+   $iScanId = GetScanIDFromDB($sScantime)
+
+   while 1
+	  ;read every file or directory we have to put in the db form stdin
+	  ;a directory ends with \
+
+	  ;read a bunch of caracters from stdin into a buffer
+	  $sInputBuffer = $sInputBuffer & ConsoleRead()
+	  If @error and StringLen($sInputBuffer) = 0 Then ; Exit the loop if the process closes or StdoutRead returns an error and the buffer is empty
+		 ExitLoop
+	  EndIf
+	  if @extended then
+		 ;StringReplace($sInputBuffer,@CRLF,"")
+		 ;ConsoleWrite("** " & @extended & " ** " & $sTempText & @CRLF)
+		 While StringInStr($sInputBuffer,@CRLF) > 0
+
+			;read and empty the buffer line by line
+			$sFullPath = StringLeft($sInputBuffer,StringInStr($sInputBuffer,@CRLF)-1)
+
+			$sInputBuffer = StringTrimLeft($sInputBuffer,Stringlen($sFullPath)+2)
+
+			;get the file information
+			GetFileInfo($aFileInfo,$sFullPath)
+
+			; check all the rules on this file / directory
+			for $iRuleCounter = 1 to $iRuleCounterMax
+			   GetRuleFromRuleSet($iRuleCounter)
+
+			   if IsIncludedByRule($sFullPath,$aRule) then
+				  ;list every file or directory we scan - reading is NOT scanning !!!
+				  ;ConsoleWrite(GetRulename($aRule) & " : " & $sStartPath & "\" & $sFileName & @CRLF)
+				  $sTempText = GetRulename($aRule) & " : " & $sFullPath
+				  ;$sTempText = OEM2ANSI($sTempText) ; translate from OEM to ANSI
+				  ;DllCall('user32.dll','Int','OemToChar','str',$sTempText,'str','') ; translate from OEM to ANSI
+				  ConsoleWrite($sTempText & @CRLF)
+
+				  _SQLite_Exec(-1,"INSERT INTO filedata (scanid,ruleid,filenameid,status,size,attributes,mtime,ctime,atime,version,crc32,md5,ptime,rattrib,aattrib,sattrib,hattrib,nattrib,dattrib,oattrib,cattrib,tattrib)  values ('" & $iScanId & "', '" & GetRuleId($aRule) & "', '" & GetFilenameIDFromDB(_StringToHex($aFileInfo[0]),$aFileInfo[8]) & "','" & $aFileInfo[1] & "','" & $aFileInfo[2] & "','" & $aFileInfo[3] & "','" & $aFileInfo[4] & "','" & $aFileInfo[5] & "','" & $aFileInfo[6] & "','" & $aFileInfo[7] & "','" & $aFileInfo[9] & "','" & $aFileInfo[10] & "','" & $aFileInfo[11] & "','" & $aFileInfo[13] & "','" & $aFileInfo[14] & "','" & $aFileInfo[15] & "','" & $aFileInfo[16] & "','" & $aFileInfo[17] & "','" & $aFileInfo[18] & "','" & $aFileInfo[19] & "','" & $aFileInfo[20] & "','" & $aFileInfo[21] & "');")
+			   EndIf
+			Next
+		 WEnd
+	  Else
+		 ;no data in stdin, so let´s wait a bit
+		 ;ConsoleWrite("** idle **" & @CRLF)
+		 sleep(500)
+	  EndIf
+   WEnd
+
+   ConsoleWrite("Scan: " & Round(TimerDiff($ScanTimer)) & @CRLF)
 
 EndFunc
 
@@ -1928,7 +2160,6 @@ Func GetNumberOfRulesFromRuleSet()
 EndFunc
 
 
-
 Func GetRuleId(ByRef $aRule)
 
    ;get id of the rule
@@ -1985,7 +2216,6 @@ Func InsertStatementInRuleSet($iMode,$sStatement,$sCfgLine,$iRuleNr)
 EndFunc
 
 
-
 Func IsFilepropertyIgnoredByRule($sFileproperty,ByRef $aRule)
 
    ;determin if $sFileproperty is ignored by the current rule
@@ -2012,8 +2242,6 @@ Func IsFilepropertyIgnoredByRule($sFileproperty,ByRef $aRule)
 
    Return $iIsIgnored
 EndFunc
-
-
 
 
 Func IncludeDirDataInDBByRule(ByRef $aRule)
@@ -2084,6 +2312,7 @@ Func IsIncludedByRule($PathOrFile,ByRef $aRule)
 	  IncAll					;all files, no matter what the extention is aka *.*
 	  ExcExe					;no executable files, no matter what the extention is
 	  ExcAll					;no files, no matter what the extention is aka *.*, only directories
+	  ExcDirs
 	  End
    #ce
 
@@ -2152,6 +2381,8 @@ Func IsIncludedByRule($PathOrFile,ByRef $aRule)
 			if StringLeft($PathOrFile,stringlen($aRule[$i][1] & "\")) = $aRule[$i][1] & "\" then $iIsIncluded = False
 		 case $aRule[$i][0] = "ExcDir:"
 			if StringLeft($PathOrFile,stringlen($aRule[$i][1] & "\")) = $aRule[$i][1] & "\" And not StringInStr(StringReplace(StringLower($PathOrFile),StringLower($aRule[$i][1] & "\"),""),"\") then $iIsIncluded = False
+		 case $aRule[$i][0] = "ExcDirs"
+			if StringRight($PathOrFile,1) = "\" then $iIsIncluded = False
 		 case Else
 	  EndSelect
    Next
@@ -2182,6 +2413,69 @@ Func IsIncludedByRule($PathOrFile,ByRef $aRule)
    ;if $iIsIncluded then ConsoleWrite($iIsIncluded & " " & $PathOrFile & @crlf)
 
    Return $iIsIncluded
+EndFunc
+
+
+Func IsClimbTargetByRule($sPath,ByRef $aRule)
+
+   ;determin if $sPath satisfy the current rule as a climb target
+   ;--------------------------------------------------
+
+   ;$sPath is a directory with a \ at the ende !
+
+   #cs
+	  file format config.cfg
+
+	  Rule:RULENAME				;name of rule
+	  IncDirRec:PATH			;directory to include, including all subdirectories
+	  ExcDirRec:PATH			;directory to exclude, including all subdirectories
+	  IncDir:PATH				;directory to include, only this directory
+	  ExcDir:PATH				;directory to exclude, only this directory
+	  IncExt:FILEEXTENTION		;file extention to include
+	  ExcExt:FILEEXTENTION		;file extention to exclude
+	  IncExe					;all executable files, no matter what the extention is
+	  IncAll					;all files, no matter what the extention is aka *.*
+	  ExcExe					;no executable files, no matter what the extention is
+	  ExcAll					;no files, no matter what the extention is aka *.*, only directories
+	  End
+   #ce
+
+   local $iIsClimbTarget = False
+   local $i = 0
+   local $iMax = 0
+
+   ;strip leading and trailing " from directories
+   $sPath = StringReplace($sPath,"""","")
+
+   ;include directory command
+   $iMax = UBound($aRule,1)-1
+
+   for $i = 1 to $iMax
+	  Select
+		 case $aRule[$i][0] = "IncDirRec:"
+			if StringLeft($sPath,stringlen($aRule[$i][1] & "\")) = $aRule[$i][1] & "\" then $iIsClimbTarget = True
+		 case $aRule[$i][0] = "IncDir:"
+			if StringLeft($sPath,stringlen($aRule[$i][1] & "\")) = $aRule[$i][1] & "\" And Not StringInStr(StringReplace(StringLower($sPath),StringLower($aRule[$i][1] & "\"),""),"\") then $iIsClimbTarget = True
+		 case Else
+	  EndSelect
+   Next
+
+
+   ;exclude directory command
+   $iMax = UBound($aRule,1)-1
+   for $i = 1 to $iMax
+	  ;$aRule[$i][0]
+	  ;$aRule[$i][1]
+	  Select
+		 case $aRule[$i][0] = "ExcDirRec:"
+			if StringLeft($sPath,stringlen($aRule[$i][1] & "\")) = $aRule[$i][1] & "\" then $iIsClimbTarget = False
+		 case $aRule[$i][0] = "ExcDir:"
+			if StringLeft($sPath,stringlen($aRule[$i][1] & "\")) = $aRule[$i][1] & "\" And not StringInStr(StringReplace(StringLower($sPath),StringLower($aRule[$i][1] & "\"),""),"\") then $iIsClimbTarget = False
+		 case Else
+	  EndSelect
+   Next
+
+   Return $iIsClimbTarget
 EndFunc
 
 
@@ -2222,6 +2516,7 @@ Func OutputLineOfQueryResult(ByRef $aQueryResult,$ReportFilename)
 
 
    local $aDesc[] = ["scantime","name","status","size","attributes","mtime","ctime","atime","version","spath","crc32","md5","ptime","rulename","rattrib","aattrib","sattrib","hattrib","nattrib","dattrib","oattrib","cattrib","tattrib"]
+   local $aAttribDesc[] = ["r","a","s","h","n","d","o","c","t"]
    local $i = 0
    local $sTempOld = ""
    local $sTempNew = ""
@@ -2242,7 +2537,7 @@ Func OutputLineOfQueryResult(ByRef $aQueryResult,$ReportFilename)
    FileWriteLine($ReportFilename,StringFormat("%-15s %1s %35s %-35s","","","expected","observed"))
    FileWriteLine($ReportFilename,StringFormat("%-15s %1s %35s %-35s",$aDesc[$i] & ":"," ",$sTempOld,$sTempNew))
 
-   for $i = 2 to 22
+   for $i = 2 to 13
 	  $sTempOld = ""
 	  $sTempNew = ""
 	  $sTempOld = $aQueryResult[$i]
@@ -2272,6 +2567,24 @@ Func OutputLineOfQueryResult(ByRef $aQueryResult,$ReportFilename)
 
    Next
 
+
+   ;attributes
+   $sTempOld = ""
+   $sTempNew = ""
+   for $i = 14 to 22
+	  if $aQueryResult[$i] = 1 then $sTempOld &= StringUpper($aAttribDesc[$i - 14])
+	  if $aQueryResult[$i + 23] = 1 then $sTempNew &= StringUpper($aAttribDesc[$i - 14])
+   Next
+   if $sTempOld = "" then $sTempOld = "-"
+   if $sTempNew = "" then $sTempNew = "-"
+
+   if $sTempOld = $sTempNew or $sTempOld = "-" or $sTempNew = "-" Then
+	  FileWriteLine($ReportFilename,StringFormat("%-15s %1s %35s %-35s","attributes" & ":"," ",$sTempOld,$sTempNew))
+   Else
+	  FileWriteLine($ReportFilename,StringFormat("%-15s %1s %35s %-35s","attributes" & ":","*",$sTempOld,$sTempNew))
+   EndIf
+
+
    $sTempOld = ""
    $sTempNew = ""
    $sTempOld = $aQueryResult[9]
@@ -2294,7 +2607,7 @@ Func OutputLineOfQueryResult(ByRef $aQueryResult,$ReportFilename)
 EndFunc
 
 
-Func TreeClimber($sStartPath,ByRef $aRule,$iScanSubdirs)
+Func TreeClimberSecondProcess($sStartPath,$iPID)
 
    ;read any directory entry in $sStartPath and its subdirectories
    ;and scan according to %aRule
@@ -2302,17 +2615,19 @@ Func TreeClimber($sStartPath,ByRef $aRule,$iScanSubdirs)
 
    Local $iScanFile = False
    Local $iIsDirectory = False
+   Local $iIsClimbTarget = False
    Local $sTempText = ""
    Local $iFilenameId = 0
    Local $sFullPath = ""
 
+   local $iRuleCounter = 0
+   local $iRuleCounterMax = 0
+
    ;abort if $sStartPath is not valid (does not exist)
    if not FileExists($sStartPath) Then Return False
 
-   ;if StringRight($sStartPath,1) = "\" then $sStartPath = StringTrimRight($sStartPath,1)
-
    ;list every directory we are reading - reading is NOT scanning !!!
-   ;ConsoleWrite(GetRulename($aRule) & " : " & $sStartPath & @CRLF)
+   ;ConsoleWrite("TreeClimber: " & $sStartPath & @CRLF)
 
    ; Assign a Local variable the search handle of all files in the current directory.
    Local $hSearch = FileFindFirstFile($sStartPath & "\*.*")
@@ -2323,6 +2638,10 @@ Func TreeClimber($sStartPath,ByRef $aRule,$iScanSubdirs)
 	  ;MsgBox($MB_SYSTEMMODAL, "", "Error: No files/directories matched the search pattern.")
 	  Return False
    EndIf
+
+   ; how many rules are there in the ruleset
+   $iRuleCounterMax = GetNumberOfRulesFromRuleSet()
+   ;ConsoleWrite("TreeClimber: " & $iRuleCounterMax & @CRLF)
 
    ; Assign a Local variable the empty string which will contain the files names found.
    Local $sFileName = ""
@@ -2338,52 +2657,180 @@ Func TreeClimber($sStartPath,ByRef $aRule,$iScanSubdirs)
 
 	  $sFullPath = $sStartPath & "\" & $sFileName
 
-	  ;climb to subdirectory if directory entry is directory AND subdirectories should be scanned
-	  ;MsgBox(0,"Recursiv",StringInStr(FileGetAttrib($sStartPath & "\" & $sFileName),"D") & @crlf & $iScanSubdirs)
-	  ;if 0 < StringInStr(FileGetAttrib($sStartPath & "\" & $sFileName),"D") and $iScanSubdirs = True Then
-	  if $iIsDirectory and $iScanSubdirs Then
-		 if IsIncludedByRule($sFullPath & "\",$aRule) then TreeClimber($sFullPath,$aRule,True)
-	  EndIf
 
-	  ;msgbox(0,"Aktueller Pfad",$sStartPath & "\" & $sFileName)
-	  ;ConsoleWrite($sStartPath & "\" & $sFileName & @CRLF)
-
-	  ;if IsExecutable($sStartPath & "\" & $sFileName) then $iScanFile = True
-	  ;check if current directory entry should be scanned according to the current rule
+	  ;climb the directory tree downward if needed
 	  if $iIsDirectory Then
+		 $iIsClimbTarget = False
+		 for $iRuleCounter = 1 to $iRuleCounterMax
+			GetRuleFromRuleSet($iRuleCounter)
+			;_ArrayDisplay($aRule)
+			;ConsoleWrite("TreeClimber: " & $sFullPath & "\" & " : " & $iIsClimbTarget & @CRLF)
+			if IsClimbTargetByRule($sFullPath & "\",$aRule) then
+			   $iIsClimbTarget = True
+			EndIf
+		 Next
 
-		 ;it is a directory
-		 if IsIncludedByRule($sFullPath & "\",$aRule) then $iScanFile = True
-	  Else
-
-		 ;it is a file
-		 if IsIncludedByRule($sFullPath,$aRule) then $iScanFile = True
+		 if $iIsClimbTarget Then TreeClimberSecondProcess($sFullPath,$iPID)
 	  EndIf
 
-	  ;MsgBox(0,"Test",$sFileName & @CRLF & $iScanFile)
+	  ; check all the rules on this file / directory
+	  for $iRuleCounter = 1 to $iRuleCounterMax
+		 GetRuleFromRuleSet($iRuleCounter)
+
+		 ;check if current directory entry should be scanned according to the current rule
+		 if $iIsDirectory Then
+			;it is a directory
+			if IsIncludedByRule($sFullPath & "\",$aRule) then
+			   $iScanFile = True
+			   ExitLoop
+			EndIf
+		 Else
+			;it is a file
+			if IsIncludedByRule($sFullPath,$aRule) then
+			   $iScanFile = True
+			   ExitLoop
+			EndIf
+		 EndIf
+	  Next
+
+
+
+	  ;write $sFullPath to stdin of second process
+	  if $iScanFile then
+
+		 ;ConsoleWrite($sFullPath & @CRLF)
+		 if $iIsDirectory Then
+			StdinWrite($iPID,$sFullPath & "\" & @CRLF)
+			if @error then Exit
+		 Else
+			StdinWrite($iPID,$sFullPath & @CRLF)
+			if @error then Exit
+		 EndIf
+	  EndIf
+   WEnd
+
+   ; Close the search handle.
+   FileClose($hSearch)
+
+EndFunc
+
+
+Func TreeClimber($sStartPath,$iScanSubdirs)
+
+   ;read any directory entry in $sStartPath and its subdirectories
+   ;and scan according to %aRule
+   ;-------------------------------------------------------------
+
+   Local $iScanFile = False
+   Local $iIsDirectory = False
+   Local $iIsClimbTarget = False
+   Local $sTempText = ""
+   Local $iFilenameId = 0
+   Local $sFullPath = ""
+
+   local $iRuleCounter = 0
+   local $iRuleCounterMax = 0
+
+   ;abort if $sStartPath is not valid (does not exist)
+   if not FileExists($sStartPath) Then Return False
+
+   ;list every directory we are reading - reading is NOT scanning !!!
+   ;ConsoleWrite("TreeClimber: " & $sStartPath & @CRLF)
+
+   ; Assign a Local variable the search handle of all files in the current directory.
+   Local $hSearch = FileFindFirstFile($sStartPath & "\*.*")
+
+
+   ; Check if the search was successful, if not display a message and return False.
+   If $hSearch = -1 Then
+	  ;MsgBox($MB_SYSTEMMODAL, "", "Error: No files/directories matched the search pattern.")
+	  Return False
+   EndIf
+
+   ; how many rules are there in the ruleset
+   $iRuleCounterMax = GetNumberOfRulesFromRuleSet()
+   ;ConsoleWrite("TreeClimber: " & $iRuleCounterMax & @CRLF)
+
+   ; Assign a Local variable the empty string which will contain the files names found.
+   Local $sFileName = ""
+
+   While 1
+	  $iScanFile = False
+	  $iIsDirectory = False
+
+	  $sFileName = FileFindNextFile($hSearch)
+	  ; If there is no more file matching the search.
+	  If @error Then ExitLoop
+	  if @extended then $iIsDirectory = True
+
+	  $sFullPath = $sStartPath & "\" & $sFileName
+
+
+	  ;climb the directory tree downward if needed
+	  if $iIsDirectory Then
+		 $iIsClimbTarget = False
+		 for $iRuleCounter = 1 to $iRuleCounterMax
+			GetRuleFromRuleSet($iRuleCounter)
+			;_ArrayDisplay($aRule)
+			;ConsoleWrite("TreeClimber: " & $sFullPath & "\" & " : " & $iIsClimbTarget & @CRLF)
+			if IsClimbTargetByRule($sFullPath & "\",$aRule) then
+			   $iIsClimbTarget = True
+			EndIf
+		 Next
+
+		 if $iIsClimbTarget Then TreeClimber($sFullPath,True)
+	  EndIf
+
+	  ; check all the rules on this file / directory
+	  for $iRuleCounter = 1 to $iRuleCounterMax
+		 GetRuleFromRuleSet($iRuleCounter)
+
+		 ;check if current directory entry should be scanned according to the current rule
+		 if $iIsDirectory Then
+			;it is a directory
+			if IsIncludedByRule($sFullPath & "\",$aRule) then
+			   $iScanFile = True
+			   ExitLoop
+			EndIf
+		 Else
+			;it is a file
+			if IsIncludedByRule($sFullPath,$aRule) then
+			   $iScanFile = True
+			   ExitLoop
+			EndIf
+		 EndIf
+	  Next
+
+
 
 	  ;scan directory entry (get file information) and put it in the database
 	  if $iScanFile then
-		 ;list every file or directory we scan - reading is NOT scanning !!!
-		 ;ConsoleWrite(GetRulename($aRule) & " : " & $sStartPath & "\" & $sFileName & @CRLF)
-		 $sTempText = GetRulename($aRule) & " : " & $sFullPath
-		 ;$sTempText = OEM2ANSI($sTempText) ; translate from OEM to ANSI
-		 ;DllCall('user32.dll','Int','OemToChar','str',$sTempText,'str','') ; translate from OEM to ANSI
-		 ConsoleWrite($sTempText & @CRLF)
-
+		 ;get the file information
 		 GetFileInfo($aFileInfo,$sFullPath)
-		 ;if 0 < StringInStr($aFileInfo[3],"D") and not IncludeDirDataInDBByRule($aRule) Then
-		 if $iIsDirectory and not IncludeDirDataInDBByRule($aRule) Then
-			;its a directory and the rule doesn´t want directory infos in the DB
-		 Else
 
-			_SQLite_Exec(-1,"INSERT INTO filedata (scanid,ruleid,filenameid,status,size,attributes,mtime,ctime,atime,version,crc32,md5,ptime,rattrib,aattrib,sattrib,hattrib,nattrib,dattrib,oattrib,cattrib,tattrib)  values ('" & $iScanId & "', '" & GetRuleId($aRule) & "', '" & GetFilenameIDFromDB(_StringToHex($aFileInfo[0]),$aFileInfo[8]) & "','" & $aFileInfo[1] & "','" & $aFileInfo[2] & "','" & $aFileInfo[3] & "','" & $aFileInfo[4] & "','" & $aFileInfo[5] & "','" & $aFileInfo[6] & "','" & $aFileInfo[7] & "','" & $aFileInfo[9] & "','" & $aFileInfo[10] & "','" & $aFileInfo[11] & "','" & $aFileInfo[13] & "','" & $aFileInfo[14] & "','" & $aFileInfo[15] & "','" & $aFileInfo[16] & "','" & $aFileInfo[17] & "','" & $aFileInfo[18] & "','" & $aFileInfo[19] & "','" & $aFileInfo[20] & "','" & $aFileInfo[21] & "');")
-			;_SQLite_Exec(-1,"INSERT INTO files(scantime,name,status,size,attributes,mtime,ctime,atime,version,spath,crc32,md5,ptime,rulename) values ('" & $sScantime & "','" & _StringToHex($aFileInfo[0]) & "','" & $aFileInfo[1] & "','" & $aFileInfo[2] & "','" & $aFileInfo[3] & "','" & $aFileInfo[4] & "','" & $aFileInfo[5] & "','" & $aFileInfo[6] & "','" & $aFileInfo[7] & "','" & $aFileInfo[8] & "','" & $aFileInfo[9] & "','" & $aFileInfo[10] & "','" & $aFileInfo[11] & "','" & $aRule[1][1] & "');")
+		 ; check all the rules on this file / directory
+		 for $iRuleCounter = 1 to $iRuleCounterMax
+			GetRuleFromRuleSet($iRuleCounter)
 
-		 EndIf
+			if IsIncludedByRule($sFullPath,$aRule) then
+			   ;list every file or directory we scan - reading is NOT scanning !!!
+			   ;ConsoleWrite(GetRulename($aRule) & " : " & $sStartPath & "\" & $sFileName & @CRLF)
+			   $sTempText = GetRulename($aRule) & " : " & $sFullPath
+			   ;$sTempText = OEM2ANSI($sTempText) ; translate from OEM to ANSI
+			   ;DllCall('user32.dll','Int','OemToChar','str',$sTempText,'str','') ; translate from OEM to ANSI
+			   ConsoleWrite($sTempText & @CRLF)
+
+#cs
+			   if $iIsDirectory and not IncludeDirDataInDBByRule($aRule) Then
+				  ;its a directory and the rule doesn´t want directory infos in the DB
+			   Else
+				  _SQLite_Exec(-1,"INSERT INTO filedata (scanid,ruleid,filenameid,status,size,attributes,mtime,ctime,atime,version,crc32,md5,ptime,rattrib,aattrib,sattrib,hattrib,nattrib,dattrib,oattrib,cattrib,tattrib)  values ('" & $iScanId & "', '" & GetRuleId($aRule) & "', '" & GetFilenameIDFromDB(_StringToHex($aFileInfo[0]),$aFileInfo[8]) & "','" & $aFileInfo[1] & "','" & $aFileInfo[2] & "','" & $aFileInfo[3] & "','" & $aFileInfo[4] & "','" & $aFileInfo[5] & "','" & $aFileInfo[6] & "','" & $aFileInfo[7] & "','" & $aFileInfo[9] & "','" & $aFileInfo[10] & "','" & $aFileInfo[11] & "','" & $aFileInfo[13] & "','" & $aFileInfo[14] & "','" & $aFileInfo[15] & "','" & $aFileInfo[16] & "','" & $aFileInfo[17] & "','" & $aFileInfo[18] & "','" & $aFileInfo[19] & "','" & $aFileInfo[20] & "','" & $aFileInfo[21] & "');")
+			   EndIf
+#ce
+			   _SQLite_Exec(-1,"INSERT INTO filedata (scanid,ruleid,filenameid,status,size,attributes,mtime,ctime,atime,version,crc32,md5,ptime,rattrib,aattrib,sattrib,hattrib,nattrib,dattrib,oattrib,cattrib,tattrib)  values ('" & $iScanId & "', '" & GetRuleId($aRule) & "', '" & GetFilenameIDFromDB(_StringToHex($aFileInfo[0]),$aFileInfo[8]) & "','" & $aFileInfo[1] & "','" & $aFileInfo[2] & "','" & $aFileInfo[3] & "','" & $aFileInfo[4] & "','" & $aFileInfo[5] & "','" & $aFileInfo[6] & "','" & $aFileInfo[7] & "','" & $aFileInfo[9] & "','" & $aFileInfo[10] & "','" & $aFileInfo[11] & "','" & $aFileInfo[13] & "','" & $aFileInfo[14] & "','" & $aFileInfo[15] & "','" & $aFileInfo[16] & "','" & $aFileInfo[17] & "','" & $aFileInfo[18] & "','" & $aFileInfo[19] & "','" & $aFileInfo[20] & "','" & $aFileInfo[21] & "');")
+			EndIf
+		 Next
 	  EndIf
-
-
    WEnd
 
    ; Close the search handle.
