@@ -41,6 +41,12 @@ Changelog
 			OutputLineOfQueryResult(): if filesize is greater 0 and the file can not be read, then set file status  = 1
 2.1.0.0		OpenDB(): create db index for path and fileinfo
 2.1.0.1		close all _SQLite_Query() with _SQLite_QueryFinalize()
+2.1.0.2		DoReport(): replace views with temporary tables for performance reasons
+			DoReport(), OutputLineOfQueryResult(): replace "valid" from scan.valid with "status" from filedata.status in report
+			OpenDB(): remove unnecessary db index on table filedata
+			TreeClimber(): remove 2x FileGetAttrib() in inner loop and use @extended of FileFindNextFile() instead
+			TreeClimber(): code cleanup
+			GetFileInfo(): increase buffersize for CRC and md5
 
 #ce
 
@@ -107,7 +113,7 @@ End
 ;Set file infos
 #pragma compile(FileDescription,"Spot The Difference")
 #pragma compile(ProductName,"Spot The Difference")
-#pragma compile(ProductVersion,"2.1.0.1")
+#pragma compile(ProductVersion,"2.1.0.2")
 ;Versioning: "Incompatible changes to DB"."new feature"."bug fix"."minor fix"
 #pragma compile(LegalCopyright,"Reinhard Dittmann")
 #pragma compile(InternalName,"STD")
@@ -443,7 +449,10 @@ Func DoReport($ReportFilename)
    $sTempSQL = "SELECT "
    $sTempSQL &= "scans.scantime,"
    $sTempSQL &= "filenames.path,"
-   $sTempSQL &= "scans.valid,"
+
+   ;$sTempSQL &= "scans.valid,"
+   $sTempSQL &= "filedata.status,"
+
    $sTempSQL &= "filedata.size,"
    $sTempSQL &= "filedata.attributes,"
    $sTempSQL &= "filedata.mtime,"
@@ -478,8 +487,8 @@ Func DoReport($ReportFilename)
    ;check
 
    ;drop old views
-   _SQLite_Exec(-1,"DROP VIEW IF EXISTS scanold;")
-   _SQLite_Exec(-1,"DROP VIEW IF EXISTS scannew;")
+   ;_SQLite_Exec(-1,"DROP VIEW IF EXISTS scanold;")
+   ;_SQLite_Exec(-1,"DROP VIEW IF EXISTS scannew;")
 
 
 
@@ -512,8 +521,12 @@ Func DoReport($ReportFilename)
 	  ;_SQLite_Exec(-1,"create view if not exists scannew as select * from files where scantime='" & $sScannameNew & "';")
 	  ;_SQLite_Exec(-1,"create view if not exists scanold as select * from files where scantime='" & $sScannameOld & "';")
 
-	  _SQLite_Exec(-1,"create view if not exists scannew as " & $sTempSQL & " AND scans.scantime = '" & $sScannameNew & "';")
-	  _SQLite_Exec(-1,"create view if not exists scanold as " & $sTempSQL & " AND scans.scantime = '" & $sScannameOld & "';")
+	  ;_SQLite_Exec(-1,"create view if not exists scannew as " & $sTempSQL & " AND scans.scantime = '" & $sScannameNew & "';")
+	  ;_SQLite_Exec(-1,"create view if not exists scanold as " & $sTempSQL & " AND scans.scantime = '" & $sScannameOld & "';")
+
+	  _SQLite_Exec(-1,"CREATE TEMPORARY TABLE scannew as " & $sTempSQL & " AND scans.scantime = '" & $sScannameNew & "';")
+	  _SQLite_Exec(-1,"CREATE TEMPORARY TABLE scanold as " & $sTempSQL & " AND scans.scantime = '" & $sScannameOld & "';")
+
 
 
 	  ;SELECT scantime,rulename FROM files where scantime = '20160514212002' group by rulename order by rulename asc;
@@ -538,7 +551,7 @@ Func DoReport($ReportFilename)
 			$hQuery = 0
 			$iTempCount = 0
 			;_SQLite_Query(-1, "SELECT scannew.rulename,count(scannew.rulename) FROM scannew,scanold WHERE scannew.path = scanold.path and scannew.rulename = scanold.rulename and scannew.rulename = '" & $aRulenames[$i] & "' and (scannew.size <> scanold.size or scannew.attributes <> scanold.attributes or scannew.mtime <> scanold.mtime or scannew.ctime <> scanold.ctime or scannew.atime <> scanold.atime or scannew.version <> scanold.version or scannew.spath <> scanold.spath or scannew.crc32 <> scanold.crc32 or scannew.md5 <> scanold.md5);",$hQuery)
-			_SQLite_Query(-1, "SELECT scannew.rulename,count(scannew.rulename) FROM scannew,scanold WHERE scannew.path = scanold.path and scannew.rulename = scanold.rulename and scannew.rulename = '" & $aRulenames[$i] & "' and (scannew.size <> scanold.size or scannew.attributes <> scanold.attributes or scannew.mtime <> scanold.mtime or scannew.ctime <> scanold.ctime or scannew.version <> scanold.version or scannew.spath <> scanold.spath or scannew.crc32 <> scanold.crc32 or scannew.md5 <> scanold.md5);",$hQuery)
+			_SQLite_Query(-1, "SELECT scannew.rulename,count(scannew.rulename) FROM scannew,scanold WHERE scannew.path = scanold.path and scannew.rulename = scanold.rulename and scannew.rulename = '" & $aRulenames[$i] & "' and (scannew.status <> scanold.status or scannew.size <> scanold.size or scannew.attributes <> scanold.attributes or scannew.mtime <> scanold.mtime or scannew.ctime <> scanold.ctime or scannew.version <> scanold.version or scannew.spath <> scanold.spath or scannew.crc32 <> scanold.crc32 or scannew.md5 <> scanold.md5);",$hQuery)
 			While _SQLite_FetchData($hQuery, $aQueryResult) = $SQLITE_OK
 			   ;_ArrayDisplay($aQueryResult)
 			   ;OutputLineOfQueryResultSummary($aQueryResult,$ReportFilename)
@@ -586,7 +599,7 @@ Func DoReport($ReportFilename)
 			;return scan differences
 			$aQueryResult = 0
 			$hQuery = 0
-			_SQLite_Query(-1, "SELECT scannew.path FROM scannew,scanold WHERE scannew.path = scanold.path and scannew.rulename = scanold.rulename and scannew.rulename = '" & $aRulenames[$i] & "' and (scannew.size <> scanold.size or scannew.attributes <> scanold.attributes or scannew.mtime <> scanold.mtime or scannew.ctime <> scanold.ctime or scannew.atime <> scanold.atime or scannew.version <> scanold.version or scannew.spath <> scanold.spath or scannew.crc32 <> scanold.crc32 or scannew.md5 <> scanold.md5);",$hQuery)
+			_SQLite_Query(-1, "SELECT scannew.path FROM scannew,scanold WHERE scannew.path = scanold.path and scannew.rulename = scanold.rulename and scannew.rulename = '" & $aRulenames[$i] & "' and (scannew.status <> scanold.status or scannew.size <> scanold.size or scannew.attributes <> scanold.attributes or scannew.mtime <> scanold.mtime or scannew.ctime <> scanold.ctime or scannew.atime <> scanold.atime or scannew.version <> scanold.version or scannew.spath <> scanold.spath or scannew.crc32 <> scanold.crc32 or scannew.md5 <> scanold.md5);",$hQuery)
 			While _SQLite_FetchData($hQuery, $aQueryResult) = $SQLITE_OK
 			   ;OutputLineOfQueryResult($aQueryResult,$ReportFilename)
 			   FileWriteLine($ReportFilename,StringFormat("%-8s : %s","changed",_HexToString($aQueryResult[0])))
@@ -623,7 +636,7 @@ Func DoReport($ReportFilename)
 			;return scan differences
 			$aQueryResult = 0
 			$hQuery = 0
-			_SQLite_Query(-1, "SELECT scanold.*,scannew.* FROM scannew,scanold WHERE scannew.path = scanold.path and scannew.rulename = scanold.rulename and scannew.rulename = '" & $aRulenames[$i] & "' and (scannew.size <> scanold.size or scannew.attributes <> scanold.attributes or scannew.mtime <> scanold.mtime or scannew.ctime <> scanold.ctime or scannew.atime <> scanold.atime or scannew.version <> scanold.version or scannew.spath <> scanold.spath or scannew.crc32 <> scanold.crc32 or scannew.md5 <> scanold.md5);",$hQuery)
+			_SQLite_Query(-1, "SELECT scanold.*,scannew.* FROM scannew,scanold WHERE scannew.path = scanold.path and scannew.rulename = scanold.rulename and scannew.rulename = '" & $aRulenames[$i] & "' and (scannew.status <> scanold.status or scannew.size <> scanold.size or scannew.attributes <> scanold.attributes or scannew.mtime <> scanold.mtime or scannew.ctime <> scanold.ctime or scannew.atime <> scanold.atime or scannew.version <> scanold.version or scannew.spath <> scanold.spath or scannew.crc32 <> scanold.crc32 or scannew.md5 <> scanold.md5);",$hQuery)
 			While _SQLite_FetchData($hQuery, $aQueryResult) = $SQLITE_OK
 			   OutputLineOfQueryResult($aQueryResult,$ReportFilename)
 			WEnd
@@ -650,8 +663,8 @@ Func DoReport($ReportFilename)
 	  EndIf
 
 	  ;drop old views
-	  _SQLite_Exec(-1,"DROP VIEW IF EXISTS scanold;")
-	  _SQLite_Exec(-1,"DROP VIEW IF EXISTS scannew;")
+	  ;_SQLite_Exec(-1,"DROP VIEW IF EXISTS scanold;")
+	  ;_SQLite_Exec(-1,"DROP VIEW IF EXISTS scannew;")
 
    EndIf
 
@@ -1722,7 +1735,7 @@ Func OpenDB($sDBName)
 
    ;_SQLite_Exec(-1,"CREATE INDEX IF NOT EXISTS config_index ON config (linenumber);")
    _SQLite_Exec(-1,"CREATE INDEX IF NOT EXISTS filenames_path ON filenames (path);")
-   _SQLite_Exec(-1,"CREATE INDEX IF NOT EXISTS filedata_pk ON filedata (scanid,ruleid,filenameid);")
+   ;_SQLite_Exec(-1,"CREATE INDEX IF NOT EXISTS filedata_pk ON filedata (scanid,ruleid,filenameid);")
 
    Return True
 EndFunc
@@ -1911,7 +1924,8 @@ Func OutputLineOfQueryResult(ByRef $aQueryResult,$ReportFilename)
    ;     old                                 0   1      2     3       4        5     6    7      8     9      10   11  12      13
    ;     new                                 14  15     16    17      18       19    20   21     22    23     24   25  26      27
 
-   local $aDesc[] = ["scantime","name","valid","size","attributes","mtime","ctime","atime","version","spath","crc32","md5","ptime","rulename"]
+   ;local $aDesc[] = ["scantime","name","valid","size","attributes","mtime","ctime","atime","version","spath","crc32","md5","ptime","rulename"]
+   local $aDesc[] = ["scantime","name","status","size","attributes","mtime","ctime","atime","version","spath","crc32","md5","ptime","rulename"]
    local $i = 0
    local $sTempOld = ""
    local $sTempNew = ""
@@ -1982,26 +1996,28 @@ Func OutputLineOfQueryResult(ByRef $aQueryResult,$ReportFilename)
 EndFunc
 
 
-Func TreeClimber($StartPath,ByRef $aRule,$iScanSubdirs)
+Func TreeClimber($sStartPath,ByRef $aRule,$iScanSubdirs)
 
-   ;read any directory entry in $StartPath and its subdirectories
+   ;read any directory entry in $sStartPath and its subdirectories
    ;and scan according to %aRule
    ;-------------------------------------------------------------
 
    Local $iScanFile = False
+   Local $iIsDirectory = False
    Local $sTempText = ""
    Local $iFilenameId = 0
+   Local $sFullPath = ""
 
-   ;abort if $StartPath is not valid (does not exist)
-   if not FileExists($StartPath) Then Return False
+   ;abort if $sStartPath is not valid (does not exist)
+   if not FileExists($sStartPath) Then Return False
 
-   ;if StringRight($StartPath,1) = "\" then $StartPath = StringTrimRight($StartPath,1)
+   ;if StringRight($sStartPath,1) = "\" then $sStartPath = StringTrimRight($sStartPath,1)
 
    ;list every directory we are reading - reading is NOT scanning !!!
-   ;ConsoleWrite(GetRulename($aRule) & " : " & $StartPath & @CRLF)
+   ;ConsoleWrite(GetRulename($aRule) & " : " & $sStartPath & @CRLF)
 
    ; Assign a Local variable the search handle of all files in the current directory.
-   Local $hSearch = FileFindFirstFile($StartPath & "\*.*")
+   Local $hSearch = FileFindFirstFile($sStartPath & "\*.*")
 
 
    ; Check if the search was successful, if not display a message and return False.
@@ -2015,31 +2031,35 @@ Func TreeClimber($StartPath,ByRef $aRule,$iScanSubdirs)
 
    While 1
 	  $iScanFile = False
+	  $iIsDirectory = False
 
 	  $sFileName = FileFindNextFile($hSearch)
 	  ; If there is no more file matching the search.
 	  If @error Then ExitLoop
+	  if @extended then $iIsDirectory = True
 
+	  $sFullPath = $sStartPath & "\" & $sFileName
 
 	  ;climb to subdirectory if directory entry is directory AND subdirectories should be scanned
-	  ;MsgBox(0,"Recursiv",StringInStr(FileGetAttrib($StartPath & "\" & $sFileName),"D") & @crlf & $iScanSubdirs)
-	  if 0 < StringInStr(FileGetAttrib($StartPath & "\" & $sFileName),"D") and $iScanSubdirs = True Then
-		 if IsIncludedByRule($StartPath & "\" & $sFileName & "\",$aRule) then TreeClimber($StartPath & "\" & $sFileName,$aRule,True)
+	  ;MsgBox(0,"Recursiv",StringInStr(FileGetAttrib($sStartPath & "\" & $sFileName),"D") & @crlf & $iScanSubdirs)
+	  ;if 0 < StringInStr(FileGetAttrib($sStartPath & "\" & $sFileName),"D") and $iScanSubdirs = True Then
+	  if $iIsDirectory and $iScanSubdirs Then
+		 if IsIncludedByRule($sFullPath & "\",$aRule) then TreeClimber($sFullPath,$aRule,True)
 	  EndIf
 
-	  ;msgbox(0,"Aktueller Pfad",$StartPath & "\" & $sFileName)
-	  ;ConsoleWrite($StartPath & "\" & $sFileName & @CRLF)
+	  ;msgbox(0,"Aktueller Pfad",$sStartPath & "\" & $sFileName)
+	  ;ConsoleWrite($sStartPath & "\" & $sFileName & @CRLF)
 
-	  ;if IsExecutable($StartPath & "\" & $sFileName) then $iScanFile = True
+	  ;if IsExecutable($sStartPath & "\" & $sFileName) then $iScanFile = True
 	  ;check if current directory entry should be scanned according to the current rule
-	  if 0 < StringInStr(FileGetAttrib($StartPath & "\" & $sFileName),"D") Then
+	  if $iIsDirectory Then
 
 		 ;it is a directory
-		 if IsIncludedByRule($StartPath & "\" & $sFileName & "\",$aRule) then $iScanFile = True
+		 if IsIncludedByRule($sFullPath & "\",$aRule) then $iScanFile = True
 	  Else
 
 		 ;it is a file
-		 if IsIncludedByRule($StartPath & "\" & $sFileName,$aRule) then $iScanFile = True
+		 if IsIncludedByRule($sFullPath,$aRule) then $iScanFile = True
 	  EndIf
 
 	  ;MsgBox(0,"Test",$sFileName & @CRLF & $iScanFile)
@@ -2047,14 +2067,15 @@ Func TreeClimber($StartPath,ByRef $aRule,$iScanSubdirs)
 	  ;scan directory entry (get file information) and put it in the database
 	  if $iScanFile then
 		 ;list every file or directory we scan - reading is NOT scanning !!!
-		 ;ConsoleWrite(GetRulename($aRule) & " : " & $StartPath & "\" & $sFileName & @CRLF)
-		 $sTempText = GetRulename($aRule) & " : " & $StartPath & "\" & $sFileName
+		 ;ConsoleWrite(GetRulename($aRule) & " : " & $sStartPath & "\" & $sFileName & @CRLF)
+		 $sTempText = GetRulename($aRule) & " : " & $sFullPath
 		 ;$sTempText = OEM2ANSI($sTempText) ; translate from OEM to ANSI
 		 ;DllCall('user32.dll','Int','OemToChar','str',$sTempText,'str','') ; translate from OEM to ANSI
 		 ConsoleWrite($sTempText & @CRLF)
 
-		 GetFileInfo($aFileInfo,$StartPath & "\" & $sFileName)
-		 if 0 < StringInStr($aFileInfo[3],"D") and not IncludeDirDataInDBByRule($aRule) Then
+		 GetFileInfo($aFileInfo,$sFullPath)
+		 ;if 0 < StringInStr($aFileInfo[3],"D") and not IncludeDirDataInDBByRule($aRule) Then
+		 if $iIsDirectory and not IncludeDirDataInDBByRule($aRule) Then
 			;its a directory and the rule doesn´t want directory infos in the DB
 		 Else
 			#cs
@@ -2110,7 +2131,8 @@ Func GetFileInfo( ByRef $aFileInfo, $Filename )
    ;--------------------------------------------
 
 
-   local const $BufferSize = 0x20000
+   ;local const $BufferSize = 0x20000
+   local const $BufferSize = 0x100000
    local $FileHandle = 0	;Handle of file to process
    local $FileSize = 0		;Size of file to process
    local $TempBuffer = ""	;File read buffer
