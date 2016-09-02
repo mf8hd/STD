@@ -16,6 +16,8 @@ Changelog
 			set file infos of executable with pragma compile()
 			new programm name
 1.1.0.0		Make TreeClimber ignore excludes Dirs
+1.2.0.0		access time (atime) is not a difference of files, so ignore it
+			/v	show versions of scirpt, sqlite.dll and autoit
 #ce
 
 #cs
@@ -72,9 +74,9 @@ End
 #pragma compile(UPX, False)
 
 ;Set file infos
-#pragma compile(FileDescription,"file integrity checker for windows")
+#pragma compile(FileDescription,"STD: File Integrity Checker for Windows")
 #pragma compile(ProductName,"Spot The Difference")
-#pragma compile(ProductVersion,"1.1.0.0")
+#pragma compile(ProductVersion,"1.2.0.0")
 #pragma compile(LegalCopyright,"Reinhard Dittmann")
 #pragma compile(InternalName,"STD")
 
@@ -544,7 +546,8 @@ select
 			   $aQueryResult = 0
 			   $hQuery = 0
 			   $iTempCount = 0
-			   _SQLite_Query(-1, "SELECT scannew.rulename,count(scannew.rulename) FROM scannew,scanold WHERE scannew.name = scanold.name and scannew.rulename = scanold.rulename and scannew.rulename = '" & $aRulenames[$i] & "' and (scannew.size <> scanold.size or scannew.attributes <> scanold.attributes or scannew.mtime <> scanold.mtime or scannew.ctime <> scanold.ctime or scannew.atime <> scanold.atime or scannew.version <> scanold.version or scannew.spath <> scanold.spath or scannew.crc32 <> scanold.crc32 or scannew.md5 <> scanold.md5);",$hQuery)
+			   ;_SQLite_Query(-1, "SELECT scannew.rulename,count(scannew.rulename) FROM scannew,scanold WHERE scannew.name = scanold.name and scannew.rulename = scanold.rulename and scannew.rulename = '" & $aRulenames[$i] & "' and (scannew.size <> scanold.size or scannew.attributes <> scanold.attributes or scannew.mtime <> scanold.mtime or scannew.ctime <> scanold.ctime or scannew.atime <> scanold.atime or scannew.version <> scanold.version or scannew.spath <> scanold.spath or scannew.crc32 <> scanold.crc32 or scannew.md5 <> scanold.md5);",$hQuery)
+			   _SQLite_Query(-1, "SELECT scannew.rulename,count(scannew.rulename) FROM scannew,scanold WHERE scannew.name = scanold.name and scannew.rulename = scanold.rulename and scannew.rulename = '" & $aRulenames[$i] & "' and (scannew.size <> scanold.size or scannew.attributes <> scanold.attributes or scannew.mtime <> scanold.mtime or scannew.ctime <> scanold.ctime or scannew.version <> scanold.version or scannew.spath <> scanold.spath or scannew.crc32 <> scanold.crc32 or scannew.md5 <> scanold.md5);",$hQuery)
 			   While _SQLite_FetchData($hQuery, $aQueryResult) = $SQLITE_OK
 				  ;_ArrayDisplay($aQueryResult)
 				  ;OutputLineOfQueryResultSummary($aQueryResult,$ReportFilename)
@@ -658,6 +661,9 @@ select
    Case $CmdLine[1] = "/?"
 	  ShowHelp()
 
+   Case $CmdLine[1] = "/v"
+	  ShowVersions()
+
    case Else
 	  ShowHelp()
 
@@ -673,6 +679,172 @@ Exit(0)
 ;---------------------------------------------------
 ; Functions
 ;---------------------------------------------------
+
+
+Func ShowVersions()
+
+   ;show version information
+   ;---------------------------------------
+
+   local $sText = ""
+   local $sSQliteVersion = ""
+   Local $sSQliteDll
+
+   $sSQliteDll = _SQLite_Startup()
+   if @error Then
+	  $sSQliteVersion = "*** sqlite.dll not found ***"
+   Else
+	  $sSQliteVersion = _SQLite_LibVersion()
+   EndIf
+
+   $sText &= "Spot The Difference (" & $cVersion & ")" & @CRLF
+   $sText &= "A poor mans file integrity checker." & @CRLF
+   $sText &= @CRLF
+   $sText &= "AutoIT version:     " & @AutoItVersion & @CRLF
+   $sText &= @CRLF
+   $sText &= "SQLite.dll version: " & $sSQliteVersion & @CRLF
+   $sText &= "SQLite.dll path:    " & $sSQliteDll & @CRLF
+   $sText &= @CRLF
+
+   ConsoleWrite($sText)
+
+   _SQLite_Shutdown()
+
+EndFunc
+
+
+#cs
+   ;Start Mailer Setup
+
+   $SmtpServer = "ntmail.za-netz.lokal"
+   $FromName = "Freier Platz auf C:"
+   $FromAddress = "freespace@za-netz.lokal"
+   $ToAddress = "admin@zieglersche.de"
+   $Subject = ""
+   $Body = ""
+   $AttachFiles = ""
+   $CcAddress = ""
+   $BccAddress = ""
+   $Importance = "Normal"
+   $Username = ""
+   $Password = ""
+   $IPPort = 25             ; bleibt so
+   $ssl = 0
+
+   Global $oMyRet[2]
+   Global $oMyError = ObjEvent("AutoIt.Error", "MyErrFunc")
+
+   ;Ende MAiler Setup
+
+#ce
+
+
+Func _INetSmtpMailCom($s_SmtpServer, $s_FromName, $s_FromAddress, $s_ToAddress, $s_Subject = "", $as_Body = "", $s_AttachFiles = "", $s_CcAddress = "", $s_BccAddress = "", $s_Importance="Normal", $s_Username = "", $s_Password = "", $IPPort = 25, $ssl = 0)
+;###################################################################################################################
+; Mailer
+;###################################################################################################################
+
+#cs
+#Include<file.au3>
+
+$SmtpServer = "MailServer"
+$FromName = "Name"
+$FromAddress = "your@Email.Address.com"
+$ToAddress = "your@Email.Address.com"
+$Subject = "Userinfo"
+$Body = ""
+$AttachFiles = ""
+$CcAddress = "CCadress1@test.com"
+$BccAddress = "BCCadress1@test.com"
+$Importance = "Normal"
+$Username = "******"
+$Password = "********"
+$IPPort = 25             ; bleibt so
+$ssl = 0
+
+
+
+
+Global $oMyRet[2]
+Global $oMyError = ObjEvent("AutoIt.Error", "MyErrFunc")
+$rc = _INetSmtpMailCom($SmtpServer, $FromName, $FromAddress, $ToAddress, $Subject, $Body, $AttachFiles, $CcAddress, $BccAddress, $Importance, $Username, $Password, $IPPort, $ssl)
+If @error Then
+    MsgBox(0, "Error sending message", "Error code:" & @error & "  Description:" & $rc)
+EndIf
+
+#ce
+
+    Local $objEmail = ObjCreate("CDO.Message")
+    $objEmail.From = '"' & $s_FromName & '" <' & $s_FromAddress & '>'
+    $objEmail.To = $s_ToAddress
+    Local $i_Error = 0
+    Local $i_Error_desciption = ""
+    If $s_CcAddress <> "" Then $objEmail.Cc = $s_CcAddress
+    If $s_BccAddress <> "" Then $objEmail.Bcc = $s_BccAddress
+    $objEmail.Subject = $s_Subject
+    If StringInStr($as_Body, "<") And StringInStr($as_Body, ">") Then
+        $objEmail.HTMLBody = $as_Body
+    Else
+        $objEmail.Textbody = $as_Body & @CRLF
+    EndIf
+    If $s_AttachFiles <> "" Then
+        Local $S_Files2Attach = StringSplit($s_AttachFiles, ";")
+        For $x = 1 To $S_Files2Attach[0]
+            $S_Files2Attach[$x] = _PathFull($S_Files2Attach[$x])
+            ConsoleWrite('@@ Debug(62) : $S_Files2Attach = ' & $S_Files2Attach & @LF & '>Error code: ' & @error & @LF)
+            If FileExists($S_Files2Attach[$x]) Then
+                $objEmail.AddAttachment ($S_Files2Attach[$x])
+            Else
+                ConsoleWrite('!> File not found to attach: ' & $S_Files2Attach[$x] & @LF)
+                SetError(1)
+                Return 0
+            EndIf
+        Next
+    EndIf
+    $objEmail.Configuration.Fields.Item ("http://schemas.microsoft.com/cdo/configuration/sendusing") = 2
+    $objEmail.Configuration.Fields.Item ("http://schemas.microsoft.com/cdo/configuration/smtpserver") = $s_SmtpServer
+    If Number($IPPort) = 0 then $IPPort = 25
+    $objEmail.Configuration.Fields.Item ("http://schemas.microsoft.com/cdo/configuration/smtpserverport") = $IPPort
+
+    If $s_Username <> "" Then
+        $objEmail.Configuration.Fields.Item ("http://schemas.microsoft.com/cdo/configuration/smtpauthenticate") = 1
+        $objEmail.Configuration.Fields.Item ("http://schemas.microsoft.com/cdo/configuration/sendusername") = $s_Username
+        $objEmail.Configuration.Fields.Item ("http://schemas.microsoft.com/cdo/configuration/sendpassword") = $s_Password
+    EndIf
+    If $ssl Then
+        $objEmail.Configuration.Fields.Item ("http://schemas.microsoft.com/cdo/configuration/smtpusessl") = True
+    EndIf
+
+    $objEmail.Configuration.Fields.Update
+
+    Switch $s_Importance
+        Case "High"
+            $objEmail.Fields.Item ("urn:schemas:mailheader:Importance") = "High"
+        Case "Normal"
+            $objEmail.Fields.Item ("urn:schemas:mailheader:Importance") = "Normal"
+        Case "Low"
+            $objEmail.Fields.Item ("urn:schemas:mailheader:Importance") = "Low"
+    EndSwitch
+    $objEmail.Fields.Update
+
+    $objEmail.Send
+    If @error Then
+        SetError(2)
+        Return $oMyRet[1]
+    EndIf
+    $objEmail=""
+EndFunc
+
+
+Func MyErrFunc()
+    $HexNumber = Hex($oMyError.number, 8)
+    $oMyRet[0] = $HexNumber
+    $oMyRet[1] = StringStripWS($oMyError.description, 3)
+    ConsoleWrite("### COM Error !  Number: " & $HexNumber & "   ScriptLine: " & $oMyError.scriptline & "   Description:" & $oMyRet[1] & @LF)
+    SetError(1)
+    Return
+EndFunc
+
 
 Func GetAllRulenames($sScan1,$sScan2, ByRef $aRules)
 
@@ -783,6 +955,8 @@ Func ShowHelp()
    $sText &= @ScriptName & " /report DB REPORTFILE" & @CRLF
    $sText &= @ScriptName & " /report c:\test.sqlite c:\report.txt" & @CRLF
    $sText &= "Write the differences between last and last validated scan to REPORTFILE" & @CRLF
+   $sText &= "REPORTFILE is either a regular filename or a SPECIAL_REPORTNAME" & @CRLF
+
 
    $sText &= @CRLF
    $sText &= @ScriptName & " /list DB" & @CRLF
@@ -792,16 +966,16 @@ Func ShowHelp()
    $sText &= @ScriptName & " /validate DB SCANNAME" & @CRLF
    $sText &= @ScriptName & " /validate c:\test.sqlite 20160514131610" & @CRLF
    $sText &= "Set status of scan SCANNAME to valid. SCANNAME is either an existing scan" & @CRLF
-   $sText &= "or a SPECIAL_NAME" & @CRLF
+   $sText &= "or a SPECIAL_SCANNAME" & @CRLF
    $sText &= @CRLF
    $sText &= @ScriptName & " /invalidate DB SCANNAME" & @CRLF
    $sText &= @ScriptName & " /invalidate c:\test.sqlite 20160514131610" & @CRLF
    $sText &= "Set status of scan SCANNAME to invalid. SCANNAME is either an existing scan" & @CRLF
-   $sText &= "or a SPECIAL_NAME" & @CRLF
+   $sText &= "or a SPECIAL_SCANNAME" & @CRLF
    $sText &= @CRLF
    $sText &= @ScriptName & " /delete DB SCANNAME" & @CRLF
    $sText &= @ScriptName & " /delete c:\test.sqlite 20160514131610" & @CRLF
-   $sText &= "Delete the scan SCANNAME. SCANNAME is either an existing scan or a SPECIAL_NAME" & @CRLF
+   $sText &= "Delete the scan SCANNAME. SCANNAME is either an existing scan or a SPECIAL_SCANNAME" & @CRLF
 
    $sText &= @CRLF
    $sText &= @ScriptName & " /help" & @CRLF
@@ -809,10 +983,14 @@ Func ShowHelp()
    $sText &= @CRLF
    $sText &= @ScriptName & " /?" & @CRLF
    $sText &= "Show this help" & @CRLF
+   $sText &= @CRLF
+   $sText &= @ScriptName & " /v" & @CRLF
+   $sText &= "Show version information" & @CRLF
+
 
    $sText &= @CRLF
    $sText &= @CRLF
-   $sText &= "SPECIAL_NAME:" & @CRLF
+   $sText &= "SPECIAL_SCANNAME:" & @CRLF
    $sText &= @CRLF
    $sText &= "all           all the scans in DB" & @CRLF
    $sText &= "last          the most recent scan in DB" & @CRLF
@@ -821,6 +999,15 @@ Func ShowHelp()
    $sText &= "lastinvalid   the most recent not validated scan in DB" & @CRLF
    $sText &= "lastvalid     the most recent validated scan in DB" & @CRLF
    $sText &= "oldvalid      all validated scans in DB except lastvalid" & @CRLF
+
+
+   $sText &= @CRLF
+   $sText &= @CRLF
+   $sText &= "SPECIAL_REPORTNAME:" & @CRLF
+   $sText &= @CRLF
+   $sText &= "email         create report as temporary file and send the report as email" & @CRLF
+   $sText &= "              according to the config in DB." & @CRLF
+
 
 
    $sText &= @CRLF
@@ -1129,6 +1316,8 @@ Func OutputLineOfQueryResult(ByRef $aQueryResult,$ReportFilename)
 
 	  if $i = 9 Then
 	  ElseIf $i = 13 Then
+	  ElseIf $i = 7 Then
+		 FileWriteLine($ReportFilename,StringFormat("%-15s %1s %35s %-35s",$aDesc[$i] & ":"," ",$sTempOld,$sTempNew))
 	  else
 		 if $sTempOld = $sTempNew or $sTempOld = "-" or $sTempNew = "-" or $i = 0 or $i = 2 or $i = 12  then
 			FileWriteLine($ReportFilename,StringFormat("%-15s %1s %35s %-35s",$aDesc[$i] & ":"," ",$sTempOld,$sTempNew))
