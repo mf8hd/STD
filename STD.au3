@@ -15,9 +15,18 @@ Changelog
 			help extended
 			set file infos of executable with pragma compile()
 			new programm name
-1.1.0.0		Make TreeClimber ignore excludes Dirs
+1.1.0.0		make TreeClimber ignore excludes Dirs
 1.2.0.0		access time (atime) is not a difference of files, so ignore it
 			/v	show versions of scirpt, sqlite.dll and autoit
+1.3.0.0		new statement ExcDirs in CONFIGFILE
+			new statement EmailFrom in CONFIGFILE
+			new statement EmailTo in CONFIGFILE
+			new statement EmailSubject in CONFIGFILE
+			new statement EmailServer in CONFIGFILE
+			new statement EmailPort in CONFIGFILE
+			new SPECIAL_REPORTNAME email on commandline
+			shrink (vacuum) DB file after /delete
+			/exportscan export scan to csv
 #ce
 
 #cs
@@ -27,7 +36,10 @@ FixMe:
 ToDo:
 	  - change name of DB field "status" to "valid"
 	  - count directory entries and put the count in the DB
-	  - email report via smtp
+	  done - email report via smtp
+	  - redesign DB structure, so all name-strings are referenced with foreign keys etc. (DB size !)
+	  - report: ignore differences of certain fileinfos (size,mtime etc.)
+	  - export scan data to csv
 #ce
 
 
@@ -74,9 +86,10 @@ End
 #pragma compile(UPX, False)
 
 ;Set file infos
-#pragma compile(FileDescription,"STD: File Integrity Checker for Windows")
+#pragma compile(FileDescription,"Spot The Difference")
 #pragma compile(ProductName,"Spot The Difference")
-#pragma compile(ProductVersion,"1.2.0.0")
+#pragma compile(ProductVersion,"1.3.0.0")
+;Versioning: "Incompatible changes to DB"."new feature"."bug fix"."minor fix"
 #pragma compile(LegalCopyright,"Reinhard Dittmann")
 #pragma compile(InternalName,"STD")
 
@@ -84,6 +97,7 @@ End
 #include <CRC32.au3>
 #include <MD5.au3>
 #include <array.au3>
+#include <File.au3>
 #include <String.au3>
 #include <FileConstants.au3>
 #include <SQLite.au3>
@@ -110,6 +124,11 @@ $sScanname = ""			;name of the scan i.e. scantime
 global $sScantime = ""	;date and time of the scan
 global $hDBHandle = ""	;handle of db
 
+local $sCSVFilename = ""	;csv file for scan export
+local $aCSVQueryResult = 0
+local $hCSVQuery = 0
+
+
 local $sScannameOld = ""
 local $sScannameNew = ""
 
@@ -118,6 +137,22 @@ local $hQuery = 0		;handle to a query
 
 local $aCfgQueryResult = 0	;result of a query on table config
 local $hCfgQuery = 0		;handle to a query on table config
+
+;mailer setup
+Global $oMyRet[2]
+Global $oMyError = ObjEvent("AutoIt.Error", "MyErrFunc")
+local $iEmailReport = False	;send report per email (smtp)
+local $aEMail[5]		;array with all email infos
+$aEMail[4] = 25
+
+#cs
+		 $aEMail[0]		;sender email address
+		 $aEMail[1]		;recipient email address
+		 $aEMail[2]		;email subject
+		 $aEMail[3]		;name of smtp server (hostname or ip-address)
+		 $aEMail[4]		;smtp port on SMTPSERVERNAME, defaults to 25
+
+#ce
 
 $iQueryRows = 0			;returned rows of a query
 $iQueryColumns = 0  	;returned colums of a query
@@ -160,6 +195,7 @@ db stucture
    md5				md5	hash of file content
    ptime			time to process the file while scanning in ms
    rulename			name of the rule from config file, according to that the file was processed
+
 #ce
 
 
@@ -173,6 +209,70 @@ if $CmdLine[0] < 1 then
 EndIf
 
 select
+   Case $CmdLine[1] = "/exportscan"
+	  if $CmdLine[0] < 4 then
+ 		 ShowHelp()
+		 exit (1)
+	  EndIf
+
+	  $sDBName = $CmdLine[2]
+	  $sScanname = $CmdLine[3]
+	  $sCSVFilename = $CmdLine[4]
+
+	  local $aCSVDesc[] = ["scantime","name","valid","size","attributes","mtime","ctime","atime","version","spath","crc32","md5","ptime","rulename"]
+
+	  FileDelete($sCSVFilename)
+
+	  ;write fileheader
+	  $sTempText = ''
+	  for $j = 0 to 13
+		 if $j = 0 then
+			$sTempText &= '"' & $aCSVDesc[$j] & '"'
+		 Else
+			$sTempText &= ',"' & $aCSVDesc[$j] & '"'
+		 EndIf
+	  Next
+	  ;$sTempText &= '"'
+	  FileWriteLine($sCSVFilename,$sTempText)
+
+
+
+	  OpenDB($sDBName)
+
+	  $aQueryResult = 0
+	  if GetScannames($sScanname,$aQueryResult) Then
+		 for $i = 2 to $aQueryResult[0]
+			;_ArrayDisplay($aQueryResult)
+			;$aQueryResult[$i]
+			;_SQLite_Exec(-1,"update files set status = '1' where scantime = '" & $aQueryResult[$i] & "' and status = '0';")
+
+			;export selected scans from table files into $sCSVFilename
+			$aCSVQueryResult = 0
+			$hCSVQuery = 0
+			;_SQLite_Query(-1, "SELECT * FROM files ORDER BY linenumber ASC;",$hCSVQuery)
+			_SQLite_Query(-1, "SELECT * FROM files WHERE scantime = '" & $aQueryResult[$i] & "';",$hCSVQuery)
+			While _SQLite_FetchData($hCSVQuery, $aCSVQueryResult) = $SQLITE_OK
+			   $sTempText = ''
+			   for $j = 0 to 13
+				  ;if $j = 1 or $j = 9  or $j = 13 then
+				  if $j = 0 then
+					 $sTempText &= '"' & $aCSVQueryResult[$j] & '"'
+				  Elseif $j = 1 then
+					 $sTempText &= ',"' & _HexToString($aCSVQueryResult[$j]) & '"'
+				  Else
+					 $sTempText &= ',"' & $aCSVQueryResult[$j] & '"'
+				  EndIf
+			   Next
+			   ;$sTempText &= '"'
+			   ;ConsoleWrite($sTempText)
+			   FileWriteLine($sCSVFilename,$sTempText)
+			WEnd
+
+		 next
+	  EndIf
+
+	  CloseDB()
+
    Case $CmdLine[1] = "/importcfg"
 	  if $CmdLine[0] < 3 then
  		 ShowHelp()
@@ -295,6 +395,9 @@ select
 			_SQLite_Exec(-1,"delete from files where scantime = '" & $aQueryResult[$i] & "';")
 		 next
 	  EndIf
+
+	  ;shrink DB file
+	  _SQLite_Exec(-1,"vacuum;")
 
 	  CloseDB()
 
@@ -445,6 +548,10 @@ select
   				  redim $aRule[UBound($aRule,1)+1][2]
 				  $aRule[UBound($aRule,1)-1][0] = "ExcAll"
 				  $aRule[UBound($aRule,1)-1][1] = ""
+			   Case StringStripWS($sTempCfgLine,$STR_STRIPALL ) = "ExcDirs"
+  				  redim $aRule[UBound($aRule,1)+1][2]
+				  $aRule[UBound($aRule,1)-1][0] = "ExcDirs"
+				  $aRule[UBound($aRule,1)-1][1] = ""
 
 			   case Else
 			EndSelect
@@ -485,6 +592,13 @@ select
 
 	  $sDBName = $CmdLine[2]
 	  $ReportFilename = $CmdLine[3]
+
+
+	  if $ReportFilename = "email" then
+		 ;email report and create tempfile
+		 $iEmailReport = True
+		 $ReportFilename = _TempFile(@TempDir,"std-report-","txt" )
+	  EndIf
 
 	  OpenDB($sDBName)
 
@@ -653,6 +767,80 @@ select
 
 	  EndIf
 
+	  if $iEmailReport = True then
+		 ;email report and delete temp file
+
+
+
+
+		 ;read email parameters from table config
+		 $aCfgQueryResult = 0
+		 $hCfgQuery = 0
+		 _SQLite_Query(-1, "SELECT line FROM config ORDER BY linenumber ASC;",$hCfgQuery)
+		 While True
+
+			;read one line form table config
+			$sTempCfgLine = ""
+			if _SQLite_FetchData($hCfgQuery, $aCfgQueryResult) = $SQLITE_OK Then
+			   $sTempCfgLine = _HexToString($aCfgQueryResult[0])
+			   ;_ArrayDisplay($aQueryResult[0])
+			Else
+			   ExitLoop
+			EndIf
+
+			;Output line of rule
+			;ConsoleWrite($sTempCfgLine & @CRLF)
+			#cs
+			file format config.cfg
+
+			EmailFrom:EMAILADDRESS			;sender email address
+			EmailTo:EMAILADDRESS			;recipient email address
+			EmailSubject:SUBJECT			;email subject
+			EmailServer:SMTPSERVERNAME		;name of smtp server (hostname or ip-address)
+			EmailPort:SMTPPORT				;smtp port on SMTPSERVERNAME, defaults to 25
+			#ce
+
+			;strip whitespaces at begin of line
+			$sTempCfgLine = StringStripWS($sTempCfgLine,$STR_STRIPLEADING )
+
+			;tranfer rule lines to $aRule
+			;strip leading and trailing " from directories
+			;strip trailing \ from directories
+			Select
+			   Case stringleft($sTempCfgLine,stringlen("EmailFrom:")) = "EmailFrom:"
+				  $aEMail[0] = StringTrimLeft($sTempCfgLine,stringlen("EmailFrom:"))
+			   Case stringleft($sTempCfgLine,stringlen("EmailTo:")) = "EmailTo:"
+				  $aEMail[1] = StringTrimLeft($sTempCfgLine,stringlen("EmailTo:"))
+			   Case stringleft($sTempCfgLine,stringlen("EmailSubject:")) = "EmailSubject:"
+				  $aEMail[2] = StringTrimLeft($sTempCfgLine,stringlen("EmailSubject:"))
+			   Case stringleft($sTempCfgLine,stringlen("EmailServer:")) = "EmailServer:"
+				  $aEMail[3] = StringTrimLeft($sTempCfgLine,stringlen("EmailServer:"))
+			   Case stringleft($sTempCfgLine,stringlen("EmailPort:")) = "EmailPort:"
+				  $aEMail[4] = StringTrimLeft($sTempCfgLine,stringlen("EmailPort:"))
+
+			   case Else
+			EndSelect
+
+		 WEnd
+
+
+		 ;send email
+		 $rc = 0
+		 $rc = _INetSmtpMailCom($aEMail[3], $aEMail[0], $aEMail[0], $aEMail[1], $aEMail[2], "STD Report", $ReportFilename, "", "", "Normal", "", "", $aEMail[4], 0)
+		 If @error Then
+			 ConsoleWrite("Error sending message:" & @CRLF & "Error code:" & @error & "  Description:" & $rc)
+		 EndIf
+
+
+
+
+
+
+		 FileDelete($ReportFilename)
+	  EndIf
+
+
+
 	  CloseDB()
 
    Case $CmdLine[1] = "/help"
@@ -679,6 +867,51 @@ Exit(0)
 ;---------------------------------------------------
 ; Functions
 ;---------------------------------------------------
+
+Func IncludeDirDataInDBByRule(ByRef $aRule)
+
+   ;Returns True, if the rule demands to put directory information in the DB
+   ;------------------------------------------------------------------------
+
+   #cs
+	  file format config.cfg
+
+	  Rule:RULENAME				;name of rule
+	  IncDirRec:PATH			;directory to include, including all subdirectories
+	  ExcDirRec:PATH			;directory to exclude, including all subdirectories
+	  IncDir:PATH				;directory to include, only this directory
+	  ExcDir:PATH				;directory to exclude, only this directory
+	  IncExt:FILEEXTENTION		;file extention to include
+	  ExcExt:FILEEXTENTION		;file extention to exclude
+	  IncExe					;all executable files, no matter what the extention is
+	  IncAll					;all files, no matter what the extention is aka *.*
+	  ExcExe					;no executable files, no matter what the extention is
+	  ExcAll					;no files, no matter what the extention is aka *.*, only directories
+	  ExcDirs					;no directory information (attribs,name etc.)
+	  End
+   #ce
+
+   local $iIsIncluded = True
+   local $i = 0
+   local $iMax = 0
+
+
+   $iMax = UBound($aRule,1)-1
+   ;msgbox(0,"iMax",$iMax)
+   for $i = 1 to $iMax
+	  ;$aRule[$i][0]
+	  ;$aRule[$i][1]
+	  ;msgbox(0,"Cmd","#" & $aRule[$i][0] & "#" & @CRLF & "#" & $aRule[$i][1] & "#" & @CRLF & "#" & $PathOrFile & "#" & @CRLF & "#" & StringLeft($PathOrFile,stringlen($aRule[$i][1] & "\")) & "#" & @CRLF & "#" & $aRule[$i][1] & "\")
+	  Select
+		 case $aRule[$i][0] = "ExcDirs"
+			$iIsIncluded = False
+
+		 case Else
+	  EndSelect
+   Next
+
+   Return $iIsIncluded
+EndFunc
 
 
 Func ShowVersions()
@@ -791,7 +1024,7 @@ EndIf
         Local $S_Files2Attach = StringSplit($s_AttachFiles, ";")
         For $x = 1 To $S_Files2Attach[0]
             $S_Files2Attach[$x] = _PathFull($S_Files2Attach[$x])
-            ConsoleWrite('@@ Debug(62) : $S_Files2Attach = ' & $S_Files2Attach & @LF & '>Error code: ' & @error & @LF)
+            ;ConsoleWrite('@@ Debug(62) : $S_Files2Attach = ' & $S_Files2Attach & @LF & '>Error code: ' & @error & @LF)
             If FileExists($S_Files2Attach[$x]) Then
                 $objEmail.AddAttachment ($S_Files2Attach[$x])
             Else
@@ -976,6 +1209,11 @@ Func ShowHelp()
    $sText &= @ScriptName & " /delete DB SCANNAME" & @CRLF
    $sText &= @ScriptName & " /delete c:\test.sqlite 20160514131610" & @CRLF
    $sText &= "Delete the scan SCANNAME. SCANNAME is either an existing scan or a SPECIAL_SCANNAME" & @CRLF
+   $sText &= @CRLF
+   $sText &= @ScriptName & " /exportscan DB SCANNAME CSVFILENAME" & @CRLF
+   $sText &= @ScriptName & " /exportscan c:\test.sqlite 20160514131610 c:\test.csv" & @CRLF
+   $sText &= "Export scan SCANNAME to CSVFILENAME. SCANNAME is either an existing scan" & @CRLF
+   $sText &= "or a SPECIAL_SCANNAME" & @CRLF
 
    $sText &= @CRLF
    $sText &= @ScriptName & " /help" & @CRLF
@@ -1008,6 +1246,13 @@ Func ShowHelp()
    $sText &= "email         create report as temporary file and send the report as email" & @CRLF
    $sText &= "              according to the config in DB." & @CRLF
 
+
+
+   $sText &= @CRLF
+   $sText &= @CRLF
+   $sText &= "CSVFILENAME:" & @CRLF
+   $sText &= @CRLF
+   $sText &= 'Textfile that contains all data from one or more scans as comma separated values.' & @CRLF
 
 
    $sText &= @CRLF
@@ -1050,14 +1295,34 @@ Func ShowHelp()
    $sText &= "ExcExe                 no executable files, no matter what the extention is" & @CRLF
    $sText &= "ExcAll                 no files, no matter what the extention is aka *.*," & @CRLF
    $sText &= "                       only directories" & @CRLF
+   $sText &= "ExcDirs                no directory information, only file information." & @CRLF
+   $sText &= "                       The default is to gather information on all scaned directories." & @CRLF
    $sText &= "End                    end of rule" & @CRLF
    $sText &= "" & @CRLF
-   $sText &= "RULENAME               name of rule" & @CRLF
-   $sText &= "                       e.g.: My first Rule" & @CRLF
-   $sText &= "PATH                   one directory name" & @CRLF
-   $sText &= '                       e.g.: "\\pc\share\my files","c:\temp","c:\temp\",c:\temp' & @CRLF
+
+   $sText &= "EmailFrom:EMAILADDRESS       sender email address" & @CRLF
+   $sText &= "EmailTo:EMAILADDRESS         recipient email address" & @CRLF
+   $sText &= "EmailSubject:SUBJECT         email subject" & @CRLF
+   $sText &= "EmailServer:SMTPSERVERNAME   name of smtp server (hostname or ip-address)" & @CRLF
+   $sText &= "EmailPort:SMTPPORT           smtp port on SMTPSERVERNAME, defaults to 25" & @CRLF
+   $sText &= "" & @CRLF
+
+   $sText &= "EMAILADDRESS           email adress" & @CRLF
+   $sText &= "                       e.g.: peter.miller@example.com" & @CRLF
    $sText &= "FILEEXTENTION          one file extention" & @CRLF
    $sText &= '                       e.g.: doc,xls,xlsx,txt,pdf,PDF,TxT,Doc' & @CRLF
+   $sText &= "RULENAME               name of rule" & @CRLF
+   $sText &= "                       e.g.: My first Rule" & @CRLF
+   $sText &= "SMTPPORT               smtp portnumber" & @CRLF
+   $sText &= "                       e.g.: 25" & @CRLF
+   $sText &= "SMTPSERVERNAME         name of a smtp server" & @CRLF
+   $sText &= "                       e.g.: mail.excample.com, 127.0.0.1" & @CRLF
+   $sText &= "SUBJECT                subject line of an email" & @CRLF
+   $sText &= "                       e.g.: std report" & @CRLF
+   $sText &= "PATH                   one directory name" & @CRLF
+   $sText &= '                       e.g.: "\\pc\share\my files","c:\temp","c:\temp\",c:\temp' & @CRLF
+
+
    $sText &= "" & @CRLF
    $sText &= "Example:" & @CRLF
    $sText &= '#' & @CRLF
@@ -1419,7 +1684,11 @@ Func TreeClimber($StartPath,ByRef $aRule,$iScanSubdirs)
 		 ConsoleWrite($sTempText & @CRLF)
 
 		 GetFileInfo($aFileInfo,$StartPath & "\" & $sFileName)
-		 _SQLite_Exec(-1,"INSERT INTO files(scantime,name,status,size,attributes,mtime,ctime,atime,version,spath,crc32,md5,ptime,rulename) values ('" & $sScantime & "','" & _StringToHex($aFileInfo[0]) & "','" & $aFileInfo[1] & "','" & $aFileInfo[2] & "','" & $aFileInfo[3] & "','" & $aFileInfo[4] & "','" & $aFileInfo[5] & "','" & $aFileInfo[6] & "','" & $aFileInfo[7] & "','" & $aFileInfo[8] & "','" & $aFileInfo[9] & "','" & $aFileInfo[10] & "','" & $aFileInfo[11] & "','" & $aRule[1][1] & "');")
+		 if 0 < StringInStr($aFileInfo[3],"D") and not IncludeDirDataInDBByRule($aRule) Then
+			;its a directory and the rule doesn´t want directory infos in the DB
+		 Else
+			_SQLite_Exec(-1,"INSERT INTO files(scantime,name,status,size,attributes,mtime,ctime,atime,version,spath,crc32,md5,ptime,rulename) values ('" & $sScantime & "','" & _StringToHex($aFileInfo[0]) & "','" & $aFileInfo[1] & "','" & $aFileInfo[2] & "','" & $aFileInfo[3] & "','" & $aFileInfo[4] & "','" & $aFileInfo[5] & "','" & $aFileInfo[6] & "','" & $aFileInfo[7] & "','" & $aFileInfo[8] & "','" & $aFileInfo[9] & "','" & $aFileInfo[10] & "','" & $aFileInfo[11] & "','" & $aRule[1][1] & "');")
+		 EndIf
 	  EndIf
 
 
@@ -1754,11 +2023,16 @@ Func GetFileInfo( ByRef $aFileInfo, $Filename )
    $FileHandle = 0
    $FileHandle = FileOpen($Filename, 16)
 
+   $aFileInfo[3] = FileGetAttrib($Filename)
+
    $FileSize = 0
-   $FileSize = FileGetSize($Filename)
+   if 0 < StringInStr($aFileInfo[3],"D") Then
+	  ;its a directory, so FileGetSize() does not work !
+   Else
+	  $FileSize = FileGetSize($Filename)
+   EndIf
    $aFileInfo[2] = $FileSize
 
-   $aFileInfo[3] = FileGetAttrib($Filename)
 
    $aFileInfo[4] = FileGetTime($Filename,$FT_MODIFIED,1)
    $aFileInfo[5] = FileGetTime($Filename,$FT_CREATED,1)
@@ -1834,3 +2108,5 @@ unterschiede zurückgeben
    Next
    $aFileInfo[10] = _MD5Result($MD5CTX)
 #ce
+
+
