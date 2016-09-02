@@ -36,6 +36,7 @@ Changelog
 			error messages if report is not generated
 			GetFileInfo(): no md5 and crc32 for directories
 			GetFileInfo(): handle files that can not be read (status = $aFileInfo[1] = 1 )
+2.0.1.1		GetFileInfo(): first get filesize then calculate md5 and crc32
 
 #ce
 
@@ -102,7 +103,7 @@ End
 ;Set file infos
 #pragma compile(FileDescription,"Spot The Difference")
 #pragma compile(ProductName,"Spot The Difference")
-#pragma compile(ProductVersion,"2.0.0.0")
+#pragma compile(ProductVersion,"2.0.1.1")
 ;Versioning: "Incompatible changes to DB"."new feature"."bug fix"."minor fix"
 #pragma compile(LegalCopyright,"Reinhard Dittmann")
 #pragma compile(InternalName,"STD")
@@ -2112,6 +2113,10 @@ Func GetFileInfo( ByRef $aFileInfo, $Filename )
    Else
 	  ;it´s a file !
 
+
+	  ;get size of file in bytes
+	  $FileSize = FileGetSize($Filename)
+
 	  ;read file and calculate md5 and crc32
 	  $FileHandle = 0
 	  $FileHandle = FileOpen($Filename, 16)
@@ -2138,9 +2143,6 @@ Func GetFileInfo( ByRef $aFileInfo, $Filename )
 		 ;close file
 		 FileClose($FileHandle)
 	  EndIf
-
-	  ;get size of file in bytes
-	  $FileSize = FileGetSize($Filename)
    EndIf
    $aFileInfo[2] = $FileSize
 
