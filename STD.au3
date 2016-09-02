@@ -10,6 +10,8 @@
 ;
 
 #cs
+Versioning: "Incompatible changes to DB"."new feature"."bug fix"."minor fix"
+
 Changelog
 1.0.0.0		integrate CONFIGFILE in DB table config (line by line as hexstring)
 			help extended
@@ -27,9 +29,13 @@ Changelog
 			new SPECIAL_REPORTNAME email on commandline
 			shrink (vacuum) DB file after /delete
 			/exportscan export scan to csv
-1.3.0.1		Update todo list
+1.3.0.1		update todo list
 2.0.0.0		split filedata in DB in several tables
 			reorganize code in mainloop
+2.0.1.0		report shows "changed" files with no difference
+			error messages if report is not generated
+			GetFileInfo(): no md5 and crc32 for directories
+			GetFileInfo(): handle files that can not be read (status = $aFileInfo[1] = 1 )
 
 #ce
 
@@ -129,7 +135,7 @@ global $aRule[1][2]		;one rule form config File
 global $aFileInfo[13]	;array with informations about the file
 #cs
 		 $aFileInfo[0]	;name
-		 $aFileInfo[1]	;file exists 1 else 0
+		 $aFileInfo[1]	;file could not be read 1 else 0
 		 $aFileInfo[2]	;size
 		 $aFileInfo[3]	;attributes
 		 $aFileInfo[4]	;file modification timestamp
@@ -399,6 +405,7 @@ Exit(0)
 Func DoReport($ReportFilename)
    local $rc = 0				;mailer return code
    local $iEmailReport = False	;send report per email (smtp)
+   local $sEMailBody = ""		;bodytext of email
    local $aEMail[5]				;array with all email infos
    $aEMail[4] = 25				;SMTP default port = 25
 #cs
@@ -487,7 +494,10 @@ Func DoReport($ReportFilename)
    EndIf
 
 
-   if $sScannameOld = "" or $sScannameNew = "" Then
+   if $sScannameOld = "" Then
+	  ConsoleWrite("Error:" & @CRLF & "Old scan does not exist" & @CRLF & "Scan name: " & $sScannameOld)
+   ElseIf $sScannameNew = "" Then
+	  ConsoleWrite("Error:" & @CRLF & "New scan does not exist" & @CRLF & "Scan name: " & $sScannameNew)
    else
 
 	  ;build views
@@ -687,8 +697,23 @@ Func DoReport($ReportFilename)
 
 
 	  ;send email
+	  $sEMailBody = "STD Report"
+	  $sTempText = $ReportFilename
+	  if $sScannameOld = "" Then
+		 $sEMailBody = "STD Report" & @CRLF	 & @CRLF & "Error: old scan does not exist"
+		 $sTempText = ""
+	  ElseIf $sScannameNew = "" Then
+		 $sEMailBody = "STD Report" & @CRLF	 & @CRLF & "Error: new scan does not exist"
+		 $sTempText = ""
+	  ElseIf not FileExists($ReportFilename) Then
+		 $sEMailBody = "STD Report" & @CRLF	 & @CRLF & "Error: report file does not exist"
+		 $sTempText = ""
+	  Else
+	  EndIf
+
+
 	  $rc = 0
-	  $rc = _INetSmtpMailCom($aEMail[3], $aEMail[0], $aEMail[0], $aEMail[1], $aEMail[2], "STD Report", $ReportFilename, "", "", "Normal", "", "", $aEMail[4], 0)
+	  $rc = _INetSmtpMailCom($aEMail[3], $aEMail[0], $aEMail[0], $aEMail[1], $aEMail[2], $sEMailBody, $sTempText, "", "", "Normal", "", "", $aEMail[4], 0)
 	  If @error Then
 		  ConsoleWrite("Error sending message:" & @CRLF & "Error code:" & @error & "  Description:" & $rc)
 	  EndIf
@@ -1867,6 +1892,9 @@ Func OutputLineOfQueryResult(ByRef $aQueryResult,$ReportFilename)
 
    local $aDesc[] = ["scantime","name","valid","size","attributes","mtime","ctime","atime","version","spath","crc32","md5","ptime","rulename"]
    local $i = 0
+   local $sTempOld = ""
+   local $sTempNew = ""
+
 
    if $aQueryResult[1] = "" Then FileWriteLine($ReportFilename,"-- new     --"  & @CRLF & _HexToString($aQueryResult[15]) & @CRLF & @CRLF)
 
@@ -1874,6 +1902,8 @@ Func OutputLineOfQueryResult(ByRef $aQueryResult,$ReportFilename)
 
    if $aQueryResult[1] = $aQueryResult[15] Then FileWriteLine($ReportFilename,"-- changed --"  & @CRLF & _HexToString($aQueryResult[1]) & @CRLF & @CRLF)
 
+   $sTempOld = ""
+   $sTempNew = ""
    $sTempOld = $aQueryResult[0]
    $sTempNew = $aQueryResult[0 + 14]
    if $sTempOld = "" then $sTempOld = "-"
@@ -1882,6 +1912,8 @@ Func OutputLineOfQueryResult(ByRef $aQueryResult,$ReportFilename)
    FileWriteLine($ReportFilename,StringFormat("%-15s %1s %35s %-35s",$aDesc[$i] & ":"," ",$sTempOld,$sTempNew))
 
    for $i = 2 to 12
+	  $sTempOld = ""
+	  $sTempNew = ""
 	  $sTempOld = $aQueryResult[$i]
 	  $sTempNew = $aQueryResult[$i + 14]
 	  if $sTempOld = "" then $sTempOld = "-"
@@ -1901,6 +1933,8 @@ Func OutputLineOfQueryResult(ByRef $aQueryResult,$ReportFilename)
 
    Next
 
+   $sTempOld = ""
+   $sTempNew = ""
    $sTempOld = $aQueryResult[9]
    $sTempNew = $aQueryResult[9 + 14]
    if $sTempOld = "" then $sTempOld = "-"
@@ -2058,22 +2092,54 @@ Func GetFileInfo( ByRef $aFileInfo, $Filename )
 
 
    $aFileInfo[0] = $Filename
-   $aFileInfo[1] = 0		;not validated
+   ;$aFileInfo[1] = 0	;not validated
+   $aFileInfo[1] = 0	;file could not be read 1 else 0
 
 
    $Timer = TimerInit()
 
 
    ;Start processing
-   $FileHandle = 0
-   $FileHandle = FileOpen($Filename, 16)
-
    $aFileInfo[3] = FileGetAttrib($Filename)
 
    $FileSize = 0
    if 0 < StringInStr($aFileInfo[3],"D") Then
-	  ;its a directory, so FileGetSize() does not work !
+	  ;it´s a directory, so FileGetSize(),md5 and crc32 does not work !
+
+	  $aFileInfo[9] = 0
+	  $aFileInfo[10] = 0
+
    Else
+	  ;it´s a file !
+
+	  ;read file and calculate md5 and crc32
+	  $FileHandle = 0
+	  $FileHandle = FileOpen($Filename, 16)
+	  if @error Then
+		 ;unable to open file
+		 $aFileInfo[1] = 1
+
+		 $aFileInfo[9] = 0
+		 $aFileInfo[10] = 0
+	  Else
+		 ; ### CRC32 + MD5###
+		 $CRC32 = 0
+		 $MD5CTX = _MD5Init()
+
+		 For $i = 1 To Ceiling($FileSize / $BufferSize)
+			$TempBuffer = FileRead($FileHandle, $BufferSize)
+			$CRC32 = _CRC32($TempBuffer, BitNot($CRC32))
+			_MD5Input($MD5CTX, $TempBuffer)
+		 Next
+
+		 $aFileInfo[9] = $CRC32
+		 $aFileInfo[10] = _MD5Result($MD5CTX)
+
+		 ;close file
+		 FileClose($FileHandle)
+	  EndIf
+
+	  ;get size of file in bytes
 	  $FileSize = FileGetSize($Filename)
    EndIf
    $aFileInfo[2] = $FileSize
@@ -2087,20 +2153,7 @@ Func GetFileInfo( ByRef $aFileInfo, $Filename )
 
    $aFileInfo[8] = FileGetShortName($Filename)
 
-   ; ### CRC32 + MD5###
-   $CRC32 = 0
-   $MD5CTX = _MD5Init()
 
-   For $i = 1 To Ceiling($FileSize / $BufferSize)
-	  $TempBuffer = FileRead($FileHandle, $BufferSize)
-	  $CRC32 = _CRC32($TempBuffer, BitNot($CRC32))
-	  _MD5Input($MD5CTX, $TempBuffer)
-   Next
-
-   $aFileInfo[9] = $CRC32
-   $aFileInfo[10] = _MD5Result($MD5CTX)
-
-   FileClose($FileHandle)
 
    ;End processing
 
