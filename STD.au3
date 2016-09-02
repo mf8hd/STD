@@ -66,34 +66,50 @@ Changelog
 			TreeClimber(): iterate over directories not rules !
 			IsClimbTargetByRule()
 			DoScanWithSecondProcess(), TreeClimberSecondProcess(), DoSecondProcess(): /scan now uses two processes
-			   1. get the filenames
-			   2. get the fileinformation and put it in the db
+			   1. gets the filenames
+			   2. gets the fileinformation and puts it in the db
 			   better performance, but higher cpu usage
 			   second process is started with: @ScriptName /secondprocess DBNAME
 			   /scan-obsolete is the obsolete single process version of /scan
 			IsIncludedByRule(): ExcDirs moved from IncludeDirDataInDBByRule()
 			IncludeDirDataInDBByRule(): function is now obsolete because of IsClimbTargetByRule() and a fixed IsIncludedByRule()
 			OutputLineOfQueryResult(): all file attributes printed on one line
+3.3.0.0		/history: file history (search is case sensitiv !)
+			/scan: added error message, script must be compiled !
+			help extended
+			OpenDB(): write errors to console not to MsgBox()
+			/duplicates: list files with identical size,crc32 and md5 in a scan
 #ce
 
+;ToDo List
 #cs
 FixMe:
-	  done - !!!!!!!!!!  /report is not working anymore !!!!!!!!!!!!
+	  done - /report is not working anymore
 	  - possible sql injection through value of "Rule:" in config file
 	  done - does /report "missing" realy work ???? GetAllRulenamesFromDB() must return ALL rulenames from scanold AND scannew
 ToDo:
 	  obsolete - change name of DB field "status" to "valid"
 	  - DoDeleteScan() sanitize DB tables rules and filenames !
-	  - unused field "filedata.status" in DB
+	  done - unused field "filedata.status" in DB
 	  - unused field "filedata.attributes" in DB
 	  - count directory entries and put the count in the DB
 	  done - email report via smtp
 	  done - redesign DB structure, so all name-strings are referenced with foreign keys etc. (DB size !)
-	  - report: ignore differences of certain fileinfos (size,mtime etc.)
+	  done - report: ignore differences of certain fileinfos (size,mtime etc.)
 	  done - export scan data to csv
-	  - read directories in ONE pass and check ALL the rule on each file, not the other way round
+	  done - read directories in ONE pass and check ALL the rule on each file, not the other way round
 	  - record total scan time and save it in DB
 	  done - /scan2 use
+	  done - help for /history is missing
+	  - allways check if DB-file exists !
+	  - mail report: email options should be read from $aRuleSet and not from table "config"
+	  - use a spellchecker on source code
+	  - /scan : eliminate IsExecutable() in second process (performance !)
+	  - /delete : sqlite "vacuum" copies DB content to a new file. Check for diskspace !
+	  - /report : compare any two scans, given as parameters
+	  - rename statements "IncDirRec:" and "ExcDirRec:" to "IncDirSub:" and "ExcDirSub:" (?)
+	  done - /duplicates : show duplicate files in DB based on status = 0, size, crc32 and md5
+	  - redesign DB : there is a row of data in table 'filedata' for every rule ! (redundant !)
 #ce
 
 
@@ -140,11 +156,13 @@ End
 #pragma compile(UPX, False)
 
 ;Set file infos
+#pragma compile(ProductVersion,"3.3.0.0")
+#pragma compile(FileVersion,"3.3.0.0")
+;Versioning: "Incompatible changes to DB"."new feature"."bug fix"."minor fix"
+
 #pragma compile(FileDescription,"Spot The Difference")
 #pragma compile(ProductName,"Spot The Difference")
-#pragma compile(ProductVersion,"3.2.0.0")
-;Versioning: "Incompatible changes to DB"."new feature"."bug fix"."minor fix"
-#pragma compile(LegalCopyright,"Reinhard Dittmann")
+;#pragma compile(LegalCopyright,"Reinhard Dittmann")
 #pragma compile(InternalName,"STD")
 
 
@@ -167,7 +185,8 @@ End
 ;Constants
 global const $cVersion = FileGetVersion(@ScriptName,"ProductVersion")
 global const $cScannameLimit = 65535	;max number of scannames resturnd from the DB
-
+;Debug
+global const $cDEBUGOnlyShowScanBuffer = True	;Beim Scan nur Idle und Puffergröße anzeigen !
 
 ;Compile options
 Opt("TrayIconHide", 1)
@@ -232,38 +251,6 @@ global $hDBHandle = ""	;handle of db
 Global $oMyRet[2]
 Global $oMyError = ObjEvent("AutoIt.Error", "MyErrFunc")
 
-
-#cs
-$Path = ""				;directory to process
-$Filename = ""			;File to process
-$ReportFilename = ""	;report filename
-$ConfigFilename = ""	;config filename (what to scan)
-$sDBName = ""			;path of sqlite db file
-$sScanname = ""			;name of the scan i.e. scantime
-
-local $sCSVFilename = ""	;csv file for scan export
-local $aCSVQueryResult = 0
-local $hCSVQuery = 0
-
-
-
-local $aQueryResult = 0	;result of a query
-local $hQuery = 0		;handle to a query
-
-local $aCfgQueryResult = 0	;result of a query on table config
-local $hCfgQuery = 0		;handle to a query on table config
-
-
-$iQueryRows = 0			;returned rows of a query
-$iQueryColumns = 0  	;returned colums of a query
-
-$sTempValid = ""		;"X" if scan is validated "-" if not yet validated
-local $aRulenames = 0	;all rulenames in a scan
-local $sTempText = ""	;
-local $iTempCount = ""	;
-#ce
-
-
 #cs
 db stucture
    scantime			time the scan took place
@@ -292,6 +279,22 @@ if $CmdLine[0] < 1 then
 EndIf
 
 select
+   Case $CmdLine[1] = "/duplicates"
+	  if $CmdLine[0] < 2 then
+ 		 ShowHelp()
+		 exit (1)
+	  EndIf
+
+	  ;$sDBName = $CmdLine[2]
+	  ;$sScanname = $CmdLine[3]
+
+	  OpenDB($CmdLine[2])
+
+	  DoDuplicates($CmdLine[3])
+
+	  CloseDB()
+
+
    Case $CmdLine[1] = "/exportscan"
 	  if $CmdLine[0] < 4 then
  		 ShowHelp()
@@ -385,6 +388,24 @@ select
 
 	  CloseDB()
 
+
+   Case $CmdLine[1] = "/history"
+
+	  if $CmdLine[0] < 3 then
+		 ShowHelp()
+		 exit (1)
+	  EndIf
+
+	  ;$sDBName = $CmdLine[2]
+	  ;$ReportFilename = $CmdLine[3]
+
+	  OpenDB($CmdLine[2])
+
+	  DoHistory($CmdLine[3])
+
+	  CloseDB()
+
+
    Case $CmdLine[1] = "/list"
 	  if $CmdLine[0] < 2 then
 		 ShowHelp()
@@ -438,14 +459,17 @@ select
 		 exit (1)
 	  EndIf
 
-	  ;$sDBName = $CmdLine[2]
+	  if @Compiled Then
+		 ;$sDBName = $CmdLine[2]
 
-	  OpenDB($CmdLine[2])
+		 OpenDB($CmdLine[2])
 
-	  DoScanWithSecondProcess($CmdLine[2])
+		 DoScanWithSecondProcess($CmdLine[2])
 
-	  CloseDB()
-
+		 CloseDB()
+	  Else
+		 ConsoleWriteError("For the " & $CmdLine[1] & " command to work " & @ScriptName & " must be compiled !")
+	  EndIf
 
    Case $CmdLine[1] = "/report"
 
@@ -534,6 +558,167 @@ Func DoExportCfg($ConfigFilename)
 	  FileWriteLine($ConfigFilename,_HexToString($aQueryResult[0]))
    WEnd
    _SQLite_QueryFinalize($hQuery)
+
+EndFunc
+
+
+Func DoDuplicates($sScanname)
+
+   ;list duplicate files in a scan
+   ;based on size,crc32,md5
+   ;------------------------------------------------
+
+   local $aQueryResult = 0	;result of a query
+   local $hQuery = 0		;handle to a query
+   local $sLastCrit = ""
+   local $sLastFilename = ""
+   local $sTempSQL = ""
+   local $iLastLinePrinted = False
+
+
+   $aQueryResult = 0
+   if GetScannamesFromDB($sScanname,$aQueryResult) Then
+	  ;for $i = 2 to $aQueryResult[0]
+
+	  $sTempSQL = "SELECT "
+	  $sTempSQL &= "scans.scantime as scantime,"
+	  $sTempSQL &= "filenames.path as path,"
+	  $sTempSQL &= "filedata.status as status,"
+	  $sTempSQL &= "filedata.size as size,"
+	  $sTempSQL &= "filedata.crc32 as crc32,"
+	  $sTempSQL &= "filedata.md5 as md5 "
+	  ;$sTempSQL &= "count(filedata.md5) "
+	  $sTempSQL &= "FROM scans,filedata,filenames "
+	  $sTempSQL &= "WHERE "
+	  $sTempSQL &= "scans.scantime = '" & $aQueryResult[2] & "' AND "
+	  $sTempSQL &= "filedata.scanid = scans.scanid AND "
+	  $sTempSQL &= "filedata.filenameid = filenames.filenameid AND "
+	  $sTempSQL &= "filedata.status = '0' AND "
+	  $sTempSQL &= "filedata.size <> '0' AND "
+	  $sTempSQL &= "filedata.crc32 <> '0' AND "
+	  $sTempSQL &= "filedata.md5 <> '0' "
+	  $sTempSQL &= "GROUP BY filedata.size,filedata.crc32,filedata.md5,filenames.path "
+	  $sTempSQL &= "ORDER BY filedata.size,filedata.crc32,filedata.md5,filenames.path ASC;"
+
+	  ConsoleWrite("scantime,size,crc32,md5,filename" & @CRLF)
+
+	  $aQueryResult = 0
+	  _SQLite_Query(-1, $sTempSQL,$hQuery)
+	  While _SQLite_FetchData($hQuery, $aQueryResult) = $SQLITE_OK
+		 if $aQueryResult[0] & "," & $aQueryResult[3] & "," & $aQueryResult[4] & "," & $aQueryResult[5] = $sLastCrit then
+			ConsoleWrite($sLastCrit & ",""" & $sLastFilename & """" & @CRLF)
+			$sLastFilename = _HexToString($aQueryResult[1])
+			$iLastLinePrinted = True
+		 Else
+			if $iLastLinePrinted = True then ConsoleWrite($sLastCrit & ",""" & $sLastFilename & """" & @CRLF)
+			$sLastCrit = $aQueryResult[0] & "," & $aQueryResult[3] & "," & $aQueryResult[4] & "," & $aQueryResult[5]
+			$sLastFilename = _HexToString($aQueryResult[1])
+			$iLastLinePrinted = False
+		 EndIf
+	  WEnd
+	  _SQLite_QueryFinalize($hQuery)
+
+
+   EndIf
+
+
+
+
+
+EndFunc
+
+
+Func DoHistory($sFilename)
+
+   ;list the history of a filename and how it has
+   ;changed from scan to scan
+   ;------------------------------------------------
+
+   local $aQueryResult = 0	;result of a query
+   local $hQuery = 0		;handle to a query
+   local $sLastFilename = ""
+   local $sTempSQL = ""
+
+
+   $sTempSQL = "SELECT "
+   $sTempSQL &= "scans.scantime,"
+   $sTempSQL &= "filenames.path,"
+
+   $sTempSQL &= "scans.valid,"
+   $sTempSQL &= "filedata.status,"
+
+   $sTempSQL &= "filedata.size,"
+   $sTempSQL &= "filedata.attributes,"
+   $sTempSQL &= "filedata.mtime,"
+   $sTempSQL &= "filedata.ctime,"
+   $sTempSQL &= "filedata.atime,"
+   $sTempSQL &= "filedata.version,"
+   $sTempSQL &= "filenames.spath,"
+   $sTempSQL &= "filedata.crc32,"
+   $sTempSQL &= "filedata.md5,"
+   $sTempSQL &= "filedata.ptime,"
+   $sTempSQL &= "rules.rulename,"
+   $sTempSQL &= "filedata.rattrib,"
+   $sTempSQL &= "filedata.aattrib,"
+   $sTempSQL &= "filedata.sattrib,"
+   $sTempSQL &= "filedata.hattrib,"
+   $sTempSQL &= "filedata.nattrib,"
+   $sTempSQL &= "filedata.dattrib,"
+   $sTempSQL &= "filedata.oattrib,"
+   $sTempSQL &= "filedata.cattrib,"
+   $sTempSQL &= "filedata.tattrib "
+   $sTempSQL &= "FROM filedata,filenames,rules,scans "
+   $sTempSQL &= "WHERE "
+   $sTempSQL &= "filedata.filenameid = filenames.filenameid AND "
+   $sTempSQL &= "filedata.scanid = scans.scanid AND "
+   $sTempSQL &= "filedata.ruleid = rules.ruleid"
+   ;$sTempSQL &= ";"
+
+
+   $sTempSQL &= " AND filenames.path like '%" & _StringToHex($sFilename) & "%' "
+   $sTempSQL &= "ORDER BY filenames.path ASC,scans.scantime ASC;"
+
+   OutputLineOfFileHistory($aQueryResult,True)
+   _SQLite_Query(-1, $sTempSQL,$hQuery)
+   While _SQLite_FetchData($hQuery, $aQueryResult) = $SQLITE_OK
+	  ;_ArrayDisplay($aQueryResult)
+	  if $sLastFilename <> _HexToString($aQueryResult[1]) then
+		 if $sLastFilename <> "" then ConsoleWrite(@CRLF)
+		 $sLastFilename = _HexToString($aQueryResult[1])
+		 ConsoleWrite($sLastFilename & @CRLF)
+	  EndIf
+	  OutputLineOfFileHistory($aQueryResult,False)
+   WEnd
+   _SQLite_QueryFinalize($hQuery)
+
+
+
+EndFunc
+
+
+Func DoDeleteScan($sScanname)
+   local $aQueryResult = 0	;result of a query
+   local $i = 0
+
+   $aQueryResult = 0
+   if GetScannamesFromDB($sScanname,$aQueryResult) Then
+	  for $i = 2 to $aQueryResult[0]
+		 ;_ArrayDisplay($aQueryResult)
+		 ;$aQueryResult[$i]
+#cs
+   _SQLite_Exec(-1,"CREATE TABLE IF NOT EXISTS scans (scanid INTEGER PRIMARY KEY AUTOINCREMENT, scantime, valid );")
+   _SQLite_Exec(-1,"CREATE TABLE IF NOT EXISTS rules (ruleid INTEGER PRIMARY KEY AUTOINCREMENT, rulename );")
+   _SQLite_Exec(-1,"CREATE TABLE IF NOT EXISTS filenames (filenameid INTEGER PRIMARY KEY AUTOINCREMENT, path, spath );")
+   _SQLite_Exec(-1,"CREATE TABLE IF NOT EXISTS filedata (scanid not null,ruleid not null,filenameid not null, status,size,attributes,mtime,ctime,atime,version,crc32,md5,ptime, PRIMARY KEY(scanid,ruleid,filenameid) );")
+#ce
+
+		 _SQLite_Exec(-1,"delete from filedata where scanid = '" & GetScanIDFromDB($aQueryResult[$i]) & "';")
+		 _SQLite_Exec(-1,"delete from scans where scantime = '" & $aQueryResult[$i] & "';")
+	  next
+   EndIf
+
+   ;shrink DB file
+   _SQLite_Exec(-1,"vacuum;")
 
 EndFunc
 
@@ -1008,33 +1193,6 @@ Func DoReport($ReportFilename)
 EndFunc
 
 
-Func DoDeleteScan($sScanname)
-   local $aQueryResult = 0	;result of a query
-   local $i = 0
-
-   $aQueryResult = 0
-   if GetScannamesFromDB($sScanname,$aQueryResult) Then
-	  for $i = 2 to $aQueryResult[0]
-		 ;_ArrayDisplay($aQueryResult)
-		 ;$aQueryResult[$i]
-#cs
-   _SQLite_Exec(-1,"CREATE TABLE IF NOT EXISTS scans (scanid INTEGER PRIMARY KEY AUTOINCREMENT, scantime, valid );")
-   _SQLite_Exec(-1,"CREATE TABLE IF NOT EXISTS rules (ruleid INTEGER PRIMARY KEY AUTOINCREMENT, rulename );")
-   _SQLite_Exec(-1,"CREATE TABLE IF NOT EXISTS filenames (filenameid INTEGER PRIMARY KEY AUTOINCREMENT, path, spath );")
-   _SQLite_Exec(-1,"CREATE TABLE IF NOT EXISTS filedata (scanid not null,ruleid not null,filenameid not null, status,size,attributes,mtime,ctime,atime,version,crc32,md5,ptime, PRIMARY KEY(scanid,ruleid,filenameid) );")
-#ce
-
-		 _SQLite_Exec(-1,"delete from filedata where scanid = '" & GetScanIDFromDB($aQueryResult[$i]) & "';")
-		 _SQLite_Exec(-1,"delete from scans where scantime = '" & $aQueryResult[$i] & "';")
-	  next
-   EndIf
-
-   ;shrink DB file
-   _SQLite_Exec(-1,"vacuum;")
-
-EndFunc
-
-
 Func DoInvalidateScan($sScanname)
    local $aQueryResult = 0	;result of a query
    local $i = 0
@@ -1388,8 +1546,10 @@ Func DoSecondProcess()
 		 ExitLoop
 	  EndIf
 	  if @extended then
-		 ;StringReplace($sInputBuffer,@CRLF,"")
-		 ;ConsoleWrite("** " & @extended & " ** " & $sTempText & @CRLF)
+		 if $cDEBUGOnlyShowScanBuffer then
+			StringReplace($sInputBuffer,@CRLF,"")
+			ConsoleWrite("** " & @extended & " ** " & $sTempText & @CRLF)
+		 EndIf
 		 While StringInStr($sInputBuffer,@CRLF) > 0
 
 			;read and empty the buffer line by line
@@ -1410,15 +1570,15 @@ Func DoSecondProcess()
 				  $sTempText = GetRulename($aRule) & " : " & $sFullPath
 				  ;$sTempText = OEM2ANSI($sTempText) ; translate from OEM to ANSI
 				  ;DllCall('user32.dll','Int','OemToChar','str',$sTempText,'str','') ; translate from OEM to ANSI
-				  ConsoleWrite($sTempText & @CRLF)
+				  if not $cDEBUGOnlyShowScanBuffer then ConsoleWrite($sTempText & @CRLF)
 
 				  _SQLite_Exec(-1,"INSERT INTO filedata (scanid,ruleid,filenameid,status,size,attributes,mtime,ctime,atime,version,crc32,md5,ptime,rattrib,aattrib,sattrib,hattrib,nattrib,dattrib,oattrib,cattrib,tattrib)  values ('" & $iScanId & "', '" & GetRuleId($aRule) & "', '" & GetFilenameIDFromDB(_StringToHex($aFileInfo[0]),$aFileInfo[8]) & "','" & $aFileInfo[1] & "','" & $aFileInfo[2] & "','" & $aFileInfo[3] & "','" & $aFileInfo[4] & "','" & $aFileInfo[5] & "','" & $aFileInfo[6] & "','" & $aFileInfo[7] & "','" & $aFileInfo[9] & "','" & $aFileInfo[10] & "','" & $aFileInfo[11] & "','" & $aFileInfo[13] & "','" & $aFileInfo[14] & "','" & $aFileInfo[15] & "','" & $aFileInfo[16] & "','" & $aFileInfo[17] & "','" & $aFileInfo[18] & "','" & $aFileInfo[19] & "','" & $aFileInfo[20] & "','" & $aFileInfo[21] & "');")
 			   EndIf
 			Next
 		 WEnd
 	  Else
-		 ;no data in stdin, so let´s wait a bit
-		 ;ConsoleWrite("** idle **" & @CRLF)
+		 ;no data in stdin, so let´s wait a bid
+		 if $cDEBUGOnlyShowScanBuffer then ConsoleWrite("** searching **" & @CRLF)
 		 sleep(500)
 	  EndIf
    WEnd
@@ -1494,6 +1654,18 @@ Func ShowHelp()
    $sText &= @ScriptName & " /exportscan c:\test.sqlite 20160514131610 c:\test.csv" & @CRLF
    $sText &= "Export scan SCANNAME to CSVFILENAME. SCANNAME is either an existing scan" & @CRLF
    $sText &= "or a SPECIAL_SCANNAME" & @CRLF
+   $sText &= @CRLF
+   $sText &= @ScriptName & " /duplicates DB SCANNAME" & @CRLF
+   $sText &= @ScriptName & " /duplicates c:\test.sqlite last" & @CRLF
+   $sText &= "Write a list with duplicate files based on size, crc32 and md5 in scan SCANNAME to stdout." & @CRLF
+   $sText &= "SCANNAME is either an existing scan or a SPECIAL_SCANNAME. If scan is a SPECIAL_SCANNAME" & @CRLF
+   $sText &= "only the first scan of the selected scans is used." & @CRLF
+   $sText &= @CRLF
+   $sText &= @ScriptName & " /history DB SEARCHTEXT" & @CRLF
+   $sText &= @ScriptName & " /history c:\test.sqlite ""\temp\example.dll""" & @CRLF
+   $sText &= "Write the change history of one or more files to stdout." & @CRLF
+   $sText &= "SEARCHTEXT is a part of the full path or filename. SEARCHTEXT is case sensitiv !" & @CRLF
+   $sText &= "Wildcards are not supported." & @CRLF
 
    $sText &= @CRLF
    $sText &= @ScriptName & " /help" & @CRLF
@@ -1555,10 +1727,14 @@ Func ShowHelp()
    $sText &= @CRLF
    $sText &= "CONFIGFILE:" & @CRLF
    $sText &= @CRLF
-   $sText &= 'Describes one or more scan rules. A rule is a code block that starts with a' & @CRLF
-   $sText &= '"Rule" statement and ends with an "End" statement.' & @CRLF
-   $sText &= "A rule block consists of statements that describe which directories and file" & @CRLF
-   $sText &= "extentions should be included in or excluded from the scan." & @CRLF
+   $sText &= 'Describes a ruleset of one or more scan rules. A rule is a code block that starts with a' & @CRLF
+   $sText &= '"Rule:" statement and ends with an "End" statement.' & @CRLF
+   $sText &= "A rule block consists of statements that describe which directories and" & @CRLF
+   $sText &= "file extentions should be included in or excluded from the scan." & @CRLF
+   $sText &= @CRLF
+   $sText &= 'The "Email*" statements are global for the entire ruleset and therefore NOT enclosed by' & @CRLF
+   $sText &= '"Rule:" and "End" statements.' & @CRLF
+   $sText &= @CRLF
    $sText &= "A line that starts with # indicates a comment line." & @CRLF
    $sText &= "" & @CRLF
    $sText &= "Rule:RULENAME          start of rule" & @CRLF
@@ -1582,12 +1758,12 @@ Func ShowHelp()
    $sText &= "Ign:FILEPROPERTIY      ignore changes to this file property." & @CRLF
    $sText &= "End                    end of rule" & @CRLF
    $sText &= "" & @CRLF
-
    $sText &= "EmailFrom:EMAILADDRESS       sender email address" & @CRLF
    $sText &= "EmailTo:EMAILADDRESS         recipient email address" & @CRLF
    $sText &= "EmailSubject:SUBJECT         email subject" & @CRLF
    $sText &= "EmailServer:SMTPSERVERNAME   name of smtp server (hostname or ip-address)" & @CRLF
    $sText &= "EmailPort:SMTPPORT           smtp port on SMTPSERVERNAME, defaults to 25" & @CRLF
+   $sText &= "" & @CRLF
    $sText &= "" & @CRLF
 
    $sText &= "EMAILADDRESS           email adress" & @CRLF
@@ -1629,11 +1805,22 @@ Func ShowHelp()
 
 
    $sText &= "" & @CRLF
-   $sText &= "Example:" & @CRLF
-   $sText &= '#' & @CRLF
+   $sText &= "CONFIGFILE Example:" & @CRLF
+   $sText &= "" & @CRLF
    $sText &= '# The rule is named "Word and Excel" and includes all *.doc,*.docx,*.xls,*.xlsx' & @CRLF
    $sText &= '# files in "c:\my msoffice files" and all subdirectories, with the exception of' & @CRLF
    $sText &= '# "c:\my msoffice files\temp" and all its subdirectories.' & @CRLF
+   $sText &= '#' & @CRLF
+   $sText &= '# Changes of file size and the attributes "archive" and "normal" get ignored in reports.' & @CRLF
+   $sText &= '#' & @CRLF
+   $sText &= '# Email reports are send from "std@example.com" to "admin@example.com" with' & @CRLF
+   $sText &= '# the subject line "modified files" via the smtp mailserver at "192.168.1.1".' & @CRLF
+   $sText &= '# ' & @CRLF
+   $sText &= '#' & @CRLF
+   $sText &= "EmailFrom:std@example.com" & @CRLF
+   $sText &= "EmailTo:admin@example.com" & @CRLF
+   $sText &= "EmailSubject:modified files" & @CRLF
+   $sText &= "EmailServer:192.168.1.1" & @CRLF
    $sText &= '#' & @CRLF
    $sText &= 'Rule:Word and Excel' & @CRLF
    $sText &= '  IncDirRec:"c:\my msoffice files"' & @CRLF
@@ -1649,10 +1836,10 @@ Func ShowHelp()
 
    $sText &= @CRLF
    $sText &= @CRLF
-   $sText &= "Quick start:" & @CRLF
+   $sText &= "Quick Start:" & @CRLF
    $sText &= "" & @CRLF
    $sText &= " 1. Create a CONFIGFILE with an editor" & @CRLF
-   $sText &= " 2. Import CONFIGFILE into DB:" & @CRLF
+   $sText &= " 2. Import CONFIGFILE into (not yet existing) DB:" & @CRLF
    $sText &= "    " & @ScriptName & " /importcfg DB CONFIGFILE" & @CRLF
    $sText &= " 3. Initial scan:" & @CRLF
    $sText &= "    " & @ScriptName & " /scan DB" & @CRLF
@@ -1740,7 +1927,7 @@ EndFunc
 Func GetRuleIDFromDB($sRulename)
 
    ;get ruleid from DB for $sRulename And
-   ;insert new rule in DB table rules if not exists
+   ;insert new rule in DB table "rules" if not exists
    ;------------------------------------------------
 
    local $aRow = 0	;Returned data row
@@ -1938,7 +2125,7 @@ EndFunc
 Func GetFilenameIDFromDB($sPath,$sSPath)
 
    ;get filenameid from DB for $sPath and $sSPath and
-   ;insert new filename in DB table filenames if not exists
+   ;insert new filename in DB table "filenames" if not exists
    ;------------------------------------------------
 
    local $aRow = 0	;Returned data row
@@ -1964,7 +2151,7 @@ EndFunc
 Func GetScanIDFromDB($sScanname)
 
    ;get scanid from DB for $sScanname And
-   ;insert new scan in DB table scans if not exists
+   ;insert new scan in DB table "scans" if not exists
    ;------------------------------------------------
 
    local $aRow = 0	;Returned data row
@@ -2041,7 +2228,8 @@ Func OpenDB($sDBName)
 
    _SQLite_Startup()
    If @error Then
-	   MsgBox($MB_SYSTEMMODAL, "SQLite Error", "SQLite3.dll Can't be Loaded!")
+	   ;MsgBox($MB_SYSTEMMODAL, "SQLite Error", "SQLite3.dll can't be loaded!")
+	   ConsoleWrite("SQLite Error: SQLite3.dll can't be loaded!")
 	   Exit -1
    EndIf
    ;ConsoleWrite("_SQLite_LibVersion=" & _SQLite_LibVersion() & @CRLF)
@@ -2163,6 +2351,7 @@ EndFunc
 Func GetRuleId(ByRef $aRule)
 
    ;get id of the rule
+   ;!!! rule id is not the rule number !!!
    ;--------------------
 
    local $sRuleId = ""
@@ -2501,6 +2690,47 @@ Func IsExecutable($Filename)
 EndFunc
 
 
+Func OutputLineOfFileHistory(ByRef $aQueryResult, $iPrintHeadline)
+
+   ;Simple report writer
+   ;----------------------
+
+
+   ;Output single line of a sql query result
+   ;--------------------------------------------
+   ;"           scantime,name,valid,status,size,attributes,mtime,ctime,atime,version,spath,crc32,md5,ptime,rulename,rattrib,aattrib,sattrib,hattrib,nattrib,dattrib,oattrib,cattrib,tattrib"
+   ;                 0    1      2     3     4        5      6     7     8     9      10    11   12    13       14      15      16      17      18      19     20      21       22      23
+
+
+
+   local $aDesc[] = ["scantime","name","valid","status","size","attributes","mtime","ctime","atime","version","spath","crc32","md5","ptime","rulename","rattrib","aattrib","sattrib","hattrib","nattrib","dattrib","oattrib","cattrib","tattrib"]
+   local $aAttribDesc[] = ["r","a","s","h","n","d","o","c","t"]
+   local $i = 0
+   local $sTemp = ""
+   local $sTempAttrib = ""
+
+   ;$sTemp = _HexToString($aQueryResult[1])
+   ;ConsoleWrite($sTemp & @CRLF)
+
+   if $iPrintHeadline then
+	  $sTemp = StringFormat("%-15s %5s %6s %13s %14s %14s %14s %20s %10s %35s %10s %10s",$aDesc[0],$aDesc[2],$aDesc[3],$aDesc[4],$aDesc[6],$aDesc[7],$aDesc[8],$aDesc[9],$aDesc[11],$aDesc[12],$aDesc[13],"attributes")
+   Else
+	  ;attributes
+	  $sTempAttrib = ""
+	  for $i = 15 to 23
+		 if $aQueryResult[$i] = 1 then $sTempAttrib &= StringUpper($aAttribDesc[$i - 15])
+	  Next
+	  if $sTempAttrib = "" then $sTempAttrib = "-"
+	  ;ConsoleWrite($sTempAttrib & @CRLF)
+
+	  ;$sTemp = StringFormat("%-15s %1s %1s %13s %14s %14s %14s %20s %10s %35s %10s %9s",$aQueryResult[0],$aQueryResult[2],$aQueryResult[3],$aQueryResult[4],$aQueryResult[6],$aQueryResult[7],$aQueryResult[8],$aQueryResult[9],$aQueryResult[11],$aQueryResult[12],$aQueryResult[13],$sTempAttrib)
+	  $sTemp = StringFormat("%-15s %5s %6s %13s %14s %14s %14s %20s %10s %35s %10s %10s",$aQueryResult[0],$aQueryResult[2],$aQueryResult[3],$aQueryResult[4],$aQueryResult[6],$aQueryResult[7],$aQueryResult[8],$aQueryResult[9],$aQueryResult[11],$aQueryResult[12],$aQueryResult[13],$sTempAttrib)
+   EndIf
+   ConsoleWrite($sTemp & @CRLF)
+
+   Return True
+EndFunc
+
 
 Func OutputLineOfQueryResult(ByRef $aQueryResult,$ReportFilename)
 
@@ -2661,6 +2891,7 @@ Func TreeClimberSecondProcess($sStartPath,$iPID)
 	  ;climb the directory tree downward if needed
 	  if $iIsDirectory Then
 		 $iIsClimbTarget = False
+		 ; check all the rules on this directory
 		 for $iRuleCounter = 1 to $iRuleCounterMax
 			GetRuleFromRuleSet($iRuleCounter)
 			;_ArrayDisplay($aRule)
@@ -3343,20 +3574,7 @@ EndFunc
 ;Scrapbook
 ;-----------------------
 
-#cs
-scans in der datenbank
-   SELECT distinct scantime FROM files
 
-views erzeugen
-
-   create view if not exists scanold as select * from files where scantime='20160428144350'
-
-   create view if not exists scannew as select * from files where scantime='20160428144915'
-
-unterschiede zurückgeben
-   select * from  scannew join scanold where scannew.path = scanold.path and (scannew.md5 <> scanold.md5 or )
-
-#ce
 
 #cs
    ; ### CRC32 ###
