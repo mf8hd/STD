@@ -36,7 +36,7 @@ Changelog
 2.0.1.0		report shows "changed" files with no difference
 			error messages if report is not generated
 			GetFileInfo(): no md5 and crc32 for directories
-			GetFileInfo(): handle files that can not be read (status = $aFileInfo[1] = 1 )
+			GetFileInfo(): handle files that can not be read (status = $gaFileInfo[1] = 1 )
 2.0.1.1		GetFileInfo(): first get filesize then calculate md5 and crc32
 2.0.1.2		OutputLineOfQueryResult(): changes in attributes not indicated by a * in report
 			OutputLineOfQueryResult(): if filesize is greater 0 and the file can not be read, then set file status  = 1
@@ -85,7 +85,7 @@ Changelog
 3.3.1.0		new debug option $cDEBUGShowVisitedDirectories
 			IsExecutable(): remember result of last use, so the file is tested just once while itterating over all rules (performance !)
 3.3.1.1		GetFileInfo(): sanitized variable names
-			profiler options: $cDEBUGTimeGetFileInfo, $cDEBUGTimeGetRuleFromRuleSet, $cDEBUGTimeIsExecutable, $cDEBUGTimeIsIncludedByRule, $cDEBUGTimeIsClimbTargetByRule
+			profiler options: $gcDEBUGTimeGetFileInfo, $cDEBUGTimeGetRuleFromRuleSet, $cDEBUGTimeIsExecutable, $cDEBUGTimeIsIncludedByRule, $cDEBUGTimeIsClimbTargetByRule
 3.3.1.2		GetRuleSetFromDB(),GetRuleFromRuleSet(): Write begin of all rules in $aRuleSet[] to $aRuleStart[] (performance !)
 			IsClimbTargetByRule($PathOrFile,$iRuleNumber),IsIncludedByRule($PathOrFile,$iRuleNumber),GetRulename($iRuleNumber): use $aRuleSet[] not $aRule[] , so GetRuleFromRuleSet() is obsolete (performance !)
 3.3.1.3		GetRuleSetFromDB(),IsIncludedByRule(): use $aRuleExtensions (performance !)
@@ -100,6 +100,13 @@ Changelog
 			replace stringlen($aRuleSet[$i][1] & "\") with "buffered" StringLen() for "IncDir:","ExcDir:","IncDirRec:","ExcDirRec:"
 			($aRuleSetLineDirStringLenPlusOne[])
 			DoReport(),IsFilepropertyIgnoredByRule($sFileproperty,$iRuleNumber): use $aRuleSet[] not $aRule[]
+3.3.1.6		remove all OLD_ functions
+			rename ShowHelp() to DoShowHelp()
+			rename ShowVersions() to DoShowVersions()
+			DoShowUsage(): show short help
+			remove IncludeDirDataInDBByRule()
+			remove GetAllRulenamesFromDB()
+			rename all global variables to $gTypeVariablename
 
 
 
@@ -134,6 +141,7 @@ ToDo:
 	  - rename statements "IncDirRec:" and "ExcDirRec:" to "IncDirSub:" and "ExcDirSub:" (?)
 	  done - /duplicates : show duplicate files in DB based on status = 0, size, crc32 and md5
 	  - redesign DB : there is a row of data in table 'filedata' for every rule ! (redundant !)
+	  done - rename global variables
 #ce
 
 
@@ -180,8 +188,8 @@ End
 #pragma compile(UPX, False)
 
 ;Set file infos
-#pragma compile(ProductVersion,"3.3.1.5")
-#pragma compile(FileVersion,"3.3.1.5")
+#pragma compile(ProductVersion,"3.3.1.6")
+#pragma compile(FileVersion,"3.3.1.6")
 ;Versioning: "Incompatible changes to DB"."new feature"."bug fix"."minor fix"
 
 #pragma compile(FileDescription,"Spot The Difference")
@@ -207,24 +215,24 @@ End
 
 
 ;Constants
-global const $cVersion = FileGetVersion(@ScriptName,"ProductVersion")
-global const $cScannameLimit = 65535	;max number of scannames resturnd from the DB
+global const $gcVersion = FileGetVersion(@ScriptName,"ProductVersion")
+global const $gcScannameLimit = 65535	;max number of scannames resturnd from the DB
 ;Debug
-global const $cDEBUGOnlyShowScanBuffer = False	;show only "searching" and buffersize during scan !
-global const $cDEBUGShowVisitedDirectories = False	;show visited directories during scan !
+global const $gcDEBUGOnlyShowScanBuffer = False	;show only "searching" and buffersize during scan !
+global const $gcDEBUGShowVisitedDirectories = False	;show visited directories during scan !
 
 ;Profiler
-global const $cDEBUGTimeGetFileInfo = False
-global const $cDEBUGTimeGetRuleFromRuleSet = False
-global const $cDEBUGTimeIsExecutable = False
-global const $cDEBUGTimeIsIncludedByRule = False
-global const $cDEBUGTimeIsClimbTargetByRule = False
+global const $gcDEBUGTimeGetFileInfo = False
+global const $gcDEBUGTimeGetRuleFromRuleSet = False
+global const $gcDEBUGTimeIsExecutable = False
+global const $gcDEBUGTimeIsIncludedByRule = False
+global const $gcDEBUGTimeIsClimbTargetByRule = False
 
-global $iDEBUGTimerGetFileInfo = 0
-global $iDEBUGTimerGetRuleFromRuleSet = 0
-global $iDEBUGTimerIsExecutable = 0
-global $iDEBUGTimerIsIncludedByRule = 0
-global $iDEBUGTimerIsClimbTargetByRule = 0
+global $giDEBUGTimerGetFileInfo = 0
+global $giDEBUGTimerGetRuleFromRuleSet = 0
+global $giDEBUGTimerIsExecutable = 0
+global $giDEBUGTimerIsIncludedByRule = 0
+global $giDEBUGTimerIsClimbTargetByRule = 0
 
 
 ;Compile options
@@ -234,8 +242,8 @@ Opt("TrayIconHide", 1)
 
 
 ;Variables
-global $aRule[1][2]		;one rule form config db table
-						;$aRule
+global $gaRule[1][2]	;one rule form config db table
+						;$gaRule
 						;.......................
 						;command    | parameter
 						;-----------------------
@@ -243,8 +251,8 @@ global $aRule[1][2]		;one rule form config db table
 						;IncDir:    | "c:\test"
 						;IncExt:    | txt
 						;.......................
-global $aRuleSet[1][3]	;all rules form config db table
-						;$aRuleSet
+global $gaRuleSet[1][3]	;all rules form config db table
+						;$gaRuleSet
 						;.....................................
 						;command    | parameter | rulenumber
 						;-------------------------------------
@@ -257,59 +265,59 @@ global $aRuleSet[1][3]	;all rules form config db table
 						;IncDir:    | "c:\tst1" | 2
 						;IncExt:    | log       | 2
 						;.....................................
-global $aRuleStart[1]   ;Index of start of all rules in $aRuleSet[]
-global const $cIncExt = 0 	  ;column index for IncExt parameters in $aRuleExtensions[]
-global const $cExcExt = 1	  ;column index for ExcExt parameters in $aRuleExtensions[]
-global const $cIncExe = 2	  ;column index for IncExe parameters in $aRuleExtensions[]
-global const $cExcExe = 3	  ;column index for ExcExe parameters in $aRuleExtensions[]
-global const $cIncAll = 4	  ;column index for IncAll parameters in $aRuleExtensions[]
-global const $cExcAll = 5	  ;column index for ExcAll parameters in $aRuleExtensions[]
-global $aRuleExtensions[1][6] ;all infos of extension statements of a rule
-							  ;................................................................................
-							  ;IncExt           | ExcExt           | IncExe   | ExcExe   | IncAll   | ExcAll
-							  ;$cIncExt         | $cExcExt         | $cIncExe | $cExcExe | $cIncAll | $cExcAll
-							  ;--------------------------------------------------------------------------------
-							  ;".txt.dll.docx." | ".txt.dll.xlsx." | True     | False    | True     | False
-							  ;................................................................................
-global $aRuleSetLineDirStringLenPlusOne[1]		;stringlen($aRuleSet[$i][1] & "\") for every "IncDir:","ExcDir:","IncDirRec:","ExcDirRec:" line in $aRuleSet[]
-global $aRuleSetLineBackslashCount[1] 			;number of backslashes for every "IncDir:" and "ExcDir:" line in $aRuleSet[]
-global $iCurrentDirBackslashCount 		;number of backslashes in the currently scanned path
-global $aFileInfo[22]	;array with informations about the file
+global $gaRuleStart[1]   	  ;Index of start of all rules in $gaRuleSet[]
+global const $gcIncExt = 0 	  ;column index for IncExt parameters in $gaRuleExtensions[]
+global const $gcExcExt = 1	  ;column index for ExcExt parameters in $gaRuleExtensions[]
+global const $gcIncExe = 2	  ;column index for IncExe parameters in $gaRuleExtensions[]
+global const $gcExcExe = 3	  ;column index for ExcExe parameters in $gaRuleExtensions[]
+global const $gcIncAll = 4	  ;column index for IncAll parameters in $gaRuleExtensions[]
+global const $gcExcAll = 5	  ;column index for ExcAll parameters in $gaRuleExtensions[]
+global $gaRuleExtensions[1][6]	;all infos of extension statements of a rule
+								;................................................................................
+								;IncExt           | ExcExt           | IncExe   | ExcExe   | IncAll   | ExcAll
+								;$gcIncExt         | $gcExcExt         | $gcIncExe | $gcExcExe | $gcIncAll | $gcExcAll
+								;--------------------------------------------------------------------------------
+								;".txt.dll.docx." | ".txt.dll.xlsx." | True     | False    | True     | False
+								;................................................................................
+global $gaRuleSetLineDirStringLenPlusOne[1]		;stringlen($gaRuleSet[$i][1] & "\") for every "IncDir:","ExcDir:","IncDirRec:","ExcDirRec:" line in $gaRuleSet[]
+global $gaRuleSetLineBackslashCount[1] 			;number of backslashes for every "IncDir:" and "ExcDir:" line in $gaRuleSet[]
+global $giCurrentDirBackslashCount 				;number of backslashes in the currently scanned path
+global $gaFileInfo[22]		;array with informations about the file
 #cs
-		 $aFileInfo[0]	;name
-		 $aFileInfo[1]	;file could not be read 1 else 0
-		 $aFileInfo[2]	;size
-		 $aFileInfo[3]	;attributes (obsolete)
-		 $aFileInfo[4]	;file modification timestamp
-		 $aFileInfo[5]	;file creation timestamp
-		 $aFileInfo[6]	;file accessed timestamp
-		 $aFileInfo[7]	;version
-		 $aFileInfo[8]	;8.3 short path+name
-		 $aFileInfo[9]	;crc32
-		 $aFileInfo[10]	;md5 hash
-		 $aFileInfo[11]	;time it took to process the file
-		 $aFileInfo[12]	;rulename
-		 $aFileInfo[13]	;1 if the "R" = READONLY attribute is set
-		 $aFileInfo[14]	;1 if the "A" = ARCHIVE attribute is set
-		 $aFileInfo[15]	;1 if the "S" = SYSTEM attribute is set
-		 $aFileInfo[16]	;1 if the "H" = HIDDEN attribute is set
-		 $aFileInfo[17]	;1 if the "N" = NORMAL attribute is set
-		 $aFileInfo[18]	;1 if the "D" = DIRECTORY attribute is set
-		 $aFileInfo[19]	;1 if the "O" = OFFLINE attribute is set
-		 $aFileInfo[20]	;1 if the "C" = COMPRESSED (NTFS compression, not ZIP compression) attribute is set
-		 $aFileInfo[21]	;1 if the "T" = TEMPORARY attribute is set
+		 $gaFileInfo[0]		;name
+		 $gaFileInfo[1]		;file could not be read 1 else 0
+		 $gaFileInfo[2]		;size
+		 $gaFileInfo[3]		;attributes (obsolete)
+		 $gaFileInfo[4]		;file modification timestamp
+		 $gaFileInfo[5]		;file creation timestamp
+		 $gaFileInfo[6]		;file accessed timestamp
+		 $gaFileInfo[7]		;version
+		 $gaFileInfo[8]		;8.3 short path+name
+		 $gaFileInfo[9]		;crc32
+		 $gaFileInfo[10]	;md5 hash
+		 $gaFileInfo[11]	;time it took to process the file
+		 $gaFileInfo[12]	;rulename
+		 $gaFileInfo[13]	;1 if the "R" = READONLY attribute is set
+		 $gaFileInfo[14]	;1 if the "A" = ARCHIVE attribute is set
+		 $gaFileInfo[15]	;1 if the "S" = SYSTEM attribute is set
+		 $gaFileInfo[16]	;1 if the "H" = HIDDEN attribute is set
+		 $gaFileInfo[17]	;1 if the "N" = NORMAL attribute is set
+		 $gaFileInfo[18]	;1 if the "D" = DIRECTORY attribute is set
+		 $gaFileInfo[19]	;1 if the "O" = OFFLINE attribute is set
+		 $gaFileInfo[20]	;1 if the "C" = COMPRESSED (NTFS compression, not ZIP compression) attribute is set
+		 $gaFileInfo[21]	;1 if the "T" = TEMPORARY attribute is set
 #ce
-global $sScantime = ""	;date and time of the scan
-global $iScanId	= 0		;scanid
-global $hDBHandle = ""	;handle of db
+global $gsScantime = ""		;date and time of the scan
+global $giScanId	= 0		;scanid
+global $ghDBHandle = ""		;handle of db
 
 ;mailer setup
-Global $oMyRet[2]
-Global $oMyError = ObjEvent("AutoIt.Error", "MyErrFunc")
+Global $goMyRet[2]
+Global $goMyError = ObjEvent("AutoIt.Error", "MyErrFunc")
 
 ;IsExecutable() global lookup
-global $iIsExecutableLastResult = False	;result of last call to IsExecutable()
-global $sIsExecutableLastFilename = ""	;filname used for last call to IsExecutable()
+global $giIsExecutableLastResult = False	;result of last call to IsExecutable()
+global $gsIsExecutableLastFilename = ""		;filname used for last call to IsExecutable()
 
 #cs
 db stucture
@@ -334,14 +342,14 @@ db stucture
 
 ;check commandline
 if $CmdLine[0] < 1 then
-   ShowHelp()
+   DoShowUsage()
    exit (1)
 EndIf
 
 select
    Case $CmdLine[1] = "/duplicates"
 	  if $CmdLine[0] < 3 then
- 		 ShowHelp()
+ 		 DoShowUsage()
 		 exit (1)
 	  EndIf
 
@@ -357,7 +365,7 @@ select
 
    Case $CmdLine[1] = "/exportscan"
 	  if $CmdLine[0] < 4 then
- 		 ShowHelp()
+ 		 DoShowUsage()
 		 exit (1)
 	  EndIf
 
@@ -373,7 +381,7 @@ select
 
    Case $CmdLine[1] = "/importcfg"
 	  if $CmdLine[0] < 3 then
- 		 ShowHelp()
+ 		 DoShowUsage()
 		 exit (1)
 	  EndIf
 
@@ -388,7 +396,7 @@ select
 
    Case $CmdLine[1] = "/exportcfg"
 	  if $CmdLine[0] < 3 then
- 		 ShowHelp()
+ 		 DoShowUsage()
 		 exit (1)
 	  EndIf
 
@@ -403,7 +411,7 @@ select
 
    Case $CmdLine[1] = "/validate"
 	  if $CmdLine[0] < 3 then
- 		 ShowHelp()
+ 		 DoShowUsage()
 		 exit (1)
 	  EndIf
 
@@ -419,7 +427,7 @@ select
 
    Case $CmdLine[1] = "/invalidate"
 	  if $CmdLine[0] < 3 then
- 		 ShowHelp()
+ 		 DoShowUsage()
 		 exit (1)
 	  EndIf
 
@@ -435,7 +443,7 @@ select
 
    Case $CmdLine[1] = "/delete"
 	  if $CmdLine[0] < 3 then
- 		 ShowHelp()
+ 		 DoShowUsage()
 		 exit (1)
 	  EndIf
 
@@ -452,7 +460,7 @@ select
    Case $CmdLine[1] = "/history"
 
 	  if $CmdLine[0] < 3 then
-		 ShowHelp()
+		 DoShowUsage()
 		 exit (1)
 	  EndIf
 
@@ -468,7 +476,7 @@ select
 
    Case $CmdLine[1] = "/list"
 	  if $CmdLine[0] < 2 then
-		 ShowHelp()
+		 DoShowUsage()
 		 exit (1)
 	  EndIf
 	  ;$sDBName = $CmdLine[2]
@@ -481,7 +489,7 @@ select
 
    Case $CmdLine[1] = "/secondprocess"
 	  if $CmdLine[0] < 2 then
- 		 ShowHelp()
+ 		 DoShowUsage()
 		 exit (1)
 	  EndIf
 
@@ -499,7 +507,7 @@ select
    Case $CmdLine[1] = "/scan-obsolete"
 	  ;obsolete scan with one process
 	  if $CmdLine[0] < 2 then
- 		 ShowHelp()
+ 		 DoShowUsage()
 		 exit (1)
 	  EndIf
 
@@ -515,7 +523,7 @@ select
    Case $CmdLine[1] = "/scan"
 	  ;scan with two processes
 	  if $CmdLine[0] < 2 then
- 		 ShowHelp()
+ 		 DoShowUsage()
 		 exit (1)
 	  EndIf
 
@@ -534,7 +542,7 @@ select
    Case $CmdLine[1] = "/report"
 
 	  if $CmdLine[0] < 3 then
-		 ShowHelp()
+		 DoShowUsage()
 		 exit (1)
 	  EndIf
 
@@ -548,16 +556,16 @@ select
 	  CloseDB()
 
    Case $CmdLine[1] = "/help"
-	  ShowHelp()
+	  DoShowHelp()
 
    Case $CmdLine[1] = "/?"
-	  ShowHelp()
+	  DoShowHelp()
 
    Case $CmdLine[1] = "/v"
-	  ShowVersions()
+	  DoShowVersions()
 
    case Else
-	  ShowHelp()
+	  DoShowUsage()
 
 EndSelect
 
@@ -806,7 +814,7 @@ Func DoReport($ReportFilename)
    local $hCfgQuery = 0			;handle to a query on table config
    local $sTempCfgLine = ""
 
-   ;local $aRulenames = 0	;all rulenames in a scan
+   ;local $gaRulenames = 0	;all rulenames in a scan
 
    local $sTempText = ""	;
    local $iTempCount = ""	;
@@ -912,9 +920,9 @@ Func DoReport($ReportFilename)
 
 
 	  ;SELECT scantime,rulename FROM files where scantime = '20160514212002' group by rulename order by rulename asc;
-	  ;$aRulenames = 0
+	  ;$gaRulenames = 0
 	  if GetNumberOfRulesFromRuleSet() > 0 Then
-		 ;_ArrayDisplay($aRulenames)
+		 ;_ArrayDisplay($gaRulenames)
 
 		 FileWriteLine($ReportFilename,@CRLF & "report for old scan:" & $sScannameOld & " <-> new scan:" & $sScannameNew & @CRLF)
 		 FileWriteLine($ReportFilename,"generated: " & @YEAR & "." & @MON & "." & @MDAY & " " & @HOUR & ":" & @MIN & ":" & @SEC & @CRLF)
@@ -934,7 +942,7 @@ Func DoReport($ReportFilename)
 			$aQueryResult = 0
 			$hQuery = 0
 			$iTempCount = 0
-			;_SQLite_Query(-1, "SELECT scannew.rulename,count(scannew.rulename) FROM scannew,scanold WHERE scannew.path = scanold.path and scannew.rulename = scanold.rulename and scannew.rulename = '" & $aRulenames[$i] & "' and (scannew.size <> scanold.size or scannew.attributes <> scanold.attributes or scannew.mtime <> scanold.mtime or scannew.ctime <> scanold.ctime or scannew.atime <> scanold.atime or scannew.version <> scanold.version or scannew.spath <> scanold.spath or scannew.crc32 <> scanold.crc32 or scannew.md5 <> scanold.md5);",$hQuery)
+			;_SQLite_Query(-1, "SELECT scannew.rulename,count(scannew.rulename) FROM scannew,scanold WHERE scannew.path = scanold.path and scannew.rulename = scanold.rulename and scannew.rulename = '" & $gaRulenames[$i] & "' and (scannew.size <> scanold.size or scannew.attributes <> scanold.attributes or scannew.mtime <> scanold.mtime or scannew.ctime <> scanold.ctime or scannew.atime <> scanold.atime or scannew.version <> scanold.version or scannew.spath <> scanold.spath or scannew.crc32 <> scanold.crc32 or scannew.md5 <> scanold.md5);",$hQuery)
 
 			$sTempSQL =  "SELECT "
 			$sTempSQL &= "scannew.rulename,"
@@ -1198,7 +1206,7 @@ Func DoReport($ReportFilename)
 		 ;strip whitespaces at begin of line
 		 $sTempCfgLine = StringStripWS($sTempCfgLine,$STR_STRIPLEADING )
 
-		 ;tranfer rule lines to $aRule
+		 ;tranfer rule lines to $gaRule
 		 ;strip leading and trailing " from directories
 		 ;strip trailing \ from directories
 		 Select
@@ -1240,11 +1248,6 @@ Func DoReport($ReportFilename)
 	  If @error Then
 		  ConsoleWrite("Error sending message:" & @CRLF & "Error code:" & @error & "  Description:" & $rc)
 	  EndIf
-
-
-
-
-
 
 	  FileDelete($ReportFilename)
    EndIf
@@ -1455,20 +1458,20 @@ Func DoScanWithSecondProcess($sDBName)
    ;make a unique list ($aAllIncDirs) of only the top most dirs from the "IncDirRec:" and "IncDir:" statements in the ruleset
 
    ;read every line in the ruleset
-   for $i=1 to UBound($aRuleSet,1)-1
+   for $i=1 to UBound($gaRuleSet,1)-1
 
-	  if $aRuleSet[$i][0] = "IncDirRec:" or $aRuleSet[$i][0] = "IncDir:" then
+	  if $gaRuleSet[$i][0] = "IncDirRec:" or $gaRuleSet[$i][0] = "IncDir:" then
 		 $iFound = False
 
 		 for $j=1 To UBound($aAllIncDirs,1)-1
-			;ConsoleWrite(StringLeft($aAllIncDirs[$j],StringLen($aRuleSet[$i][1])) & @crlf & StringLeft($aRuleSet[$i][1],StringLen($aRuleSet[$i][1])) & @CRLF)
-			if StringLen($aAllIncDirs[$j]) >= StringLen($aRuleSet[$i][1]) and StringLeft($aAllIncDirs[$j],StringLen($aRuleSet[$i][1])) = StringLeft($aRuleSet[$i][1],StringLen($aRuleSet[$i][1])) then
+			;ConsoleWrite(StringLeft($aAllIncDirs[$j],StringLen($gaRuleSet[$i][1])) & @crlf & StringLeft($gaRuleSet[$i][1],StringLen($gaRuleSet[$i][1])) & @CRLF)
+			if StringLen($aAllIncDirs[$j]) >= StringLen($gaRuleSet[$i][1]) and StringLeft($aAllIncDirs[$j],StringLen($gaRuleSet[$i][1])) = StringLeft($gaRuleSet[$i][1],StringLen($gaRuleSet[$i][1])) then
 			   ;replace existing dir in $aAllIncDirs with a shorter, higher level dir in the same path
 			   ;here doublicate entries get into $aAllIncDirs
-			   $aAllIncDirs[$j] = $aRuleSet[$i][1]
+			   $aAllIncDirs[$j] = $gaRuleSet[$i][1]
 			   $iFound = True
-			ElseIf StringLen($aAllIncDirs[$j]) < StringLen($aRuleSet[$i][1]) and StringLeft($aAllIncDirs[$j],StringLen($aAllIncDirs[$j])) = StringLeft($aRuleSet[$i][1],StringLen($aAllIncDirs[$j])) then
-			   ;the dir in $aAllIncDirs is already a shorter and higher level dir in the same path as $aRuleSet[$i][1]
+			ElseIf StringLen($aAllIncDirs[$j]) < StringLen($gaRuleSet[$i][1]) and StringLeft($aAllIncDirs[$j],StringLen($aAllIncDirs[$j])) = StringLeft($gaRuleSet[$i][1],StringLen($aAllIncDirs[$j])) then
+			   ;the dir in $aAllIncDirs is already a shorter and higher level dir in the same path as $gaRuleSet[$i][1]
 			   $iFound = True
 			EndIf
 		 Next
@@ -1476,7 +1479,7 @@ Func DoScanWithSecondProcess($sDBName)
 		 ;append new dir entry to $aAllIncDirs
 		 if $iFound = False then
 			redim $aAllIncDirs[UBound($aAllIncDirs,1)+1]
-			$aAllIncDirs[UBound($aAllIncDirs,1)-1] = $aRuleSet[$i][1]
+			$aAllIncDirs[UBound($aAllIncDirs,1)-1] = $gaRuleSet[$i][1]
 		 EndIf
 	  EndIf
 
@@ -1507,11 +1510,11 @@ Func DoScanWithSecondProcess($sDBName)
 
    ConsoleWrite("List: " & $ScanTimer & @CRLF)
 
-   if $cDEBUGTimeGetFileInfo = True 		then ConsoleWrite("List-GetFileInfo:         " & Round($iDEBUGTimerGetFileInfo) & @CRLF)
-   if $cDEBUGTimeGetRuleFromRuleSet = True 	then ConsoleWrite("List-GetRuleFromRuleSet:  " & Round($iDEBUGTimerGetRuleFromRuleSet) & @CRLF)
-   if $cDEBUGTimeIsExecutable = True 		then ConsoleWrite("List-IsExecutable:        " & Round($iDEBUGTimerIsExecutable) & @CRLF)
-   if $cDEBUGTimeIsIncludedByRule = True 	then ConsoleWrite("List-IsIncludedByRule:    " & Round($iDEBUGTimerIsIncludedByRule) & @CRLF)
-   if $cDEBUGTimeIsClimbTargetByRule = True then ConsoleWrite("List-IsClimbTargetByRule: " & Round($iDEBUGTimerIsClimbTargetByRule) & @CRLF)
+   if $gcDEBUGTimeGetFileInfo = True 			then ConsoleWrite("List-GetFileInfo:         " & Round($giDEBUGTimerGetFileInfo) & @CRLF)
+   if $gcDEBUGTimeGetRuleFromRuleSet = True 	then ConsoleWrite("List-GetRuleFromRuleSet:  " & Round($giDEBUGTimerGetRuleFromRuleSet) & @CRLF)
+   if $gcDEBUGTimeIsExecutable = True 			then ConsoleWrite("List-IsExecutable:        " & Round($giDEBUGTimerIsExecutable) & @CRLF)
+   if $gcDEBUGTimeIsIncludedByRule = True 		then ConsoleWrite("List-IsIncludedByRule:    " & Round($giDEBUGTimerIsIncludedByRule) & @CRLF)
+   if $gcDEBUGTimeIsClimbTargetByRule = True 	then ConsoleWrite("List-IsClimbTargetByRule: " & Round($giDEBUGTimerIsClimbTargetByRule) & @CRLF)
 
 
 EndFunc
@@ -1530,27 +1533,27 @@ Func DoScan()
 
    GetRuleSetFromDB()
 
-   $sScantime = @YEAR & @MON & @MDAY & @HOUR & @MIN & @SEC
-   $iScanId = GetScanIDFromDB($sScantime)
+   $gsScantime = @YEAR & @MON & @MDAY & @HOUR & @MIN & @SEC
+   $giScanId = GetScanIDFromDB($gsScantime)
 
 
    ;make a unique list ($aAllIncDirs) of only the top most dirs from the "IncDirRec:" and "IncDir:" statements in the ruleset
 
    ;read every line in the ruleset
-   for $i=1 to UBound($aRuleSet,1)-1
+   for $i=1 to UBound($gaRuleSet,1)-1
 
-	  if $aRuleSet[$i][0] = "IncDirRec:" or $aRuleSet[$i][0] = "IncDir:" then
+	  if $gaRuleSet[$i][0] = "IncDirRec:" or $gaRuleSet[$i][0] = "IncDir:" then
 		 $iFound = False
 
 		 for $j=1 To UBound($aAllIncDirs,1)-1
-			;ConsoleWrite(StringLeft($aAllIncDirs[$j],StringLen($aRuleSet[$i][1])) & @crlf & StringLeft($aRuleSet[$i][1],StringLen($aRuleSet[$i][1])) & @CRLF)
-			if StringLen($aAllIncDirs[$j]) >= StringLen($aRuleSet[$i][1]) and StringLeft($aAllIncDirs[$j],StringLen($aRuleSet[$i][1])) = StringLeft($aRuleSet[$i][1],StringLen($aRuleSet[$i][1])) then
+			;ConsoleWrite(StringLeft($aAllIncDirs[$j],StringLen($gaRuleSet[$i][1])) & @crlf & StringLeft($gaRuleSet[$i][1],StringLen($gaRuleSet[$i][1])) & @CRLF)
+			if StringLen($aAllIncDirs[$j]) >= StringLen($gaRuleSet[$i][1]) and StringLeft($aAllIncDirs[$j],StringLen($gaRuleSet[$i][1])) = StringLeft($gaRuleSet[$i][1],StringLen($gaRuleSet[$i][1])) then
 			   ;replace existing dir in $aAllIncDirs with a shorter, higher level dir in the same path
 			   ;here doublicate entries get into $aAllIncDirs
-			   $aAllIncDirs[$j] = $aRuleSet[$i][1]
+			   $aAllIncDirs[$j] = $gaRuleSet[$i][1]
 			   $iFound = True
-			ElseIf StringLen($aAllIncDirs[$j]) < StringLen($aRuleSet[$i][1]) and StringLeft($aAllIncDirs[$j],StringLen($aAllIncDirs[$j])) = StringLeft($aRuleSet[$i][1],StringLen($aAllIncDirs[$j])) then
-			   ;the dir in $aAllIncDirs is already a shorter and higher level dir in the same path as $aRuleSet[$i][1]
+			ElseIf StringLen($aAllIncDirs[$j]) < StringLen($gaRuleSet[$i][1]) and StringLeft($aAllIncDirs[$j],StringLen($aAllIncDirs[$j])) = StringLeft($gaRuleSet[$i][1],StringLen($aAllIncDirs[$j])) then
+			   ;the dir in $aAllIncDirs is already a shorter and higher level dir in the same path as $gaRuleSet[$i][1]
 			   $iFound = True
 			EndIf
 		 Next
@@ -1558,7 +1561,7 @@ Func DoScan()
 		 ;append new dir entry to $aAllIncDirs
 		 if $iFound = False then
 			redim $aAllIncDirs[UBound($aAllIncDirs,1)+1]
-			$aAllIncDirs[UBound($aAllIncDirs,1)-1] = $aRuleSet[$i][1]
+			$aAllIncDirs[UBound($aAllIncDirs,1)-1] = $gaRuleSet[$i][1]
 		 EndIf
 	  EndIf
 
@@ -1602,8 +1605,8 @@ Func DoSecondProcess()
    $iRuleCounterMax = GetNumberOfRulesFromRuleSet()
 
 
-   $sScantime = @YEAR & @MON & @MDAY & @HOUR & @MIN & @SEC
-   $iScanId = GetScanIDFromDB($sScantime)
+   $gsScantime = @YEAR & @MON & @MDAY & @HOUR & @MIN & @SEC
+   $giScanId = GetScanIDFromDB($gsScantime)
 
    while 1
 	  ;read every file or directory we have to put in the db form stdin
@@ -1615,7 +1618,7 @@ Func DoSecondProcess()
 		 ExitLoop
 	  EndIf
 	  if @extended then
-		 if $cDEBUGOnlyShowScanBuffer then
+		 if $gcDEBUGOnlyShowScanBuffer then
 			StringReplace($sInputBuffer,@CRLF,"")
 			ConsoleWrite( StringFormat("** %9i **",@extended) & $sTempText & @CRLF)
 		 EndIf
@@ -1627,7 +1630,7 @@ Func DoSecondProcess()
 			$sInputBuffer = StringTrimLeft($sInputBuffer,Stringlen($sFullPath)+2)
 
 			;get the file information
-			GetFileInfo($aFileInfo,$sFullPath)
+			GetFileInfo($gaFileInfo,$sFullPath)
 
 			; check all the rules on this file / directory
 			for $iRuleCounter = 1 to $iRuleCounterMax
@@ -1635,19 +1638,19 @@ Func DoSecondProcess()
 
 			   if IsIncludedByRule($sFullPath,$iRuleCounter) then
 				  ;list every file or directory we scan - reading is NOT scanning !!!
-				  ;ConsoleWrite(GetRulename($aRule) & " : " & $sStartPath & "\" & $sFileName & @CRLF)
+				  ;ConsoleWrite(GetRulename($gaRule) & " : " & $sStartPath & "\" & $sFileName & @CRLF)
 				  $sTempText = GetRulename($iRuleCounter) & " : " & $sFullPath
 				  ;$sTempText = OEM2ANSI($sTempText) ; translate from OEM to ANSI
 				  ;DllCall('user32.dll','Int','OemToChar','str',$sTempText,'str','') ; translate from OEM to ANSI
-				  if not $cDEBUGOnlyShowScanBuffer then ConsoleWrite($sTempText & @CRLF)
+				  if not $gcDEBUGOnlyShowScanBuffer then ConsoleWrite($sTempText & @CRLF)
 
-				  _SQLite_Exec(-1,"INSERT INTO filedata (scanid,ruleid,filenameid,status,size,attributes,mtime,ctime,atime,version,crc32,md5,ptime,rattrib,aattrib,sattrib,hattrib,nattrib,dattrib,oattrib,cattrib,tattrib)  values ('" & $iScanId & "', '" & GetRuleIdFromRuleSet($iRuleCounter) & "', '" & GetFilenameIDFromDB(_StringToHex($aFileInfo[0]),$aFileInfo[8]) & "','" & $aFileInfo[1] & "','" & $aFileInfo[2] & "','" & $aFileInfo[3] & "','" & $aFileInfo[4] & "','" & $aFileInfo[5] & "','" & $aFileInfo[6] & "','" & $aFileInfo[7] & "','" & $aFileInfo[9] & "','" & $aFileInfo[10] & "','" & $aFileInfo[11] & "','" & $aFileInfo[13] & "','" & $aFileInfo[14] & "','" & $aFileInfo[15] & "','" & $aFileInfo[16] & "','" & $aFileInfo[17] & "','" & $aFileInfo[18] & "','" & $aFileInfo[19] & "','" & $aFileInfo[20] & "','" & $aFileInfo[21] & "');")
+				  _SQLite_Exec(-1,"INSERT INTO filedata (scanid,ruleid,filenameid,status,size,attributes,mtime,ctime,atime,version,crc32,md5,ptime,rattrib,aattrib,sattrib,hattrib,nattrib,dattrib,oattrib,cattrib,tattrib)  values ('" & $giScanId & "', '" & GetRuleIdFromRuleSet($iRuleCounter) & "', '" & GetFilenameIDFromDB(_StringToHex($gaFileInfo[0]),$gaFileInfo[8]) & "','" & $gaFileInfo[1] & "','" & $gaFileInfo[2] & "','" & $gaFileInfo[3] & "','" & $gaFileInfo[4] & "','" & $gaFileInfo[5] & "','" & $gaFileInfo[6] & "','" & $gaFileInfo[7] & "','" & $gaFileInfo[9] & "','" & $gaFileInfo[10] & "','" & $gaFileInfo[11] & "','" & $gaFileInfo[13] & "','" & $gaFileInfo[14] & "','" & $gaFileInfo[15] & "','" & $gaFileInfo[16] & "','" & $gaFileInfo[17] & "','" & $gaFileInfo[18] & "','" & $gaFileInfo[19] & "','" & $gaFileInfo[20] & "','" & $gaFileInfo[21] & "');")
 			   EndIf
 			Next
 		 WEnd
 	  Else
 		 ;no data in stdin, so let´s wait a bid
-		 if $cDEBUGOnlyShowScanBuffer then ConsoleWrite("** searching **" & @CRLF)
+		 if $gcDEBUGOnlyShowScanBuffer then ConsoleWrite("** searching **" & @CRLF)
 		 sleep(1000)
 		 $iIdleCounter += 1
 	  EndIf
@@ -1655,11 +1658,11 @@ Func DoSecondProcess()
 
    ConsoleWrite("Scan: " & Round(TimerDiff($ScanTimer) - $iIdleCounter*1000) & @CRLF)
 
-   if $cDEBUGTimeGetFileInfo = True 		then ConsoleWrite("Scan-GetFileInfo:         " & Round($iDEBUGTimerGetFileInfo) & @CRLF)
-   if $cDEBUGTimeGetRuleFromRuleSet = True 	then ConsoleWrite("Scan-GetRuleFromRuleSet:  " & Round($iDEBUGTimerGetRuleFromRuleSet) & @CRLF)
-   if $cDEBUGTimeIsExecutable = True 		then ConsoleWrite("Scan-IsExecutable:        " & Round($iDEBUGTimerIsExecutable) & @CRLF)
-   if $cDEBUGTimeIsIncludedByRule = True 	then ConsoleWrite("Scan-IsIncludedByRule:    " & Round($iDEBUGTimerIsIncludedByRule) & @CRLF)
-   if $cDEBUGTimeIsClimbTargetByRule = True then ConsoleWrite("Scan-IsClimbTargetByRule: " & Round($iDEBUGTimerIsClimbTargetByRule) & @CRLF)
+   if $gcDEBUGTimeGetFileInfo = True 			then ConsoleWrite("Scan-GetFileInfo:         " & Round($giDEBUGTimerGetFileInfo) & @CRLF)
+   if $gcDEBUGTimeGetRuleFromRuleSet = True 	then ConsoleWrite("Scan-GetRuleFromRuleSet:  " & Round($giDEBUGTimerGetRuleFromRuleSet) & @CRLF)
+   if $gcDEBUGTimeIsExecutable = True 			then ConsoleWrite("Scan-IsExecutable:        " & Round($giDEBUGTimerIsExecutable) & @CRLF)
+   if $gcDEBUGTimeIsIncludedByRule = True 		then ConsoleWrite("Scan-IsIncludedByRule:    " & Round($giDEBUGTimerIsIncludedByRule) & @CRLF)
+   if $gcDEBUGTimeIsClimbTargetByRule = True 	then ConsoleWrite("Scan-IsClimbTargetByRule: " & Round($giDEBUGTimerIsClimbTargetByRule) & @CRLF)
 
 
 
@@ -1667,14 +1670,14 @@ Func DoSecondProcess()
 EndFunc
 
 
-Func ShowHelp()
+Func DoShowHelp()
 
    ;show help
    ;---------------------------------------
 
    local $sText = ""
 
-   $sText &= "Spot The Difference (" & $cVersion & ")" & @CRLF
+   $sText &= "Spot The Difference (" & $gcVersion & ")" & @CRLF
    $sText &= "A poor mans file integrity checker." & @CRLF
    $sText &= @CRLF
    $sText &= "Prerequisites:" & @CRLF
@@ -1942,7 +1945,7 @@ Func ShowHelp()
 EndFunc
 
 
-Func ShowVersions()
+Func DoShowVersions()
 
    ;show version information
    ;---------------------------------------
@@ -1958,7 +1961,7 @@ Func ShowVersions()
 	  $sSQliteVersion = _SQLite_LibVersion()
    EndIf
 
-   $sText &= "Spot The Difference (" & $cVersion & ")" & @CRLF
+   $sText &= "Spot The Difference (" & $gcVersion & ")" & @CRLF
    $sText &= "A poor mans file integrity checker." & @CRLF
    $sText &= @CRLF
    $sText &= "AutoIT version:     " & @AutoItVersion & @CRLF
@@ -1974,34 +1977,66 @@ Func ShowVersions()
 EndFunc
 
 
-;----- get stuff from DB functions -----
+Func DoShowUsage()
 
-Func GetAllRulenamesFromDB($sScan1,$sScan2, ByRef $aRules)
+   ;show usage
+   ;---------------------------------------
 
-   ;return all the rules in scan $sScan
-   ;----------------------------------------------------------------
+   local $sText = ""
 
-   local $sSQL = ""
+   $sText &= "Spot The Difference (" & $gcVersion & ")" & @CRLF
+   $sText &= "A poor mans file integrity checker." & @CRLF
+   $sText &= @CRLF
+   $sText &= @ScriptName & " /importcfg DB CONFIGFILE" & @CRLF
+   $sText &= "Import CONFIGFILE into DB." & @CRLF
+   $sText &= @CRLF
+   $sText &= @ScriptName & " /exportcfg DB CONFIGFILE" & @CRLF
+   $sText &= "Export config form DB into CONFIGFILE." & @CRLF
+   $sText &= @CRLF
+   $sText &= @ScriptName & " /scan DB" & @CRLF
+   $sText &= "Scan directories" & @CRLF
+   $sText &= @CRLF
+   $sText &= @ScriptName & " /report DB REPORTFILE" & @CRLF
+   $sText &= "Write the differences between last and last validated scan to REPORTFILE" & @CRLF
+   $sText &= @CRLF
+   $sText &= @ScriptName & " /list DB" & @CRLF
+   $sText &= "List all scans in DB" & @CRLF
+   $sText &= @CRLF
+   $sText &= @ScriptName & " /validate DB SCANNAME" & @CRLF
+   $sText &= "Set status of scan SCANNAME to valid." & @CRLF
+   $sText &= @CRLF
+   $sText &= @ScriptName & " /invalidate DB SCANNAME" & @CRLF
+   $sText &= "Set status of scan SCANNAME to invalid." & @CRLF
+   $sText &= @CRLF
+   $sText &= @ScriptName & " /delete DB SCANNAME" & @CRLF
+   $sText &= "Delete the scan SCANNAME from DB." & @CRLF
+   $sText &= @CRLF
+   $sText &= @ScriptName & " /exportscan DB SCANNAME CSVFILENAME" & @CRLF
+   $sText &= "Export scan SCANNAME to CSVFILENAME." & @CRLF
+   $sText &= @CRLF
+   $sText &= @ScriptName & " /duplicates DB SCANNAME" & @CRLF
+   $sText &= "Write a list with duplicate files in scan SCANNAME to stdout." & @CRLF
+   $sText &= @CRLF
+   $sText &= @ScriptName & " /history DB SEARCHTEXT" & @CRLF
+   $sText &= "Write the change history of one or more files to stdout." & @CRLF
+   $sText &= @CRLF
+   $sText &= @ScriptName & " /help" & @CRLF
+   $sText &= "Show help" & @CRLF
+   $sText &= @CRLF
+   $sText &= @ScriptName & " /?" & @CRLF
+   $sText &= "Show help" & @CRLF
+   $sText &= @CRLF
+   $sText &= @ScriptName & " /v" & @CRLF
+   $sText &= "Show version information" & @CRLF
 
-   local $iTempQueryRows = 0
-   local $iTempQueryColumns = 0
 
-   ;$sSQL = "SELECT rulename FROM files where scantime = '" & $sScan1 & "' or scantime = '" & $sScan2 & "' group by rulename order by rulename asc;"
-   $sSQL = "SELECT rulename FROM rules order by rulename asc;"
-
-   _SQLite_GetTable(-1, $sSQL, $aRules, $iTempQueryRows, $iTempQueryColumns)
-   if not @error Then
-	  if $iTempQueryRows >= 1 then
-		 ;MsgBox(0,"Test",$iQueryRows & @CRLF & $iQueryColumns)
-		 ;_ArrayDisplay($aScans)
-		 Return True
-	  EndIf
-   EndIf
-
-   Return False
+   ConsoleWrite($sText)
 
 EndFunc
 
+
+
+;----- get stuff from DB functions -----
 
 Func GetRuleIDFromDB($sRulename)
 
@@ -2031,24 +2066,24 @@ EndFunc
 
 Func GetRuleSetFromDB()
 
-   ;parse all rules from table config in DB into $aRuleSet
+   ;parse all rules from table config in DB into $gaRuleSet
    ;------------------------------------------------
 
 
-   ;global $aRuleSet[1][3]	;all rules form config db table
-						   ;$aRuleSet
-						   ;.....................................
-						   ;command    | parameter | rulenumber
-						   ;-------------------------------------
-						   ;EmailFrom: | i@y.com   | 0
-						   ;EmailTo:   | y@i.com   | 0
-						   ;Rule:      | Test      | 1
-						   ;IncDir:    | "c:\test" | 1
-						   ;IncExt:    | txt       | 1
-						   ;Rule:      | Logfiles  | 2
-						   ;IncDir:    | "c:\tst1" | 2
-						   ;IncExt:    | log       | 2
-						   ;.....................................
+   ;global $gaRuleSet[1][3]	  ;all rules form config db table
+							  ;$gaRuleSet
+							  ;.....................................
+							  ;command    | parameter | rulenumber
+							  ;-------------------------------------
+							  ;EmailFrom: | i@y.com   | 0
+							  ;EmailTo:   | y@i.com   | 0
+							  ;Rule:      | Test      | 1
+							  ;IncDir:    | "c:\test" | 1
+							  ;IncExt:    | txt       | 1
+							  ;Rule:      | Logfiles  | 2
+							  ;IncDir:    | "c:\tst1" | 2
+							  ;IncExt:    | log       | 2
+							  ;.....................................
 
 
    local $iLastRuleRead = False
@@ -2061,9 +2096,9 @@ Func GetRuleSetFromDB()
    local $iRuleCurrent = 0		;current rule number (rule 0 is global setting)
    local $iRuleCount = 0		;number of rules so far (rule 0 is global setting)
 
-   dim $aRuleSet[1][3]			;reset/clear $aRuleSet
-   dim $aRuleStart[1]   		;reset/clear
-   dim $aRuleExtensions[1][6]	;reset/clear
+   dim $gaRuleSet[1][3]			;reset/clear $gaRuleSet
+   dim $gaRuleStart[1]   		;reset/clear
+   dim $gaRuleExtensions[1][6]	;reset/clear
 
 
 
@@ -2075,7 +2110,7 @@ Func GetRuleSetFromDB()
    _SQLite_Query(-1, "SELECT line FROM config ORDER BY linenumber ASC;",$hCfgQuery)
    While True
 	  ;read one rule from table config
-	  ;dim $aRuleSet[1][3]
+	  ;dim $gaRuleSet[1][3]
 	  While True
 
 		 ;read one line form table config
@@ -2096,8 +2131,8 @@ Func GetRuleSetFromDB()
 		 Rule:RULENAME			;name of rule
 		 IncDirRec:PATH			;directory to include, including all subdirectories
 		 ExcDirRec:PATH			;directory to exclude, including all subdirectories
-		 IncDir:PATH				;directory to include, only this directory
-		 ExcDir:PATH				;directory to exclude, only this directory
+		 IncDir:PATH			;directory to include, only this directory
+		 ExcDir:PATH			;directory to exclude, only this directory
 		 IncExt:FILEEXTENTION	;file extention to include
 		 ExcExt:FILEEXTENTION	;file extention to exclude
 		 IncExe					;all executable files, no matter what the extention is
@@ -2119,7 +2154,7 @@ Func GetRuleSetFromDB()
 		 ;strip whitespaces at begin of line
 		 $sTempCfgLine = StringStripWS($sTempCfgLine,$STR_STRIPLEADING )
 
-		 ;tranfer rule lines to $aRuleSet
+		 ;tranfer rule lines to $gaRuleSet
 		 ;strip leading and trailing " from directories
 		 ;strip trailing \ from directories
 		 Select
@@ -2142,26 +2177,26 @@ Func GetRuleSetFromDB()
 			   $iRuleCount += 1
 			   $iRuleCurrent = $iRuleCount
 
-			   redim $aRuleStart[UBound($aRuleStart)+1]
-			   $aRuleStart[$iRuleCount] = UBound($aRuleSet,1)
+			   redim $gaRuleStart[UBound($gaRuleStart)+1]
+			   $gaRuleStart[$iRuleCount] = UBound($gaRuleSet,1)
 
-			   redim $aRuleExtensions[UBound($aRuleExtensions,1)+1][6]
-			   $aRuleExtensions[$iRuleCount][$cIncExt] = "."
-			   $aRuleExtensions[$iRuleCount][$cExcExt] = "."
-			   $aRuleExtensions[$iRuleCount][$cIncExe] = False
-			   $aRuleExtensions[$iRuleCount][$cExcExe] = False
-			   $aRuleExtensions[$iRuleCount][$cIncAll] = False
-			   $aRuleExtensions[$iRuleCount][$cExcAll] = False
+			   redim $gaRuleExtensions[UBound($gaRuleExtensions,1)+1][6]
+			   $gaRuleExtensions[$iRuleCount][$gcIncExt] = "."
+			   $gaRuleExtensions[$iRuleCount][$gcExcExt] = "."
+			   $gaRuleExtensions[$iRuleCount][$gcIncExe] = False
+			   $gaRuleExtensions[$iRuleCount][$gcExcExe] = False
+			   $gaRuleExtensions[$iRuleCount][$gcIncAll] = False
+			   $gaRuleExtensions[$iRuleCount][$gcExcAll] = False
 
 			   InsertStatementInRuleSet(1,"Rule:",$sTempCfgLine,$iRuleCurrent)
 
-			   redim $aRuleSet[UBound($aRuleSet,1)+1][3]
-			   $aRuleSet[UBound($aRuleSet,1)-1][0] = "RuleId:"
-			   $aRuleSet[UBound($aRuleSet,1)-1][1] = GetRuleIDFromDB($aRuleSet[UBound($aRuleSet,1)-2][1])
-			   $aRuleSet[UBound($aRuleSet,1)-1][2] = $iRuleCurrent
+			   redim $gaRuleSet[UBound($gaRuleSet,1)+1][3]
+			   $gaRuleSet[UBound($gaRuleSet,1)-1][0] = "RuleId:"
+			   $gaRuleSet[UBound($gaRuleSet,1)-1][1] = GetRuleIDFromDB($gaRuleSet[UBound($gaRuleSet,1)-2][1])
+			   $gaRuleSet[UBound($gaRuleSet,1)-1][2] = $iRuleCurrent
 
-			   ;_ArrayDisplay($aRuleStart)
-			   ;_ArrayDisplay($aRuleSet)
+			   ;_ArrayDisplay($gaRuleStart)
+			   ;_ArrayDisplay($gaRuleSet)
 
 
 			;----- scan statements -----
@@ -2169,54 +2204,54 @@ Func GetRuleSetFromDB()
 			   InsertStatementInRuleSet(2,"IncDirRec:",$sTempCfgLine,$iRuleCurrent)
 
 			   ;caclulate StringLen()+1 of given path
-			   redim $aRuleSetLineDirStringLenPlusOne[UBound($aRuleSet,1)]
-			   $aRuleSetLineDirStringLenPlusOne[UBound($aRuleSet,1)-1]=StringLen($aRuleSet[UBound($aRuleSet,1)-1][1])+1
+			   redim $gaRuleSetLineDirStringLenPlusOne[UBound($gaRuleSet,1)]
+			   $gaRuleSetLineDirStringLenPlusOne[UBound($gaRuleSet,1)-1]=StringLen($gaRuleSet[UBound($gaRuleSet,1)-1][1])+1
 			Case stringleft($sTempCfgLine,stringlen("ExcDirRec:")) = "ExcDirRec:"
 			   InsertStatementInRuleSet(2,"ExcDirRec:",$sTempCfgLine,$iRuleCurrent)
 
 			   ;caclulate StringLen()+1 of given path
-			   redim $aRuleSetLineDirStringLenPlusOne[UBound($aRuleSet,1)]
-			   $aRuleSetLineDirStringLenPlusOne[UBound($aRuleSet,1)-1]=StringLen($aRuleSet[UBound($aRuleSet,1)-1][1])+1
+			   redim $gaRuleSetLineDirStringLenPlusOne[UBound($gaRuleSet,1)]
+			   $gaRuleSetLineDirStringLenPlusOne[UBound($gaRuleSet,1)-1]=StringLen($gaRuleSet[UBound($gaRuleSet,1)-1][1])+1
 			Case stringleft($sTempCfgLine,stringlen("IncDir:")) = "IncDir:"
 			   InsertStatementInRuleSet(2,"IncDir:",$sTempCfgLine,$iRuleCurrent)
 
 			   ;caclulate StringLen()+1 of given path
-			   redim $aRuleSetLineDirStringLenPlusOne[UBound($aRuleSet,1)]
-			   $aRuleSetLineDirStringLenPlusOne[UBound($aRuleSet,1)-1]=StringLen($aRuleSet[UBound($aRuleSet,1)-1][1])+1
+			   redim $gaRuleSetLineDirStringLenPlusOne[UBound($gaRuleSet,1)]
+			   $gaRuleSetLineDirStringLenPlusOne[UBound($gaRuleSet,1)-1]=StringLen($gaRuleSet[UBound($gaRuleSet,1)-1][1])+1
 
 			   ;count number of backslashes in given directory
-			   redim $aRuleSetLineBackslashCount[UBound($aRuleSet,1)]
-			   StringReplace($aRuleSet[UBound($aRuleSet,1)-1][1],"\","")
-			   $aRuleSetLineBackslashCount[UBound($aRuleSet,1)-1]=@extended
+			   redim $gaRuleSetLineBackslashCount[UBound($gaRuleSet,1)]
+			   StringReplace($gaRuleSet[UBound($gaRuleSet,1)-1][1],"\","")
+			   $gaRuleSetLineBackslashCount[UBound($gaRuleSet,1)-1]=@extended
 			Case stringleft($sTempCfgLine,stringlen("ExcDir:")) = "ExcDir:"
 			   InsertStatementInRuleSet(2,"ExcDir:",$sTempCfgLine,$iRuleCurrent)
 
 			   ;caclulate StringLen()+1 of given path
-			   redim $aRuleSetLineDirStringLenPlusOne[UBound($aRuleSet,1)]
-			   $aRuleSetLineDirStringLenPlusOne[UBound($aRuleSet,1)-1]=StringLen($aRuleSet[UBound($aRuleSet,1)-1][1])+1
+			   redim $gaRuleSetLineDirStringLenPlusOne[UBound($gaRuleSet,1)]
+			   $gaRuleSetLineDirStringLenPlusOne[UBound($gaRuleSet,1)-1]=StringLen($gaRuleSet[UBound($gaRuleSet,1)-1][1])+1
 
 			   ;count number of backslashes in given directory
-			   redim $aRuleSetLineBackslashCount[UBound($aRuleSet,1)]
-			   StringReplace($aRuleSet[UBound($aRuleSet,1)-1][1],"\","")
-			   $aRuleSetLineBackslashCount[UBound($aRuleSet,1)-1]=@extended
+			   redim $gaRuleSetLineBackslashCount[UBound($gaRuleSet,1)]
+			   StringReplace($gaRuleSet[UBound($gaRuleSet,1)-1][1],"\","")
+			   $gaRuleSetLineBackslashCount[UBound($gaRuleSet,1)-1]=@extended
 			Case stringleft($sTempCfgLine,stringlen("IncExt:")) = "IncExt:"
 			   ;InsertStatementInRuleSet(1,"IncExt:",$sTempCfgLine,$iRuleCurrent)
-			   $aRuleExtensions[$iRuleCurrent][$cIncExt] &= StringTrimLeft($sTempCfgLine,stringlen("IncExt:")) & "."
+			   $gaRuleExtensions[$iRuleCurrent][$gcIncExt] &= StringTrimLeft($sTempCfgLine,stringlen("IncExt:")) & "."
 			Case stringleft($sTempCfgLine,stringlen("ExcExt:")) = "ExcExt:"
 			   ;InsertStatementInRuleSet(1,"ExcExt:",$sTempCfgLine,$iRuleCurrent)
-			   $aRuleExtensions[$iRuleCurrent][$cExcExt] &= StringTrimLeft($sTempCfgLine,stringlen("ExcExt:")) & "."
+			   $gaRuleExtensions[$iRuleCurrent][$gcExcExt] &= StringTrimLeft($sTempCfgLine,stringlen("ExcExt:")) & "."
 			Case StringStripWS($sTempCfgLine,$STR_STRIPALL ) = "IncExe"
 			   ;InsertStatementInRuleSet(0,"IncExe",$sTempCfgLine,$iRuleCurrent)
-			   $aRuleExtensions[$iRuleCurrent][$cIncExe]=True
+			   $gaRuleExtensions[$iRuleCurrent][$gcIncExe]=True
 			Case StringStripWS($sTempCfgLine,$STR_STRIPALL ) = "ExcExe"
 			   ;InsertStatementInRuleSet(0,"ExcExe",$sTempCfgLine,$iRuleCurrent)
-			   $aRuleExtensions[$iRuleCurrent][$cExcExe]=True
+			   $gaRuleExtensions[$iRuleCurrent][$gcExcExe]=True
 			Case StringStripWS($sTempCfgLine,$STR_STRIPALL ) = "IncAll"
 			   ;InsertStatementInRuleSet(0,"IncAll",$sTempCfgLine,$iRuleCurrent)
-			   $aRuleExtensions[$iRuleCurrent][$cIncAll]=True
+			   $gaRuleExtensions[$iRuleCurrent][$gcIncAll]=True
 			Case StringStripWS($sTempCfgLine,$STR_STRIPALL ) = "ExcAll"
 			   ;InsertStatementInRuleSet(0,"ExcAll",$sTempCfgLine,$iRuleCurrent)
-			   $aRuleExtensions[$iRuleCurrent][$cExcAll]=True
+			   $gaRuleExtensions[$iRuleCurrent][$gcExcAll]=True
 			Case StringStripWS($sTempCfgLine,$STR_STRIPALL ) = "ExcDirs"
 			   InsertStatementInRuleSet(0,"ExcDirs",$sTempCfgLine,$iRuleCurrent)
 
@@ -2241,7 +2276,7 @@ Func GetRuleSetFromDB()
 	  if $iLastRuleRead = True then ExitLoop
 
 
-	  ;_ArrayDisplay($aRuleSet)
+	  ;_ArrayDisplay($gaRuleSet)
 	  ;exit(0)
 
 
@@ -2319,19 +2354,19 @@ Func GetScannamesFromDB($sScan,ByRef $aScans)
    local $iTempQueryColumns = 0
    Select
 	  Case $sScan = "all"
-		 $sSQL = "SELECT scantime from scans group by scantime order by scantime desc limit " & $cScannameLimit & ";"
+		 $sSQL = "SELECT scantime from scans group by scantime order by scantime desc limit " & $gcScannameLimit & ";"
 	  Case $sScan = "last"
 		 $sSQL = "SELECT scantime from scans group by scantime order by scantime desc limit 1;"
 	  Case $sScan = "invalid"
-		 $sSQL = "SELECT scantime from scans where valid = 0 group by scantime order by scantime desc limit " & $cScannameLimit & ";"
+		 $sSQL = "SELECT scantime from scans where valid = 0 group by scantime order by scantime desc limit " & $gcScannameLimit & ";"
 	  Case $sScan = "valid"
-		 $sSQL = "SELECT scantime from scans where valid = 1 group by scantime order by scantime desc limit " & $cScannameLimit & ";"
+		 $sSQL = "SELECT scantime from scans where valid = 1 group by scantime order by scantime desc limit " & $gcScannameLimit & ";"
 	  Case $sScan = "lastinvalid"
 		 $sSQL = "SELECT scantime from scans where valid = 0 group by scantime order by scantime desc limit 1;"
 	  Case $sScan = "lastvalid"
 		 $sSQL = "SELECT scantime from scans where valid = 1 group by scantime order by scantime desc limit 1;"
 	  Case $sScan = "oldvalid"
-		 $sSQL = "SELECT scantime from scans where valid = 1 group by scantime order by scantime desc limit " & $cScannameLimit & " offset 1;"
+		 $sSQL = "SELECT scantime from scans where valid = 1 group by scantime order by scantime desc limit " & $gcScannameLimit & " offset 1;"
 	  case Else
 		 $sSQL = "SELECT scantime from scans where scantime = '" & $sScan & "' group by scantime order by scantime desc limit 1;"
    EndSelect
@@ -2365,7 +2400,7 @@ Func OpenDB($sDBName)
    EndIf
    ;ConsoleWrite("_SQLite_LibVersion=" & _SQLite_LibVersion() & @CRLF)
 
-   $hDBHandle = _SQLite_Open($sDBName)
+   $ghDBHandle = _SQLite_Open($sDBName)
 
 
    #cs
@@ -2410,7 +2445,7 @@ Func CloseDB()
    ;close database
    ;--------------------
 
-   _SQLite_Close($hDBHandle)
+   _SQLite_Close($ghDBHandle)
    _SQLite_Shutdown()
 
    Return True
@@ -2425,32 +2460,13 @@ Func GetRulename($iRuleNumber)
    ;--------------------
 
    local $sRulename = ""
-   local $iMax = UBound($aRuleSet,1)-1
+   local $iMax = UBound($gaRuleSet,1)-1
 
-   for $i = $aRuleStart[$iRuleNumber] to $iMax
-	  if $aRuleSet[$i][2] <> $iRuleNumber then ExitLoop
-	  ;$aRule[$i][0]
-	  ;$aRule[$i][1]
-	  if $aRuleSet[$i][0] = "Rule:" then $sRulename = $aRuleSet[$i][1]
-   Next
-
-   return $sRulename
-EndFunc
-
-
-Func OLD_GetRulename(ByRef $aRule)
-
-   ;get name of the rule
-   ;--------------------
-
-   local $sRulename = ""
-   local $iMax = 0
-
-   $iMax = UBound($aRule,1)-1
-   for $i = 1 to $iMax
-	  ;$aRule[$i][0]
-	  ;$aRule[$i][1]
-	  if $aRule[$i][0] = "Rule:" then $sRulename = $aRule[$i][1]
+   for $i = $gaRuleStart[$iRuleNumber] to $iMax
+	  if $gaRuleSet[$i][2] <> $iRuleNumber then ExitLoop
+	  ;$gaRule[$i][0]
+	  ;$gaRule[$i][1]
+	  if $gaRuleSet[$i][0] = "Rule:" then $sRulename = $gaRuleSet[$i][1]
    Next
 
    return $sRulename
@@ -2459,44 +2475,44 @@ EndFunc
 
 Func GetRuleFromRuleSet($iRuleNumber)
 
-   ;copy commands of rule $iRuleNumber from $aRuleSet into $aRule
+   ;copy commands of rule $iRuleNumber from $gaRuleSet into $gaRule
    ;------------------------------------------------
 
-   dim $aRule[1][2]			;reset/clear $aRule
+   dim $gaRule[1][2]			;reset/clear $gaRule
    local $iCount = 0		;counter
-   if $cDEBUGTimeGetRuleFromRuleSet = True then local $iTimer = TimerInit()
-   local $iCountMax = UBound($aRuleSet,1)-1
-   local $iCountMin = $aRuleStart[$iRuleNumber]
+   if $gcDEBUGTimeGetRuleFromRuleSet = True then local $iTimer = TimerInit()
+   local $iCountMax = UBound($gaRuleSet,1)-1
+   local $iCountMin = $gaRuleStart[$iRuleNumber]
 
 
    for $iCount = $iCountMin to $iCountMax
-	  if $aRuleSet[$iCount][2] = $iRuleNumber then
+	  if $gaRuleSet[$iCount][2] = $iRuleNumber then
 
-		 redim $aRule[UBound($aRule,1)+1][2]
-		 $aRule[UBound($aRule,1)-1][0] = $aRuleSet[$iCount][0]
-		 $aRule[UBound($aRule,1)-1][1] = $aRuleSet[$iCount][1]
+		 redim $gaRule[UBound($gaRule,1)+1][2]
+		 $gaRule[UBound($gaRule,1)-1][0] = $gaRuleSet[$iCount][0]
+		 $gaRule[UBound($gaRule,1)-1][1] = $gaRuleSet[$iCount][1]
 	  Else
 		 ExitLoop
 	  EndIf
    Next
 
-   if $cDEBUGTimeGetRuleFromRuleSet = True then $iDEBUGTimerGetRuleFromRuleSet += TimerDiff($iTimer)
+   if $gcDEBUGTimeGetRuleFromRuleSet = True then $giDEBUGTimerGetRuleFromRuleSet += TimerDiff($iTimer)
 EndFunc
 
 
 Func GetNumberOfRulesFromRuleSet()
 
-   ;return the number of rules in $aRuleSet
+   ;return the number of rules in $gaRuleSet
    ;------------------------------------------------
 
 
    local $iCount = 0		;counter
-   local $iCountMax = UBound($aRuleSet,1)-1
+   local $iCountMax = UBound($gaRuleSet,1)-1
    local $iRuleNumber = 0
 
    for $iCount = 1 to $iCountMax
-	  if $aRuleSet[$iCount][2] > $iRuleNumber then
-		 $iRuleNumber = $aRuleSet[$iCount][2]
+	  if $gaRuleSet[$iCount][2] > $iRuleNumber then
+		 $iRuleNumber = $gaRuleSet[$iCount][2]
 	  EndIf
    Next
 
@@ -2511,12 +2527,12 @@ Func GetRuleIdFromRuleSet($iRuleNumber)
    ;--------------------
 
    local $sRuleId = ""
-   local $iCountMax = UBound($aRuleSet,1)-1
-   local $iCountMin = $aRuleStart[$iRuleNumber]
+   local $iCountMax = UBound($gaRuleSet,1)-1
+   local $iCountMin = $gaRuleStart[$iRuleNumber]
 
    for $i = $iCountMin to $iCountMax
-	  if $aRuleSet[$i][2] = $iRuleNumber then
-		 if $aRuleSet[$i][0] = "RuleId:" then $sRuleId = $aRuleSet[$i][1]
+	  if $gaRuleSet[$i][2] = $iRuleNumber then
+		 if $gaRuleSet[$i][0] = "RuleId:" then $sRuleId = $gaRuleSet[$i][1]
 	  Else
 		 ExitLoop
 	  EndIf
@@ -2526,30 +2542,10 @@ Func GetRuleIdFromRuleSet($iRuleNumber)
 EndFunc
 
 
-Func OLD_GetRuleId(ByRef $aRule)
-
-   ;get id of the rule
-   ;!!! rule id is not the rule number !!!
-   ;--------------------
-
-   local $sRuleId = ""
-   local $iMax = 0
-
-   $iMax = UBound($aRule,1)-1
-   for $i = 1 to $iMax
-	  ;$aRule[$i][0]
-	  ;$aRule[$i][1]
-	  if $aRule[$i][0] = "RuleId:" then $sRuleId = $aRule[$i][1]
-   Next
-
-   return $sRuleId
-EndFunc
-
-
 Func InsertStatementInRuleSet($iMode,$sStatement,$sCfgLine,$iRuleNr)
 
    ;Transfer a statement from a line in the configuration table
-   ;into the gobal $aRuleSet
+   ;into the gobal $gaRuleSet
    ;
    ;$iMode = 0			statement has no parameter
    ;$iMode = 1			statement has one parameter
@@ -2558,23 +2554,23 @@ Func InsertStatementInRuleSet($iMode,$sStatement,$sCfgLine,$iRuleNr)
 
    select
    case $iMode = 0
-	  redim $aRuleSet[UBound($aRuleSet,1)+1][3]
-	  $aRuleSet[UBound($aRuleSet,1)-1][0] = $sStatement
-	  $aRuleSet[UBound($aRuleSet,1)-1][1] = ""
-	  $aRuleSet[UBound($aRuleSet,1)-1][2] = $iRuleNr
+	  redim $gaRuleSet[UBound($gaRuleSet,1)+1][3]
+	  $gaRuleSet[UBound($gaRuleSet,1)-1][0] = $sStatement
+	  $gaRuleSet[UBound($gaRuleSet,1)-1][1] = ""
+	  $gaRuleSet[UBound($gaRuleSet,1)-1][2] = $iRuleNr
 
    case $iMode = 1
-	  redim $aRuleSet[UBound($aRuleSet,1)+1][3]
-	  $aRuleSet[UBound($aRuleSet,1)-1][0] = $sStatement
-	  $aRuleSet[UBound($aRuleSet,1)-1][1] = StringTrimLeft($sCfgLine,stringlen($sStatement))
-	  $aRuleSet[UBound($aRuleSet,1)-1][2] = $iRuleNr
+	  redim $gaRuleSet[UBound($gaRuleSet,1)+1][3]
+	  $gaRuleSet[UBound($gaRuleSet,1)-1][0] = $sStatement
+	  $gaRuleSet[UBound($gaRuleSet,1)-1][1] = StringTrimLeft($sCfgLine,stringlen($sStatement))
+	  $gaRuleSet[UBound($gaRuleSet,1)-1][2] = $iRuleNr
 
    case $iMode = 2
-	  redim $aRuleSet[UBound($aRuleSet,1)+1][3]
-	  $aRuleSet[UBound($aRuleSet,1)-1][0] = $sStatement
-	  $aRuleSet[UBound($aRuleSet,1)-1][1] = StringReplace(StringTrimLeft($sCfgLine,stringlen($sStatement)),"""","")
-	  if StringRight($aRuleSet[UBound($aRuleSet,1)-1][1],1) = "\" then $aRuleSet[UBound($aRuleSet,1)-1][1] = StringTrimRight($aRuleSet[UBound($aRuleSet,1)-1][1],1)
-	  $aRuleSet[UBound($aRuleSet,1)-1][2] = $iRuleNr
+	  redim $gaRuleSet[UBound($gaRuleSet,1)+1][3]
+	  $gaRuleSet[UBound($gaRuleSet,1)-1][0] = $sStatement
+	  $gaRuleSet[UBound($gaRuleSet,1)-1][1] = StringReplace(StringTrimLeft($sCfgLine,stringlen($sStatement)),"""","")
+	  if StringRight($gaRuleSet[UBound($gaRuleSet,1)-1][1],1) = "\" then $gaRuleSet[UBound($gaRuleSet,1)-1][1] = StringTrimRight($gaRuleSet[UBound($gaRuleSet,1)-1][1],1)
+	  $gaRuleSet[UBound($gaRuleSet,1)-1][2] = $iRuleNr
 
    case Else
    EndSelect
@@ -2592,95 +2588,21 @@ Func IsFilepropertyIgnoredByRule($sFileproperty,$iRuleNumber)
    local $iIsIgnored = False
    local $i = 0
    ;local $iMax = 0
-   local $iMax = UBound($aRuleSet,1)-1
+   local $iMax = UBound($gaRuleSet,1)-1
 
-	  ;_ArrayDisplay($aRule)
-   for $i = $aRuleStart[$iRuleNumber] to $iMax
-	  if $aRuleSet[$i][2] <> $iRuleNumber then ExitLoop
+	  ;_ArrayDisplay($gaRule)
+   for $i = $gaRuleStart[$iRuleNumber] to $iMax
+	  if $gaRuleSet[$i][2] <> $iRuleNumber then ExitLoop
 
 		 Select
-			case $aRuleSet[$i][0] = "Ign:"
-			   if StringStripWS($sFileproperty,$STR_STRIPALL) = StringStripWS($aRuleSet[$i][1],$STR_STRIPALL) then $iIsIgnored = True
-			   ;ConsoleWrite(StringStripWS($sFileproperty,$STR_STRIPALL) & ":" & StringStripWS($aRule[$i][1],$STR_STRIPALL) & @CRLF)
+			case $gaRuleSet[$i][0] = "Ign:"
+			   if StringStripWS($sFileproperty,$STR_STRIPALL) = StringStripWS($gaRuleSet[$i][1],$STR_STRIPALL) then $iIsIgnored = True
+			   ;ConsoleWrite(StringStripWS($sFileproperty,$STR_STRIPALL) & ":" & StringStripWS($gaRule[$i][1],$STR_STRIPALL) & @CRLF)
 			case Else
 		 EndSelect
 	  Next
 
    Return $iIsIgnored
-EndFunc
-
-
-Func OLD_IsFilepropertyIgnoredByRule($sFileproperty,ByRef $aRule)
-
-   ;determin if $sFileproperty is ignored by the current rule
-   ;--------------------------------------------------
-
-
-   local $iIsIgnored = False
-   local $i = 0
-   local $iMax = 0
-
-	  ;_ArrayDisplay($aRule)
-	  $iMax = UBound($aRule,1)-1
-	  for $i = 1 to $iMax
-		 ;$aRule[$i][0]
-		 ;$aRule[$i][1]
-
-		 Select
-			case $aRule[$i][0] = "Ign:"
-			   if StringStripWS($sFileproperty,$STR_STRIPALL) = StringStripWS($aRule[$i][1],$STR_STRIPALL) then $iIsIgnored = True
-			   ;ConsoleWrite(StringStripWS($sFileproperty,$STR_STRIPALL) & ":" & StringStripWS($aRule[$i][1],$STR_STRIPALL) & @CRLF)
-			case Else
-		 EndSelect
-	  Next
-
-   Return $iIsIgnored
-EndFunc
-
-
-Func IncludeDirDataInDBByRule(ByRef $aRule)
-
-   ;Returns True, if the rule demands to put directory information in the DB
-   ;------------------------------------------------------------------------
-
-   #cs
-	  file format config.cfg
-
-	  Rule:RULENAME				;name of rule
-	  IncDirRec:PATH			;directory to include, including all subdirectories
-	  ExcDirRec:PATH			;directory to exclude, including all subdirectories
-	  IncDir:PATH				;directory to include, only this directory
-	  ExcDir:PATH				;directory to exclude, only this directory
-	  IncExt:FILEEXTENTION		;file extention to include
-	  ExcExt:FILEEXTENTION		;file extention to exclude
-	  IncExe					;all executable files, no matter what the extention is
-	  IncAll					;all files, no matter what the extention is aka *.*
-	  ExcExe					;no executable files, no matter what the extention is
-	  ExcAll					;no files, no matter what the extention is aka *.*, only directories
-	  ExcDirs					;no directory information (attribs,name etc.)
-	  End
-   #ce
-
-   local $iIsIncluded = True
-   local $i = 0
-   local $iMax = 0
-
-
-   $iMax = UBound($aRule,1)-1
-   ;msgbox(0,"iMax",$iMax)
-   for $i = 1 to $iMax
-	  ;$aRule[$i][0]
-	  ;$aRule[$i][1]
-	  ;msgbox(0,"Cmd","#" & $aRule[$i][0] & "#" & @CRLF & "#" & $aRule[$i][1] & "#" & @CRLF & "#" & $PathOrFile & "#" & @CRLF & "#" & StringLeft($PathOrFile,stringlen($aRule[$i][1] & "\")) & "#" & @CRLF & "#" & $aRule[$i][1] & "\")
-	  Select
-		 case $aRule[$i][0] = "ExcDirs"
-			$iIsIncluded = False
-
-		 case Else
-	  EndSelect
-   Next
-
-   Return $iIsIncluded
 EndFunc
 
 
@@ -2710,12 +2632,12 @@ Func IsIncludedByRule($PathOrFile,$iRuleNumber)
 	  End
    #ce
 
-   if $cDEBUGTimeIsIncludedByRule = True then local $iTimer = TimerInit()
+   if $gcDEBUGTimeIsIncludedByRule = True then local $iTimer = TimerInit()
    local $iIsIncluded = False
    local $iIsFile = False
    local $i = 0
    ;local $iMax = 0
-   local $iMax = UBound($aRuleSet,1)-1
+   local $iMax = UBound($gaRuleSet,1)-1
    local $sExtension = ""
 
    ;strip leading and trailing " from directories
@@ -2724,22 +2646,22 @@ Func IsIncludedByRule($PathOrFile,$iRuleNumber)
 
    if StringRight($PathOrFile,1) <> "\" then $iIsFile = True
 
-   ;_ArrayDisplay($aRule)
+   ;_ArrayDisplay($gaRule)
 
    ;include directory command
-   ;$iMax = UBound($aRule,1)-1
+   ;$iMax = UBound($gaRule,1)-1
    ;msgbox(0,"iMax",$iMax)
 
-   for $i = $aRuleStart[$iRuleNumber] to $iMax
-	  if $aRuleSet[$i][2] <> $iRuleNumber then ExitLoop
-	  ;$aRuleSet[$i][0]
-	  ;$aRuleSet[$i][1]
-	  ;msgbox(0,"Cmd","#" & $aRuleSet[$i][0] & "#" & @CRLF & "#" & $aRuleSet[$i][1] & "#" & @CRLF & "#" & $PathOrFile & "#" & @CRLF & "#" & StringLeft($PathOrFile,stringlen($aRuleSet[$i][1] & "\")) & "#" & @CRLF & "#" & $aRuleSet[$i][1] & "\")
+   for $i = $gaRuleStart[$iRuleNumber] to $iMax
+	  if $gaRuleSet[$i][2] <> $iRuleNumber then ExitLoop
+	  ;$gaRuleSet[$i][0]
+	  ;$gaRuleSet[$i][1]
+	  ;msgbox(0,"Cmd","#" & $gaRuleSet[$i][0] & "#" & @CRLF & "#" & $gaRuleSet[$i][1] & "#" & @CRLF & "#" & $PathOrFile & "#" & @CRLF & "#" & StringLeft($PathOrFile,stringlen($gaRuleSet[$i][1] & "\")) & "#" & @CRLF & "#" & $gaRuleSet[$i][1] & "\")
 	  Select
-		 case $aRuleSet[$i][0] = "IncDirRec:"
-		 	if StringLeft($PathOrFile,$aRuleSetLineDirStringLenPlusOne[$i]) = $aRuleSet[$i][1] & "\" then $iIsIncluded = True
-		 case $aRuleSet[$i][0] = "IncDir:"
-			if StringLeft($PathOrFile,$aRuleSetLineDirStringLenPlusOne[$i]) = $aRuleSet[$i][1] & "\" And $iCurrentDirBackslashCount = $aRuleSetLineBackslashCount[$i] then $iIsIncluded = True
+		 case $gaRuleSet[$i][0] = "IncDirRec:"
+		 	if StringLeft($PathOrFile,$gaRuleSetLineDirStringLenPlusOne[$i]) = $gaRuleSet[$i][1] & "\" then $iIsIncluded = True
+		 case $gaRuleSet[$i][0] = "IncDir:"
+			if StringLeft($PathOrFile,$gaRuleSetLineDirStringLenPlusOne[$i]) = $gaRuleSet[$i][1] & "\" And $giCurrentDirBackslashCount = $gaRuleSetLineBackslashCount[$i] then $iIsIncluded = True
 		 case Else
 	  EndSelect
 
@@ -2749,17 +2671,17 @@ Func IsIncludedByRule($PathOrFile,$iRuleNumber)
 
    ;exclude directory command
    if $iIsIncluded then
-	  for $i = $aRuleStart[$iRuleNumber] to $iMax
-		 if $aRuleSet[$i][2] <> $iRuleNumber then ExitLoop
-		 ;$aRuleSet[$i][0]
-		 ;$aRuleSet[$i][0]
-		 ;$aRuleSet[$i][1]
+	  for $i = $gaRuleStart[$iRuleNumber] to $iMax
+		 if $gaRuleSet[$i][2] <> $iRuleNumber then ExitLoop
+		 ;$gaRuleSet[$i][0]
+		 ;$gaRuleSet[$i][0]
+		 ;$gaRuleSet[$i][1]
 		 Select
-			case $aRuleSet[$i][0] = "ExcDirRec:"
-			   if StringLeft($PathOrFile,$aRuleSetLineDirStringLenPlusOne[$i]) = $aRuleSet[$i][1] & "\" then $iIsIncluded = False
-			case $aRuleSet[$i][0] = "ExcDir:"
-			   if StringLeft($PathOrFile,$aRuleSetLineDirStringLenPlusOne[$i]) = $aRuleSet[$i][1] & "\" And $iCurrentDirBackslashCount = $aRuleSetLineBackslashCount[$i] then $iIsIncluded = False
-			case $aRuleSet[$i][0] = "ExcDirs"
+			case $gaRuleSet[$i][0] = "ExcDirRec:"
+			   if StringLeft($PathOrFile,$gaRuleSetLineDirStringLenPlusOne[$i]) = $gaRuleSet[$i][1] & "\" then $iIsIncluded = False
+			case $gaRuleSet[$i][0] = "ExcDir:"
+			   if StringLeft($PathOrFile,$gaRuleSetLineDirStringLenPlusOne[$i]) = $gaRuleSet[$i][1] & "\" And $giCurrentDirBackslashCount = $gaRuleSetLineBackslashCount[$i] then $iIsIncluded = False
+			case $gaRuleSet[$i][0] = "ExcDirs"
 			   if not $iIsFile then $iIsIncluded = False
 			case Else
 		 EndSelect
@@ -2768,27 +2690,27 @@ Func IsIncludedByRule($PathOrFile,$iRuleNumber)
 	  ;ConsoleWrite("...ED..." & $iIsIncluded & " " & $PathOrFile & @crlf)
 
 
-	  ;msgbox(0,"Cmd","#" & $aRuleSet[$i][0] & "#" & @CRLF & "#" & $aRuleSet[$i][1] & "#" & @CRLF & "#" & $PathOrFile & "#" & @CRLF)
+	  ;msgbox(0,"Cmd","#" & $gaRuleSet[$i][0] & "#" & @CRLF & "#" & $gaRuleSet[$i][1] & "#" & @CRLF & "#" & $PathOrFile & "#" & @CRLF)
 
 	  ;include file extension command (if it is not a directory and the path is included)
 	  if $iIsFile and $iIsIncluded then
 		 $iIsIncluded = False
 
-		 ;msgbox(0,"Cmd","#" & $aRuleSet[$i][0] & "#" & @CRLF & "#" & $aRuleSet[$i][1] & "#" & @CRLF & "#" & $PathOrFile & "#" & @CRLF)
+		 ;msgbox(0,"Cmd","#" & $gaRuleSet[$i][0] & "#" & @CRLF & "#" & $gaRuleSet[$i][1] & "#" & @CRLF & "#" & $PathOrFile & "#" & @CRLF)
 
 		 ;"IncExt:"
 		 $sExtension = StringRight($PathOrFile,StringLen($PathOrFile)-StringInStr($PathOrFile,".",1,-1))
-		 if StringInStr($aRuleExtensions[$iRuleNumber][$cIncExt],"." & $sExtension & ".") > 0 then
+		 if StringInStr($gaRuleExtensions[$iRuleNumber][$gcIncExt],"." & $sExtension & ".") > 0 then
 			$iIsIncluded = True
 		 EndIf
 
 		 ;"IncExe"
-		 if $aRuleExtensions[$iRuleNumber][$cIncExe] = True Then
+		 if $gaRuleExtensions[$iRuleNumber][$gcIncExe] = True Then
 			if IsExecutable($PathOrFile) then $iIsIncluded = True
 		 EndIf
 
 		 ; "IncAll"
-		 if $aRuleExtensions[$iRuleNumber][$cIncAll] = True Then
+		 if $gaRuleExtensions[$iRuleNumber][$gcIncAll] = True Then
 			$iIsIncluded = True
 		 EndIf
 
@@ -2803,17 +2725,17 @@ Func IsIncludedByRule($PathOrFile,$iRuleNumber)
 			;"ExcExt:"
 			;Use $sExtension form "IncExt:" above
 			;$sExtension = StringRight($PathOrFile,StringInStr($PathOrFile,".",1,-1))
-			if StringInStr($aRuleExtensions[$iRuleNumber][$cExcExt],"." & $sExtension & ".") > 0 then
+			if StringInStr($gaRuleExtensions[$iRuleNumber][$gcExcExt],"." & $sExtension & ".") > 0 then
 			   $iIsIncluded = False
 			EndIf
 
 			;"ExcExe"
-			if $aRuleExtensions[$iRuleNumber][$cExcExe] = True Then
+			if $gaRuleExtensions[$iRuleNumber][$gcExcExe] = True Then
 			   if IsExecutable($PathOrFile) then $iIsIncluded = False
 			EndIf
 
 			; "ExcAll"
-			if $aRuleExtensions[$iRuleNumber][$cExcAll] = True Then
+			if $gaRuleExtensions[$iRuleNumber][$gcExcAll] = True Then
 			   $iIsIncluded = False
 			EndIf
 		 EndIf
@@ -2822,135 +2744,7 @@ Func IsIncludedByRule($PathOrFile,$iRuleNumber)
    EndIf
    ;ConsoleWrite("...EE..." & $iIsIncluded & " " & $PathOrFile & @crlf)
    ;if $iIsIncluded then ConsoleWrite($iIsIncluded & " " & $PathOrFile & @crlf)
-   if $cDEBUGTimeIsIncludedByRule then $iDEBUGTimerIsIncludedByRule += TimerDiff($iTimer)
-   Return $iIsIncluded
-EndFunc
-
-
-Func OLD_IsIncludedByRule($PathOrFile,ByRef $aRule)
-
-   ;determin if $PathOrFile satisfy the current rule
-   ;--------------------------------------------------
-
-   ;$PathOrFile is a directory if there is a \ at the ende !
-   ;$PathOrFile is a file if there is NO \ at the ende !
-
-   #cs
-	  file format config.cfg
-
-	  Rule:RULENAME				;name of rule
-	  IncDirRec:PATH			;directory to include, including all subdirectories
-	  ExcDirRec:PATH			;directory to exclude, including all subdirectories
-	  IncDir:PATH				;directory to include, only this directory
-	  ExcDir:PATH				;directory to exclude, only this directory
-	  IncExt:FILEEXTENTION		;file extention to include
-	  ExcExt:FILEEXTENTION		;file extention to exclude
-	  IncExe					;all executable files, no matter what the extention is
-	  IncAll					;all files, no matter what the extention is aka *.*
-	  ExcExe					;no executable files, no matter what the extention is
-	  ExcAll					;no files, no matter what the extention is aka *.*, only directories
-	  ExcDirs
-	  End
-   #ce
-
-   if $cDEBUGTimeIsIncludedByRule = True then local $iTimer = TimerInit()
-   local $iIsIncluded = False
-   local $i = 0
-   local $iMax = 0
-
-
-   ;strip leading and trailing " from directories
-   $PathOrFile = StringReplace($PathOrFile,"""","")
-   ;if StringRight($PathOrFile,1) = "\" then $PathOrFile = StringTrimRight($PathOrFile,1)
-
-   ;_ArrayDisplay($aRule)
-
-   ;include directory command
-   $iMax = UBound($aRule,1)-1
-   ;msgbox(0,"iMax",$iMax)
-   for $i = 1 to $iMax
-	  ;$aRule[$i][0]
-	  ;$aRule[$i][1]
-	  ;msgbox(0,"Cmd","#" & $aRule[$i][0] & "#" & @CRLF & "#" & $aRule[$i][1] & "#" & @CRLF & "#" & $PathOrFile & "#" & @CRLF & "#" & StringLeft($PathOrFile,stringlen($aRule[$i][1] & "\")) & "#" & @CRLF & "#" & $aRule[$i][1] & "\")
-	  Select
-		 case $aRule[$i][0] = "IncDirRec:"
-			if StringLeft($PathOrFile,stringlen($aRule[$i][1] & "\")) = $aRule[$i][1] & "\" then $iIsIncluded = True
-		 case $aRule[$i][0] = "IncDir:"
-			if StringLeft($PathOrFile,stringlen($aRule[$i][1] & "\")) = $aRule[$i][1] & "\" And Not StringInStr(StringReplace(StringLower($PathOrFile),StringLower($aRule[$i][1] & "\"),""),"\") then $iIsIncluded = True
-		 case Else
-	  EndSelect
-   Next
-
-   ;ConsoleWrite("...ID..." & $iIsIncluded & " " & $PathOrFile & @crlf)
-
-   ;msgbox(0,"Cmd","#" & $aRule[$i][0] & "#" & @CRLF & "#" & $aRule[$i][1] & "#" & @CRLF & "#" & $PathOrFile & "#" & @CRLF)
-
-   ;include file extension command (if it is not a directory and the path is included)
-   if StringRight($PathOrFile,1) <> "\" and $iIsIncluded then
-	  $iIsIncluded = False
-
-	  ;msgbox(0,"Cmd","#" & $aRule[$i][0] & "#" & @CRLF & "#" & $aRule[$i][1] & "#" & @CRLF & "#" & $PathOrFile & "#" & @CRLF)
-
-	  $iMax = UBound($aRule,1)-1
-	  for $i = 1 to $iMax
-		 ;$aRule[$i][0]
-		 ;$aRule[$i][1]
-
-		 Select
-			case $aRule[$i][0] = "IncExt:"
-			   if StringRight($PathOrFile,stringlen("." & $aRule[$i][1])) = "." & $aRule[$i][1] then $iIsIncluded = True
-			case $aRule[$i][0] = "IncExe"
-			   if IsExecutable($PathOrFile) then $iIsIncluded = True
-			case $aRule[$i][0] = "IncAll"
-			   $iIsIncluded = True
-			case Else
-		 EndSelect
-	  Next
-   EndIf
-
-   ;ConsoleWrite("...IE..." & $iIsIncluded & " " & $PathOrFile & @crlf)
-
-   ;exclude directory command
-   $iMax = UBound($aRule,1)-1
-   for $i = 1 to $iMax
-	  ;$aRule[$i][0]
-	  ;$aRule[$i][1]
-	  Select
-		 case $aRule[$i][0] = "ExcDirRec:"
-			if StringLeft($PathOrFile,stringlen($aRule[$i][1] & "\")) = $aRule[$i][1] & "\" then $iIsIncluded = False
-		 case $aRule[$i][0] = "ExcDir:"
-			if StringLeft($PathOrFile,stringlen($aRule[$i][1] & "\")) = $aRule[$i][1] & "\" And not StringInStr(StringReplace(StringLower($PathOrFile),StringLower($aRule[$i][1] & "\"),""),"\") then $iIsIncluded = False
-		 case $aRule[$i][0] = "ExcDirs"
-			if StringRight($PathOrFile,1) = "\" then $iIsIncluded = False
-		 case Else
-	  EndSelect
-   Next
-
-   ;ConsoleWrite("...ED..." & $iIsIncluded & " " & $PathOrFile & @crlf)
-
-   ;exclude file extension command (if it is not a directory and the path is included)
-   if StringRight($PathOrFile,1) <> "\" and $iIsIncluded then
-	  ;$iIsIncluded = False
-
-	  $iMax = UBound($aRule,1)-1
-	  for $i = 1 to $iMax
-		 ;$aRule[$i][0]
-		 ;$aRule[$i][1]
-		 Select
-			case $aRule[$i][0] = "ExcExt:"
-			   if StringRight($PathOrFile,stringlen("." & $aRule[$i][1])) = "." & $aRule[$i][1] then $iIsIncluded = False
-			case $aRule[$i][0] = "ExcExe"
-			   if IsExecutable($PathOrFile) then $iIsIncluded = False
-			case $aRule[$i][0] = "ExcAll"
-			   $iIsIncluded = False
-			case Else
-		 EndSelect
-	  Next
-   EndIf
-
-   ;ConsoleWrite("...EE..." & $iIsIncluded & " " & $PathOrFile & @crlf)
-   ;if $iIsIncluded then ConsoleWrite($iIsIncluded & " " & $PathOrFile & @crlf)
-   if $cDEBUGTimeIsIncludedByRule = True then $iDEBUGTimerIsIncludedByRule += TimerDiff($iTimer)
+   if $gcDEBUGTimeIsIncludedByRule then $giDEBUGTimerIsIncludedByRule += TimerDiff($iTimer)
    Return $iIsIncluded
 EndFunc
 
@@ -2979,108 +2773,43 @@ Func IsClimbTargetByRule($sPath,$iRuleNumber)
 	  End
    #ce
 
-   if $cDEBUGTimeIsClimbTargetByRule = True then local $iTimer = TimerInit()
+   if $gcDEBUGTimeIsClimbTargetByRule = True then local $iTimer = TimerInit()
    local $iIsClimbTarget = False
    local $i = 0
    ;local $iMax = 0
-   local $iMax = UBound($aRuleSet,1)-1
+   local $iMax = UBound($gaRuleSet,1)-1
 
    ;strip leading and trailing " from directories
    $sPath = StringReplace($sPath,"""","")
 
    ;include directory command
-   for $i = $aRuleStart[$iRuleNumber] to $iMax
-	  if $aRuleSet[$i][2] <> $iRuleNumber then ExitLoop
+   for $i = $gaRuleStart[$iRuleNumber] to $iMax
+	  if $gaRuleSet[$i][2] <> $iRuleNumber then ExitLoop
 	  Select
-		 case $aRuleSet[$i][0] = "IncDirRec:"
-			if StringLeft($sPath,stringlen($aRuleSet[$i][1] & "\")) = $aRuleSet[$i][1] & "\" then $iIsClimbTarget = True
-		 case $aRuleSet[$i][0] = "IncDir:"
-			if StringLeft($sPath,stringlen($aRuleSet[$i][1] & "\")) = $aRuleSet[$i][1] & "\" And Not StringInStr(StringReplace(StringLower($sPath),StringLower($aRuleSet[$i][1] & "\"),""),"\") then $iIsClimbTarget = True
+		 case $gaRuleSet[$i][0] = "IncDirRec:"
+			if StringLeft($sPath,stringlen($gaRuleSet[$i][1] & "\")) = $gaRuleSet[$i][1] & "\" then $iIsClimbTarget = True
+		 case $gaRuleSet[$i][0] = "IncDir:"
+			if StringLeft($sPath,stringlen($gaRuleSet[$i][1] & "\")) = $gaRuleSet[$i][1] & "\" And Not StringInStr(StringReplace(StringLower($sPath),StringLower($gaRuleSet[$i][1] & "\"),""),"\") then $iIsClimbTarget = True
 		 case Else
 	  EndSelect
    Next
 
 
    ;exclude directory command
-   for $i = $aRuleStart[$iRuleNumber] to $iMax
-	  if $aRuleSet[$i][2] <> $iRuleNumber then ExitLoop
-	  ;$aRuleSet[$i][0]
-	  ;$aRuleSet[$i][1]
+   for $i = $gaRuleStart[$iRuleNumber] to $iMax
+	  if $gaRuleSet[$i][2] <> $iRuleNumber then ExitLoop
+	  ;$gaRuleSet[$i][0]
+	  ;$gaRuleSet[$i][1]
 	  Select
-		 case $aRuleSet[$i][0] = "ExcDirRec:"
-			if StringLeft($sPath,stringlen($aRuleSet[$i][1] & "\")) = $aRuleSet[$i][1] & "\" then $iIsClimbTarget = False
-		 case $aRuleSet[$i][0] = "ExcDir:"
-			if StringLeft($sPath,stringlen($aRuleSet[$i][1] & "\")) = $aRuleSet[$i][1] & "\" And not StringInStr(StringReplace(StringLower($sPath),StringLower($aRuleSet[$i][1] & "\"),""),"\") then $iIsClimbTarget = False
+		 case $gaRuleSet[$i][0] = "ExcDirRec:"
+			if StringLeft($sPath,stringlen($gaRuleSet[$i][1] & "\")) = $gaRuleSet[$i][1] & "\" then $iIsClimbTarget = False
+		 case $gaRuleSet[$i][0] = "ExcDir:"
+			if StringLeft($sPath,stringlen($gaRuleSet[$i][1] & "\")) = $gaRuleSet[$i][1] & "\" And not StringInStr(StringReplace(StringLower($sPath),StringLower($gaRuleSet[$i][1] & "\"),""),"\") then $iIsClimbTarget = False
 		 case Else
 	  EndSelect
    Next
 
-   if $cDEBUGTimeIsClimbTargetByRule = True then $iDEBUGTimerIsClimbTargetByRule += TimerDiff($iTimer)
-   Return $iIsClimbTarget
-EndFunc
-
-
-Func OLD_IsClimbTargetByRule($sPath,ByRef $aRule)
-
-   ;determin if $sPath satisfy the current rule as a climb target
-   ;--------------------------------------------------
-
-   ;$sPath is a directory with a \ at the ende !
-
-   #cs
-	  file format config.cfg
-
-	  Rule:RULENAME				;name of rule
-	  IncDirRec:PATH			;directory to include, including all subdirectories
-	  ExcDirRec:PATH			;directory to exclude, including all subdirectories
-	  IncDir:PATH				;directory to include, only this directory
-	  ExcDir:PATH				;directory to exclude, only this directory
-	  IncExt:FILEEXTENTION		;file extention to include
-	  ExcExt:FILEEXTENTION		;file extention to exclude
-	  IncExe					;all executable files, no matter what the extention is
-	  IncAll					;all files, no matter what the extention is aka *.*
-	  ExcExe					;no executable files, no matter what the extention is
-	  ExcAll					;no files, no matter what the extention is aka *.*, only directories
-	  End
-   #ce
-
-   if $cDEBUGTimeIsClimbTargetByRule = True then local $iTimer = TimerInit()
-   local $iIsClimbTarget = False
-   local $i = 0
-   local $iMax = 0
-
-   ;strip leading and trailing " from directories
-   $sPath = StringReplace($sPath,"""","")
-
-   ;include directory command
-   $iMax = UBound($aRule,1)-1
-
-   for $i = 1 to $iMax
-	  Select
-		 case $aRule[$i][0] = "IncDirRec:"
-			if StringLeft($sPath,stringlen($aRule[$i][1] & "\")) = $aRule[$i][1] & "\" then $iIsClimbTarget = True
-		 case $aRule[$i][0] = "IncDir:"
-			if StringLeft($sPath,stringlen($aRule[$i][1] & "\")) = $aRule[$i][1] & "\" And Not StringInStr(StringReplace(StringLower($sPath),StringLower($aRule[$i][1] & "\"),""),"\") then $iIsClimbTarget = True
-		 case Else
-	  EndSelect
-   Next
-
-
-   ;exclude directory command
-   $iMax = UBound($aRule,1)-1
-   for $i = 1 to $iMax
-	  ;$aRule[$i][0]
-	  ;$aRule[$i][1]
-	  Select
-		 case $aRule[$i][0] = "ExcDirRec:"
-			if StringLeft($sPath,stringlen($aRule[$i][1] & "\")) = $aRule[$i][1] & "\" then $iIsClimbTarget = False
-		 case $aRule[$i][0] = "ExcDir:"
-			if StringLeft($sPath,stringlen($aRule[$i][1] & "\")) = $aRule[$i][1] & "\" And not StringInStr(StringReplace(StringLower($sPath),StringLower($aRule[$i][1] & "\"),""),"\") then $iIsClimbTarget = False
-		 case Else
-	  EndSelect
-   Next
-
-   if $cDEBUGTimeIsClimbTargetByRule = True then $iDEBUGTimerIsClimbTargetByRule += TimerDiff($iTimer)
+   if $gcDEBUGTimeIsClimbTargetByRule = True then $giDEBUGTimerIsClimbTargetByRule += TimerDiff($iTimer)
    Return $iIsClimbTarget
 EndFunc
 
@@ -3091,31 +2820,31 @@ Func IsExecutable($Filename)
    ;by looking at the magic number
    ;--------------------------------------------
 
-;	global $iIsExecutableLastResult = False	;result of last call to IsExecutable()
-;	global $sIsExecutableLastFilename = ""	;filname used for last call to IsExecutable()
+;	global $giIsExecutableLastResult = False	;result of last call to IsExecutable()
+;	global $gsIsExecutableLastFilename = ""	;filname used for last call to IsExecutable()
 
    local $sBuffer = ""
    local $FileHandle = 0
-   if $cDEBUGTimeIsExecutable = True then local $iTimer = TimerInit()
+   if $gcDEBUGTimeIsExecutable = True then local $iTimer = TimerInit()
 
-   if $Filename = $sIsExecutableLastFilename Then
+   if $Filename = $gsIsExecutableLastFilename Then
 	  ;no need to access and check the file, we know the result already
-	  return $iIsExecutableLastResult
+	  return $giIsExecutableLastResult
    Else
 
 	  $FileHandle = FileOpen($Filename, 16)
 	  $sBuffer = FileRead($FileHandle,2)
 	  FileClose($FileHandle)
 
-	  $sIsExecutableLastFilename = $Filename
+	  $gsIsExecutableLastFilename = $Filename
 
 	  if $sBuffer = "MZ" or $sBuffer = "ZM" then
-		 $iIsExecutableLastResult = True
-		 if $cDEBUGTimeIsExecutable = True then $iDEBUGTimerIsExecutable += TimerDiff($iTimer)
+		 $giIsExecutableLastResult = True
+		 if $gcDEBUGTimeIsExecutable = True then $giDEBUGTimerIsExecutable += TimerDiff($iTimer)
 		 return True
 	  Else
-		 $iIsExecutableLastResult = False
-		 if $cDEBUGTimeIsExecutable = True then $iDEBUGTimerIsExecutable += TimerDiff($iTimer)
+		 $giIsExecutableLastResult = False
+		 if $gcDEBUGTimeIsExecutable = True then $giDEBUGTimerIsExecutable += TimerDiff($iTimer)
 		 return False
 	  EndIf
    EndIf
@@ -3332,7 +3061,7 @@ Func TreeClimberSecondProcess($sStartPath,$iPID)
 		 ; check all the rules on this directory
 		 for $iRuleCounter = 1 to $iRuleCounterMax
 			;GetRuleFromRuleSet($iRuleCounter)
-			;_ArrayDisplay($aRule)
+			;_ArrayDisplay($gaRule)
 			;ConsoleWrite("TreeClimber: " & $sFullPath & "\" & " : " & $iIsClimbTarget & @CRLF)
 			if IsClimbTargetByRule($sFullPath & "\",$iRuleCounter) then
 			   $iIsClimbTarget = True
@@ -3340,11 +3069,11 @@ Func TreeClimberSecondProcess($sStartPath,$iPID)
 		 Next
 
 		 if $iIsClimbTarget Then
-			if $cDEBUGShowVisitedDirectories = True then ConsoleWrite("** visited **" & $sFullPath & @CRLF)
+			if $gcDEBUGShowVisitedDirectories = True then ConsoleWrite("** visited **" & $sFullPath & @CRLF)
 
 			;count number of "\" in current path
 			StringReplace($sFullPath,"\","")
-			$iCurrentDirBackslashCount = @extended
+			$giCurrentDirBackslashCount = @extended
 			TreeClimberSecondProcess($sFullPath,$iPID)
 		 EndIf
 	  EndIf
@@ -3447,7 +3176,7 @@ Func TreeClimber($sStartPath,$iScanSubdirs)
 		 $iIsClimbTarget = False
 		 for $iRuleCounter = 1 to $iRuleCounterMax
 			;GetRuleFromRuleSet($iRuleCounter)
-			;_ArrayDisplay($aRule)
+			;_ArrayDisplay($gaRule)
 			;ConsoleWrite("TreeClimber: " & $sFullPath & "\" & " : " & $iIsClimbTarget & @CRLF)
 			if IsClimbTargetByRule($sFullPath & "\",$iRuleCounter) then
 			   $iIsClimbTarget = True
@@ -3457,7 +3186,7 @@ Func TreeClimber($sStartPath,$iScanSubdirs)
 		 if $iIsClimbTarget Then
 			;count number of "\" in current path
 			StringReplace($sFullPath,"\","")
-			$iCurrentDirBackslashCount = @extended
+			$giCurrentDirBackslashCount = @extended
 
 			TreeClimber($sFullPath,True)
 		 EndIf
@@ -3488,7 +3217,7 @@ Func TreeClimber($sStartPath,$iScanSubdirs)
 	  ;scan directory entry (get file information) and put it in the database
 	  if $iScanFile then
 		 ;get the file information
-		 GetFileInfo($aFileInfo,$sFullPath)
+		 GetFileInfo($gaFileInfo,$sFullPath)
 
 		 ; check all the rules on this file / directory
 		 for $iRuleCounter = 1 to $iRuleCounterMax
@@ -3496,20 +3225,13 @@ Func TreeClimber($sStartPath,$iScanSubdirs)
 
 			if IsIncludedByRule($sFullPath,$iRuleCounter) then
 			   ;list every file or directory we scan - reading is NOT scanning !!!
-			   ;ConsoleWrite(GetRulename($aRule) & " : " & $sStartPath & "\" & $sFileName & @CRLF)
+			   ;ConsoleWrite(GetRulename($gaRule) & " : " & $sStartPath & "\" & $sFileName & @CRLF)
 			   $sTempText = GetRulename($iRuleCounter) & " : " & $sFullPath
 			   ;$sTempText = OEM2ANSI($sTempText) ; translate from OEM to ANSI
 			   ;DllCall('user32.dll','Int','OemToChar','str',$sTempText,'str','') ; translate from OEM to ANSI
 			   ConsoleWrite($sTempText & @CRLF)
 
-#cs
-			   if $iIsDirectory and not IncludeDirDataInDBByRule($aRule) Then
-				  ;its a directory and the rule doesn´t want directory infos in the DB
-			   Else
-				  _SQLite_Exec(-1,"INSERT INTO filedata (scanid,ruleid,filenameid,status,size,attributes,mtime,ctime,atime,version,crc32,md5,ptime,rattrib,aattrib,sattrib,hattrib,nattrib,dattrib,oattrib,cattrib,tattrib)  values ('" & $iScanId & "', '" & GetRuleId($aRule) & "', '" & GetFilenameIDFromDB(_StringToHex($aFileInfo[0]),$aFileInfo[8]) & "','" & $aFileInfo[1] & "','" & $aFileInfo[2] & "','" & $aFileInfo[3] & "','" & $aFileInfo[4] & "','" & $aFileInfo[5] & "','" & $aFileInfo[6] & "','" & $aFileInfo[7] & "','" & $aFileInfo[9] & "','" & $aFileInfo[10] & "','" & $aFileInfo[11] & "','" & $aFileInfo[13] & "','" & $aFileInfo[14] & "','" & $aFileInfo[15] & "','" & $aFileInfo[16] & "','" & $aFileInfo[17] & "','" & $aFileInfo[18] & "','" & $aFileInfo[19] & "','" & $aFileInfo[20] & "','" & $aFileInfo[21] & "');")
-			   EndIf
-#ce
-			   _SQLite_Exec(-1,"INSERT INTO filedata (scanid,ruleid,filenameid,status,size,attributes,mtime,ctime,atime,version,crc32,md5,ptime,rattrib,aattrib,sattrib,hattrib,nattrib,dattrib,oattrib,cattrib,tattrib)  values ('" & $iScanId & "', '" & GetRuleIdFromRuleSet($iRuleCounter) & "', '" & GetFilenameIDFromDB(_StringToHex($aFileInfo[0]),$aFileInfo[8]) & "','" & $aFileInfo[1] & "','" & $aFileInfo[2] & "','" & $aFileInfo[3] & "','" & $aFileInfo[4] & "','" & $aFileInfo[5] & "','" & $aFileInfo[6] & "','" & $aFileInfo[7] & "','" & $aFileInfo[9] & "','" & $aFileInfo[10] & "','" & $aFileInfo[11] & "','" & $aFileInfo[13] & "','" & $aFileInfo[14] & "','" & $aFileInfo[15] & "','" & $aFileInfo[16] & "','" & $aFileInfo[17] & "','" & $aFileInfo[18] & "','" & $aFileInfo[19] & "','" & $aFileInfo[20] & "','" & $aFileInfo[21] & "');")
+			   _SQLite_Exec(-1,"INSERT INTO filedata (scanid,ruleid,filenameid,status,size,attributes,mtime,ctime,atime,version,crc32,md5,ptime,rattrib,aattrib,sattrib,hattrib,nattrib,dattrib,oattrib,cattrib,tattrib)  values ('" & $giScanId & "', '" & GetRuleIdFromRuleSet($iRuleCounter) & "', '" & GetFilenameIDFromDB(_StringToHex($gaFileInfo[0]),$gaFileInfo[8]) & "','" & $gaFileInfo[1] & "','" & $gaFileInfo[2] & "','" & $gaFileInfo[3] & "','" & $gaFileInfo[4] & "','" & $gaFileInfo[5] & "','" & $gaFileInfo[6] & "','" & $gaFileInfo[7] & "','" & $gaFileInfo[9] & "','" & $gaFileInfo[10] & "','" & $gaFileInfo[11] & "','" & $gaFileInfo[13] & "','" & $gaFileInfo[14] & "','" & $gaFileInfo[15] & "','" & $gaFileInfo[16] & "','" & $gaFileInfo[17] & "','" & $gaFileInfo[18] & "','" & $gaFileInfo[19] & "','" & $gaFileInfo[20] & "','" & $gaFileInfo[21] & "');")
 			EndIf
 		 Next
 	  EndIf
@@ -3521,7 +3243,7 @@ Func TreeClimber($sStartPath,$iScanSubdirs)
 EndFunc
 
 
-Func GetFileInfo( ByRef $aFileInfo, $sFilename )
+Func GetFileInfo( ByRef $gaFileInfo, $sFilename )
 
    ;Retrieves all information about $sFilename
    ;--------------------------------------------
@@ -3610,33 +3332,33 @@ Func GetFileInfo( ByRef $aFileInfo, $sFilename )
    local $iFileHandle = 0	;Handle of file to process
    local $iFileSize = 0		;Size of file to process
    local $sTempBuffer = ""	;File read buffer
-   local $iCRC32 = 0			;CRC32 value of file
+   local $iCRC32 = 0		;CRC32 value of file
    local $iMD5CTX = 0		;MD5 interim value
-   local $iTimer = 0			;Timer
+   local $iTimer = 0		;Timer
 
 
-   $aFileInfo[0]  = $sFilename	;name
-   $aFileInfo[1]  = 0			;file could not be read 1 else 0
-   $aFileInfo[2]  = 0			;size
-   $aFileInfo[3]  = ""			;attributes (obsolete)
-   $aFileInfo[4]  = ""			;file modification timestamp
-   $aFileInfo[5]  = ""			;file creation timestamp
-   $aFileInfo[6]  = ""			;file accessed timestamp
-   $aFileInfo[7]  = ""			;version
-   $aFileInfo[8]  = ""			;8.3 short path+name
-   $aFileInfo[9]  = 0			;crc32
-   $aFileInfo[10] = 0			;md5 hash
-   $aFileInfo[11] = 0			;time it took to process the file
-   ;$aFileInfo[12] =	""		;rulename
-   $aFileInfo[13] = 0			;1 if the "R" = READONLY attribute is set
-   $aFileInfo[14] = 0			;1 if the "A" = ARCHIVE attribute is set
-   $aFileInfo[15] = 0			;1 if the "S" = SYSTEM attribute is set
-   $aFileInfo[16] = 0			;1 if the "H" = HIDDEN attribute is set
-   $aFileInfo[17] = 0			;1 if the "N" = NORMAL attribute is set
-   $aFileInfo[18] = 0			;1 if the "D" = DIRECTORY attribute is set
-   $aFileInfo[19] = 0			;1 if the "O" = OFFLINE attribute is set
-   $aFileInfo[20] = 0			;1 if the "C" = COMPRESSED (NTFS compression, not ZIP compression) attribute is set
-   $aFileInfo[21] = 0			;1 if the "T" = TEMPORARY attribute is set
+   $gaFileInfo[0]  = $sFilename	;name
+   $gaFileInfo[1]  = 0			;file could not be read 1 else 0
+   $gaFileInfo[2]  = 0			;size
+   $gaFileInfo[3]  = ""			;attributes (obsolete)
+   $gaFileInfo[4]  = ""			;file modification timestamp
+   $gaFileInfo[5]  = ""			;file creation timestamp
+   $gaFileInfo[6]  = ""			;file accessed timestamp
+   $gaFileInfo[7]  = ""			;version
+   $gaFileInfo[8]  = ""			;8.3 short path+name
+   $gaFileInfo[9]  = 0			;crc32
+   $gaFileInfo[10] = 0			;md5 hash
+   $gaFileInfo[11] = 0			;time it took to process the file
+   ;$gaFileInfo[12] =	""		;rulename
+   $gaFileInfo[13] = 0			;1 if the "R" = READONLY attribute is set
+   $gaFileInfo[14] = 0			;1 if the "A" = ARCHIVE attribute is set
+   $gaFileInfo[15] = 0			;1 if the "S" = SYSTEM attribute is set
+   $gaFileInfo[16] = 0			;1 if the "H" = HIDDEN attribute is set
+   $gaFileInfo[17] = 0			;1 if the "N" = NORMAL attribute is set
+   $gaFileInfo[18] = 0			;1 if the "D" = DIRECTORY attribute is set
+   $gaFileInfo[19] = 0			;1 if the "O" = OFFLINE attribute is set
+   $gaFileInfo[20] = 0			;1 if the "C" = COMPRESSED (NTFS compression, not ZIP compression) attribute is set
+   $gaFileInfo[21] = 0			;1 if the "T" = TEMPORARY attribute is set
 
 
    $iTimer = TimerInit()
@@ -3647,29 +3369,16 @@ Func GetFileInfo( ByRef $aFileInfo, $sFilename )
    If IsArray($aInfo) Then
 
 	  ;Manage file attributes
-	  If BitAND ( $aInfo[0], $FILE_ATTRIBUTE_READONLY ) 	Then $aFileInfo[13] = 1
-	  If BitAND ( $aInfo[0], $FILE_ATTRIBUTE_ARCHIVE ) 		Then $aFileInfo[14] = 1
-	  If BitAND ( $aInfo[0], $FILE_ATTRIBUTE_SYSTEM ) 		Then $aFileInfo[15] = 1
-	  If BitAND ( $aInfo[0], $FILE_ATTRIBUTE_HIDDEN ) 		Then $aFileInfo[16] = 1
-	  If BitAND ( $aInfo[0], $FILE_ATTRIBUTE_NORMAL ) 		Then $aFileInfo[17] = 1
-	  If BitAND ( $aInfo[0], $FILE_ATTRIBUTE_DIRECTORY ) 	Then $aFileInfo[18] = 1
-	  If BitAND ( $aInfo[0], $FILE_ATTRIBUTE_OFFLINE ) 		Then $aFileInfo[19] = 1
-	  If BitAND ( $aInfo[0], $FILE_ATTRIBUTE_COMPRESSED ) 	Then $aFileInfo[20] = 1
-	  If BitAND ( $aInfo[0], $FILE_ATTRIBUTE_TEMPORARY ) 	Then $aFileInfo[21] = 1
+	  If BitAND ( $aInfo[0], $FILE_ATTRIBUTE_READONLY ) 	Then $gaFileInfo[13] = 1
+	  If BitAND ( $aInfo[0], $FILE_ATTRIBUTE_ARCHIVE ) 		Then $gaFileInfo[14] = 1
+	  If BitAND ( $aInfo[0], $FILE_ATTRIBUTE_SYSTEM ) 		Then $gaFileInfo[15] = 1
+	  If BitAND ( $aInfo[0], $FILE_ATTRIBUTE_HIDDEN ) 		Then $gaFileInfo[16] = 1
+	  If BitAND ( $aInfo[0], $FILE_ATTRIBUTE_NORMAL ) 		Then $gaFileInfo[17] = 1
+	  If BitAND ( $aInfo[0], $FILE_ATTRIBUTE_DIRECTORY ) 	Then $gaFileInfo[18] = 1
+	  If BitAND ( $aInfo[0], $FILE_ATTRIBUTE_OFFLINE ) 		Then $gaFileInfo[19] = 1
+	  If BitAND ( $aInfo[0], $FILE_ATTRIBUTE_COMPRESSED ) 	Then $gaFileInfo[20] = 1
+	  If BitAND ( $aInfo[0], $FILE_ATTRIBUTE_TEMPORARY ) 	Then $gaFileInfo[21] = 1
 
-#cs
-	  ConsoleWrite('Attributes:    ' & $aInfo[0] & @CRLF)
-	  If BitAND ( $aInfo[0], $FILE_ATTRIBUTE_READONLY ) Then ConsoleWrite("R")
-	  If BitAND ( $aInfo[0], $FILE_ATTRIBUTE_ARCHIVE ) Then ConsoleWrite("A")
-	  If BitAND ( $aInfo[0], $FILE_ATTRIBUTE_SYSTEM ) Then ConsoleWrite("S")
-	  If BitAND ( $aInfo[0], $FILE_ATTRIBUTE_HIDDEN ) Then ConsoleWrite("H")
-	  If BitAND ( $aInfo[0], $FILE_ATTRIBUTE_NORMAL ) Then ConsoleWrite("N")
-	  If BitAND ( $aInfo[0], $FILE_ATTRIBUTE_DIRECTORY ) Then ConsoleWrite("D")
-	  If BitAND ( $aInfo[0], $FILE_ATTRIBUTE_OFFLINE ) Then ConsoleWrite("O")
-	  If BitAND ( $aInfo[0], $FILE_ATTRIBUTE_COMPRESSED ) Then ConsoleWrite("C")
-	  If BitAND ( $aInfo[0], $FILE_ATTRIBUTE_TEMPORARY ) Then ConsoleWrite("T")
-	  ConsoleWrite(@CRLF)
-#ce
 
 	  ;Manage file times
 	  For $i = 1 To 3
@@ -3684,30 +3393,30 @@ Func GetFileInfo( ByRef $aFileInfo, $sFilename )
 			$aInfo[$i] = ""
 		 EndIf
 	  Next
-	  $aFileInfo[5] = $aInfo[1]
+	  $gaFileInfo[5] = $aInfo[1]
 	  ;ConsoleWrite('Created:       ' & $aInfo[1] & @CRLF)
-	  $aFileInfo[6] = $aInfo[2]
+	  $gaFileInfo[6] = $aInfo[2]
 	  ;ConsoleWrite('Accessed:      ' & $aInfo[2] & @CRLF)
-	  $aFileInfo[4] = $aInfo[3]
+	  $gaFileInfo[4] = $aInfo[3]
 	  ;ConsoleWrite('Modified:      ' & $aInfo[3] & @CRLF)
 
 
 	  ;ConsoleWrite('Volume serial: ' & $aInfo[4] & @CRLF)
 	  ;ConsoleWrite('Size:          ' & $aInfo[5] & @CRLF)
 	  $iFileSize = $aInfo[5]
-	  $aFileInfo[2] = $iFileSize
+	  $gaFileInfo[2] = $iFileSize
 	  ;ConsoleWrite('Links:         ' & $aInfo[6] & @CRLF)
 	  ;ConsoleWrite('ID:            ' & $aInfo[7] & @CRLF)
    Else
 	  ;unable to read file
-	  $aFileInfo[1] = 1
+	  $gaFileInfo[1] = 1
    EndIf
    _WinAPI_CloseHandle($hFile)
 
 
 
    ; calculate checksums
-   if not $aFileInfo[18] Then
+   if not $gaFileInfo[18] Then
 	  ;it´s not a directory it´s a file, so md5 and crc32 DO work !
 
 	  ;read file and calculate md5 and crc32
@@ -3717,7 +3426,7 @@ Func GetFileInfo( ByRef $aFileInfo, $sFilename )
 		 ;unable to open file or filesize is 0
 
 		 ;if filesize not 0 and we can not open the file something is fishy
-		 if $iFileSize > 0 then $aFileInfo[1] = 1
+		 if $iFileSize > 0 then $gaFileInfo[1] = 1
 
 	  Else
 		 ; ### CRC32 + MD5###
@@ -3730,160 +3439,24 @@ Func GetFileInfo( ByRef $aFileInfo, $sFilename )
 			_MD5Input($iMD5CTX, $sTempBuffer)
 		 Next
 
-		 $aFileInfo[9] = $iCRC32
-		 $aFileInfo[10] = _MD5Result($iMD5CTX)
+		 $gaFileInfo[9] = $iCRC32
+		 $gaFileInfo[10] = _MD5Result($iMD5CTX)
 
 		 ;close file
 		 FileClose($iFileHandle)
 	  EndIf
    EndIf
 
-   $aFileInfo[7] = FileGetVersion($sFilename)
+   $gaFileInfo[7] = FileGetVersion($sFilename)
 
-   $aFileInfo[8] = FileGetShortName($sFilename)
-
-
-   ;End processing
-   $aFileInfo[11] = Round(TimerDiff($iTimer))
-
-
-   if $cDEBUGTimeGetFileInfo = True then $iDEBUGTimerGetFileInfo += $aFileInfo[11]
-
-   return 0
-EndFunc
-
-
-Func Old_GetFileInfo( ByRef $aFileInfo, $Filename )
-
-   ;Retrieves all information about $Filename
-   ;--------------------------------------------
-
-#cs
-   $aFileInfo[0]	;name
-   $aFileInfo[1]	;file could not be read 1 else 0
-   $aFileInfo[2]	;size
-   $aFileInfo[3]	;attributes (obsolete)
-   $aFileInfo[4]	;file modification timestamp
-   $aFileInfo[5]	;file creation timestamp
-   $aFileInfo[6]	;file accessed timestamp
-   $aFileInfo[7]	;version
-   $aFileInfo[8]	;8.3 short path+name
-   $aFileInfo[9]	;crc32
-   $aFileInfo[10]	;md5 hash
-   $aFileInfo[11]	;time it took to process the file
-   $aFileInfo[12]	;rulename
-   $aFileInfo[13]	;1 if the "R" = READONLY attribute is set
-   $aFileInfo[14]	;1 if the "A" = ARCHIVE attribute is set
-   $aFileInfo[15]	;1 if the "S" = SYSTEM attribute is set
-   $aFileInfo[16]	;1 if the "H" = HIDDEN attribute is set
-   $aFileInfo[17]	;1 if the "N" = NORMAL attribute is set
-   $aFileInfo[18]	;1 if the "D" = DIRECTORY attribute is set
-   $aFileInfo[19]	;1 if the "O" = OFFLINE attribute is set
-   $aFileInfo[20]	;1 if the "C" = COMPRESSED (NTFS compression, not ZIP compression) attribute is set
-   $aFileInfo[21]	;1 if the "T" = TEMPORARY attribute is set
-#ce
-
-
-   ;local const $BufferSize = 0x20000
-   local const $BufferSize = 0x100000
-   local $FileHandle = 0	;Handle of file to process
-   local $FileSize = 0		;Size of file to process
-   local $TempBuffer = ""	;File read buffer
-   local $CRC32 = 0			;CRC32 value of file
-   local $MD5CTX = 0		;MD5 interim value
-   local $Timer = 0			;Timer
-
-   $aFileInfo[0] = $Filename
-   ;$aFileInfo[1] = 0	;not validated
-   $aFileInfo[1] = 0	;file could not be read 1 else 0
-
-
-   $Timer = TimerInit()
-
-
-   ;Start processing
-   $aFileInfo[3] = FileGetAttrib($Filename)
-
-
-   $FileSize = 0
-   if 0 < StringInStr($aFileInfo[3],"D") Then
-	  ;it´s a directory, so FileGetSize(),md5 and crc32 does not work !
-
-	  $aFileInfo[9] = 0
-	  $aFileInfo[10] = 0
-
-   Else
-	  ;it´s a file !
-
-
-	  ;get size of file in bytes
-	  $FileSize = FileGetSize($Filename)
-
-	  ;read file and calculate md5 and crc32
-	  $FileHandle = 0
-	  $FileHandle = FileOpen($Filename, 16)
-	  if @error or $FileSize = 0 Then
-		 ;unable to open file or filesize is 0
-
-		 ;if filesize not 0 and we can not open the file something is fishy
-		 if $FileSize > 0 then $aFileInfo[1] = 1
-
-		 $aFileInfo[9] = 0
-		 $aFileInfo[10] = 0
-	  Else
-		 ; ### CRC32 + MD5###
-		 $CRC32 = 0
-		 $MD5CTX = _MD5Init()
-
-		 For $i = 1 To Ceiling($FileSize / $BufferSize)
-			$TempBuffer = FileRead($FileHandle, $BufferSize)
-			$CRC32 = _CRC32($TempBuffer, BitNot($CRC32))
-			_MD5Input($MD5CTX, $TempBuffer)
-		 Next
-
-		 $aFileInfo[9] = $CRC32
-		 $aFileInfo[10] = _MD5Result($MD5CTX)
-
-		 ;close file
-		 FileClose($FileHandle)
-	  EndIf
-   EndIf
-   $aFileInfo[2] = $FileSize
-
-
-   $aFileInfo[4] = FileGetTime($Filename,$FT_MODIFIED,1)
-   $aFileInfo[5] = FileGetTime($Filename,$FT_CREATED,1)
-   $aFileInfo[6] = FileGetTime($Filename,$FT_ACCESSED,1)
-
-   $aFileInfo[7] = FileGetVersion($Filename)
-
-   $aFileInfo[8] = FileGetShortName($Filename)
-
-
-   ;Attribs
-   $aFileInfo[13] = 0
-   $aFileInfo[14] = 0
-   $aFileInfo[15] = 0
-   $aFileInfo[16] = 0
-   $aFileInfo[17] = 0
-   $aFileInfo[18] = 0
-   $aFileInfo[19] = 0
-   $aFileInfo[20] = 0
-   $aFileInfo[21] = 0
-
-   if 0 < StringInStr($aFileInfo[3],"R") Then $aFileInfo[13] = 1
-   if 0 < StringInStr($aFileInfo[3],"A") Then $aFileInfo[14] = 1
-   if 0 < StringInStr($aFileInfo[3],"S") Then $aFileInfo[15] = 1
-   if 0 < StringInStr($aFileInfo[3],"H") Then $aFileInfo[16] = 1
-   if 0 < StringInStr($aFileInfo[3],"N") Then $aFileInfo[17] = 1
-   if 0 < StringInStr($aFileInfo[3],"D") Then $aFileInfo[18] = 1
-   if 0 < StringInStr($aFileInfo[3],"O") Then $aFileInfo[19] = 1
-   if 0 < StringInStr($aFileInfo[3],"C") Then $aFileInfo[20] = 1
-   if 0 < StringInStr($aFileInfo[3],"T") Then $aFileInfo[21] = 1
+   $gaFileInfo[8] = FileGetShortName($sFilename)
 
 
    ;End processing
-   $aFileInfo[11] = Round(TimerDiff($Timer))
+   $gaFileInfo[11] = Round(TimerDiff($iTimer))
+
+
+   if $gcDEBUGTimeGetFileInfo = True then $giDEBUGTimerGetFileInfo += $gaFileInfo[11]
 
    return 0
 EndFunc
@@ -3909,8 +3482,8 @@ EndFunc
    $IPPort = 25             ; bleibt so
    $ssl = 0
 
-   Global $oMyRet[2]
-   Global $oMyError = ObjEvent("AutoIt.Error", "MyErrFunc")
+   Global $goMyRet[2]
+   Global $goMyError = ObjEvent("AutoIt.Error", "MyErrFunc")
 
    ;Ende MAiler Setup
 
@@ -3943,8 +3516,8 @@ $ssl = 0
 
 
 
-Global $oMyRet[2]
-Global $oMyError = ObjEvent("AutoIt.Error", "MyErrFunc")
+Global $goMyRet[2]
+Global $goMyError = ObjEvent("AutoIt.Error", "MyErrFunc")
 $rc = _INetSmtpMailCom($SmtpServer, $FromName, $FromAddress, $ToAddress, $Subject, $Body, $AttachFiles, $CcAddress, $BccAddress, $Importance, $Username, $Password, $IPPort, $ssl)
 If @error Then
     MsgBox(0, "Error sending message", "Error code:" & @error & "  Description:" & $rc)
@@ -4008,51 +3581,20 @@ EndIf
     $objEmail.Send
     If @error Then
         SetError(2)
-        Return $oMyRet[1]
+        Return $goMyRet[1]
     EndIf
     $objEmail=""
 EndFunc
 
 
 Func MyErrFunc()
-    local $HexNumber = Hex($oMyError.number, 8)
-    $oMyRet[0] = $HexNumber
-    $oMyRet[1] = StringStripWS($oMyError.description, 3)
-    ConsoleWrite("### COM Error !  Number: " & $HexNumber & "   ScriptLine: " & $oMyError.scriptline & "   Description:" & $oMyRet[1] & @LF)
+    local $HexNumber = Hex($goMyError.number, 8)
+    $goMyRet[0] = $HexNumber
+    $goMyRet[1] = StringStripWS($goMyError.description, 3)
+    ConsoleWrite("### COM Error !  Number: " & $HexNumber & "   ScriptLine: " & $goMyError.scriptline & "   Description:" & $goMyRet[1] & @LF)
     SetError(1)
     Return
 EndFunc
-
-
-
-;Scrapbook
-;-----------------------
-
-
-
-#cs
-   ; ### CRC32 ###
-   $CRC32 = 0
-
-   For $i = 1 To Ceiling($FileSize / $BufferSize)
-	   $CRC32 = _CRC32(FileRead($FileHandle, $BufferSize), BitNot($CRC32))
-   Next
-
-   $aFileInfo[9] = $CRC32
-   ;MsgBox (0, "Result", Hex($CRC32, 8) & " in " & Round(TimerDiff($Timer)) & " ms")
-   FileClose($FileHandle)
-
-   ; ### MD5 ###
-
-   $FileHandle = 0
-   $FileHandle = FileOpen($Filename, 16)
-
-   $MD5CTX = _MD5Init()
-   For $i = 1 To Ceiling($FileSize / $BufferSize)
-	   _MD5Input($MD5CTX, FileRead($FileHandle, $BufferSize))
-   Next
-   $aFileInfo[10] = _MD5Result($MD5CTX)
-#ce
 
 
 
