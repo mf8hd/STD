@@ -84,6 +84,10 @@ Changelog
 			/duplicates: has 3 commandline parameter, not only 2
 3.3.1.0		new debug option $cDEBUGShowVisitedDirectories
 			IsExecutable(): remember result of last use, so the file is tested just once while itterating over all rules (performance !)
+3.3.1.1		GetFileInfo(): sanitized variable names
+			profiler options: $cDEBUGTimeGetFileInfo, $cDEBUGTimeGetRuleFromRuleSet, $cDEBUGTimeIsExecutable, $cDEBUGTimeIsIncludedByRule, $cDEBUGTimeIsClimbTargetByRule
+
+
 
 #ce
 
@@ -162,8 +166,8 @@ End
 #pragma compile(UPX, False)
 
 ;Set file infos
-#pragma compile(ProductVersion,"3.3.1.0")
-#pragma compile(FileVersion,"3.3.1.0")
+#pragma compile(ProductVersion,"3.3.1.1")
+#pragma compile(FileVersion,"3.3.1.1")
 ;Versioning: "Incompatible changes to DB"."new feature"."bug fix"."minor fix"
 
 #pragma compile(FileDescription,"Spot The Difference")
@@ -193,7 +197,21 @@ global const $cVersion = FileGetVersion(@ScriptName,"ProductVersion")
 global const $cScannameLimit = 65535	;max number of scannames resturnd from the DB
 ;Debug
 global const $cDEBUGOnlyShowScanBuffer = False	;show only "searching" and buffersize during scan !
-global const $cDEBUGShowVisitedDirectories = True	;show visited directories during scan !
+global const $cDEBUGShowVisitedDirectories = False	;show visited directories during scan !
+
+;Profiler
+global const $cDEBUGTimeGetFileInfo = True
+global const $cDEBUGTimeGetRuleFromRuleSet = True
+global const $cDEBUGTimeIsExecutable = True
+global const $cDEBUGTimeIsIncludedByRule = True
+global const $cDEBUGTimeIsClimbTargetByRule = True
+
+global $iDEBUGTimerGetFileInfo = 0
+global $iDEBUGTimerGetRuleFromRuleSet = 0
+global $iDEBUGTimerIsExecutable = 0
+global $iDEBUGTimerIsIncludedByRule = 0
+global $iDEBUGTimerIsClimbTargetByRule = 0
+
 
 ;Compile options
 Opt("TrayIconHide", 1)
@@ -1457,6 +1475,14 @@ Func DoScanWithSecondProcess($sDBName)
    ProcessWaitClose($iPID)
 
    ConsoleWrite("List: " & $ScanTimer & @CRLF)
+
+   if $cDEBUGTimeGetFileInfo = True 		then ConsoleWrite("List-GetFileInfo:         " & Round($iDEBUGTimerGetFileInfo) & @CRLF)
+   if $cDEBUGTimeGetRuleFromRuleSet = True 	then ConsoleWrite("List-GetRuleFromRuleSet:  " & Round($iDEBUGTimerGetRuleFromRuleSet) & @CRLF)
+   if $cDEBUGTimeIsExecutable = True 		then ConsoleWrite("List-IsExecutable:        " & Round($iDEBUGTimerIsExecutable) & @CRLF)
+   if $cDEBUGTimeIsIncludedByRule = True 	then ConsoleWrite("List-IsIncludedByRule:    " & Round($iDEBUGTimerIsIncludedByRule) & @CRLF)
+   if $cDEBUGTimeIsClimbTargetByRule = True then ConsoleWrite("List-IsClimbTargetByRule: " & Round($iDEBUGTimerIsClimbTargetByRule) & @CRLF)
+
+
 EndFunc
 
 
@@ -1597,6 +1623,15 @@ Func DoSecondProcess()
    WEnd
 
    ConsoleWrite("Scan: " & Round(TimerDiff($ScanTimer) - $iIdleCounter*1000) & @CRLF)
+
+   if $cDEBUGTimeGetFileInfo = True 		then ConsoleWrite("Scan-GetFileInfo:         " & Round($iDEBUGTimerGetFileInfo) & @CRLF)
+   if $cDEBUGTimeGetRuleFromRuleSet = True 	then ConsoleWrite("Scan-GetRuleFromRuleSet:  " & Round($iDEBUGTimerGetRuleFromRuleSet) & @CRLF)
+   if $cDEBUGTimeIsExecutable = True 		then ConsoleWrite("Scan-IsExecutable:        " & Round($iDEBUGTimerIsExecutable) & @CRLF)
+   if $cDEBUGTimeIsIncludedByRule = True 	then ConsoleWrite("Scan-IsIncludedByRule:    " & Round($iDEBUGTimerIsIncludedByRule) & @CRLF)
+   if $cDEBUGTimeIsClimbTargetByRule = True then ConsoleWrite("Scan-IsClimbTargetByRule: " & Round($iDEBUGTimerIsClimbTargetByRule) & @CRLF)
+
+
+
 
 EndFunc
 
@@ -2327,6 +2362,7 @@ Func GetRuleFromRuleSet($iRuleNumber)
 
    dim $aRule[1][2]			;reset/clear $aRuleSet
    local $iCount = 0		;counter
+   if $cDEBUGTimeGetRuleFromRuleSet = True then local $iTimer = TimerInit()
    local $iCountMax = UBound($aRuleSet,1)-1
 
    for $iCount = 1 to $iCountMax
@@ -2338,6 +2374,8 @@ Func GetRuleFromRuleSet($iRuleNumber)
 
 	  EndIf
    Next
+
+   if $cDEBUGTimeGetRuleFromRuleSet = True then $iDEBUGTimerGetRuleFromRuleSet += TimerDiff($iTimer)
 EndFunc
 
 
@@ -2518,9 +2556,11 @@ Func IsIncludedByRule($PathOrFile,ByRef $aRule)
 	  End
    #ce
 
+   if $cDEBUGTimeIsIncludedByRule = True then local $iTimer = TimerInit()
    local $iIsIncluded = False
    local $i = 0
    local $iMax = 0
+
 
    ;strip leading and trailing " from directories
    $PathOrFile = StringReplace($PathOrFile,"""","")
@@ -2613,7 +2653,7 @@ Func IsIncludedByRule($PathOrFile,ByRef $aRule)
 
    ;ConsoleWrite("...EE..." & $iIsIncluded & " " & $PathOrFile & @crlf)
    ;if $iIsIncluded then ConsoleWrite($iIsIncluded & " " & $PathOrFile & @crlf)
-
+   if $cDEBUGTimeIsIncludedByRule = True then $iDEBUGTimerIsIncludedByRule += TimerDiff($iTimer)
    Return $iIsIncluded
 EndFunc
 
@@ -2642,6 +2682,7 @@ Func IsClimbTargetByRule($sPath,ByRef $aRule)
 	  End
    #ce
 
+   if $cDEBUGTimeIsClimbTargetByRule = True then local $iTimer = TimerInit()
    local $iIsClimbTarget = False
    local $i = 0
    local $iMax = 0
@@ -2677,6 +2718,7 @@ Func IsClimbTargetByRule($sPath,ByRef $aRule)
 	  EndSelect
    Next
 
+   if $cDEBUGTimeIsClimbTargetByRule = True then $iDEBUGTimerIsClimbTargetByRule += TimerDiff($iTimer)
    Return $iIsClimbTarget
 EndFunc
 
@@ -2692,6 +2734,7 @@ Func IsExecutable($Filename)
 
    local $sBuffer = ""
    local $FileHandle = 0
+   if $cDEBUGTimeIsExecutable = True then local $iTimer = TimerInit()
 
    if $Filename = $sIsExecutableLastFilename Then
 	  ;no need to access and check the file, we know the result already
@@ -2706,9 +2749,11 @@ Func IsExecutable($Filename)
 
 	  if $sBuffer = "MZ" or $sBuffer = "ZM" then
 		 $iIsExecutableLastResult = True
+		 if $cDEBUGTimeIsExecutable = True then $iDEBUGTimerIsExecutable += TimerDiff($iTimer)
 		 return True
 	  Else
 		 $iIsExecutableLastResult = False
+		 if $cDEBUGTimeIsExecutable = True then $iDEBUGTimerIsExecutable += TimerDiff($iTimer)
 		 return False
 	  EndIf
    EndIf
@@ -3098,9 +3143,9 @@ Func TreeClimber($sStartPath,$iScanSubdirs)
 EndFunc
 
 
-Func GetFileInfo( ByRef $aFileInfo, $Filename )
+Func GetFileInfo( ByRef $aFileInfo, $sFilename )
 
-   ;Retrieves all information about $Filename
+   ;Retrieves all information about $sFilename
    ;--------------------------------------------
 
 #cs
@@ -3182,17 +3227,17 @@ Func GetFileInfo( ByRef $aFileInfo, $Filename )
 #ce
 
 
-   ;local const $BufferSize = 0x20000
-   local const $BufferSize = 0x100000
-   local $FileHandle = 0	;Handle of file to process
-   local $FileSize = 0		;Size of file to process
-   local $TempBuffer = ""	;File read buffer
-   local $CRC32 = 0			;CRC32 value of file
-   local $MD5CTX = 0		;MD5 interim value
-   local $Timer = 0			;Timer
+   ;local const $iBufferSize = 0x20000
+   local const $iBufferSize = 0x100000
+   local $iFileHandle = 0	;Handle of file to process
+   local $iFileSize = 0		;Size of file to process
+   local $sTempBuffer = ""	;File read buffer
+   local $iCRC32 = 0			;CRC32 value of file
+   local $iMD5CTX = 0		;MD5 interim value
+   local $iTimer = 0			;Timer
 
 
-   $aFileInfo[0]  = $Filename	;name
+   $aFileInfo[0]  = $sFilename	;name
    $aFileInfo[1]  = 0			;file could not be read 1 else 0
    $aFileInfo[2]  = 0			;size
    $aFileInfo[3]  = ""			;attributes (obsolete)
@@ -3216,10 +3261,10 @@ Func GetFileInfo( ByRef $aFileInfo, $Filename )
    $aFileInfo[21] = 0			;1 if the "T" = TEMPORARY attribute is set
 
 
-   $Timer = TimerInit()
+   $iTimer = TimerInit()
 
 
-   Local $hFile = _WinAPI_CreateFile($Filename, 2, 2, 2)
+   Local $hFile = _WinAPI_CreateFile($sFilename, 2, 2, 2)
    Local $aInfo = _WinAPI_GetFileInformationByHandle($hFile)
    If IsArray($aInfo) Then
 
@@ -3271,8 +3316,8 @@ Func GetFileInfo( ByRef $aFileInfo, $Filename )
 
 	  ;ConsoleWrite('Volume serial: ' & $aInfo[4] & @CRLF)
 	  ;ConsoleWrite('Size:          ' & $aInfo[5] & @CRLF)
-	  $FileSize = $aInfo[5]
-	  $aFileInfo[2] = $FileSize
+	  $iFileSize = $aInfo[5]
+	  $aFileInfo[2] = $iFileSize
 	  ;ConsoleWrite('Links:         ' & $aInfo[6] & @CRLF)
 	  ;ConsoleWrite('ID:            ' & $aInfo[7] & @CRLF)
    Else
@@ -3288,40 +3333,43 @@ Func GetFileInfo( ByRef $aFileInfo, $Filename )
 	  ;it´s not a directory it´s a file, so md5 and crc32 DO work !
 
 	  ;read file and calculate md5 and crc32
-	  $FileHandle = 0
-	  $FileHandle = FileOpen($Filename, 16)
-	  if @error or $FileSize = 0 Then
+	  $iFileHandle = 0
+	  $iFileHandle = FileOpen($sFilename, 16)
+	  if @error or $iFileSize = 0 Then
 		 ;unable to open file or filesize is 0
 
 		 ;if filesize not 0 and we can not open the file something is fishy
-		 if $FileSize > 0 then $aFileInfo[1] = 1
+		 if $iFileSize > 0 then $aFileInfo[1] = 1
 
 	  Else
 		 ; ### CRC32 + MD5###
-		 $CRC32 = 0
-		 $MD5CTX = _MD5Init()
+		 $iCRC32 = 0
+		 $iMD5CTX = _MD5Init()
 
-		 For $i = 1 To Ceiling($FileSize / $BufferSize)
-			$TempBuffer = FileRead($FileHandle, $BufferSize)
-			$CRC32 = _CRC32($TempBuffer, BitNot($CRC32))
-			_MD5Input($MD5CTX, $TempBuffer)
+		 For $i = 1 To Ceiling($iFileSize / $iBufferSize)
+			$sTempBuffer = FileRead($iFileHandle, $iBufferSize)
+			$iCRC32 = _CRC32($sTempBuffer, BitNot($iCRC32))
+			_MD5Input($iMD5CTX, $sTempBuffer)
 		 Next
 
-		 $aFileInfo[9] = $CRC32
-		 $aFileInfo[10] = _MD5Result($MD5CTX)
+		 $aFileInfo[9] = $iCRC32
+		 $aFileInfo[10] = _MD5Result($iMD5CTX)
 
 		 ;close file
-		 FileClose($FileHandle)
+		 FileClose($iFileHandle)
 	  EndIf
    EndIf
 
-   $aFileInfo[7] = FileGetVersion($Filename)
+   $aFileInfo[7] = FileGetVersion($sFilename)
 
-   $aFileInfo[8] = FileGetShortName($Filename)
+   $aFileInfo[8] = FileGetShortName($sFilename)
 
 
    ;End processing
-   $aFileInfo[11] = Round(TimerDiff($Timer))
+   $aFileInfo[11] = Round(TimerDiff($iTimer))
+
+
+   if $cDEBUGTimeGetFileInfo = True then $iDEBUGTimerGetFileInfo += $aFileInfo[11]
 
    return 0
 EndFunc
