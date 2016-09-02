@@ -37,6 +37,9 @@ Changelog
 			GetFileInfo(): no md5 and crc32 for directories
 			GetFileInfo(): handle files that can not be read (status = $aFileInfo[1] = 1 )
 2.0.1.1		GetFileInfo(): first get filesize then calculate md5 and crc32
+2.0.1.2		OutputLineOfQueryResult(): changes in attributes not indicated by a * in report
+			OutputLineOfQueryResult(): if filesize is greater 0 and the file can not be read, then set file status  = 1
+
 
 #ce
 
@@ -103,7 +106,7 @@ End
 ;Set file infos
 #pragma compile(FileDescription,"Spot The Difference")
 #pragma compile(ProductName,"Spot The Difference")
-#pragma compile(ProductVersion,"2.0.1.1")
+#pragma compile(ProductVersion,"2.0.1.2")
 ;Versioning: "Incompatible changes to DB"."new feature"."bug fix"."minor fix"
 #pragma compile(LegalCopyright,"Reinhard Dittmann")
 #pragma compile(InternalName,"STD")
@@ -1922,6 +1925,12 @@ Func OutputLineOfQueryResult(ByRef $aQueryResult,$ReportFilename)
 
 	  if $i = 9 Then
 	  ElseIf $i = 13 Then
+	  ElseIf $i = 4 Then
+		 if $sTempOld = $sTempNew  then
+			FileWriteLine($ReportFilename,StringFormat("%-15s %1s %35s %-35s",$aDesc[$i] & ":"," ",$sTempOld,$sTempNew))
+		 Else
+			FileWriteLine($ReportFilename,StringFormat("%-15s %1s %35s %-35s",$aDesc[$i] & ":","*",$sTempOld,$sTempNew))
+		 EndIf
 	  ElseIf $i = 7 Then
 		 FileWriteLine($ReportFilename,StringFormat("%-15s %1s %35s %-35s",$aDesc[$i] & ":"," ",$sTempOld,$sTempNew))
 	  else
@@ -2120,9 +2129,11 @@ Func GetFileInfo( ByRef $aFileInfo, $Filename )
 	  ;read file and calculate md5 and crc32
 	  $FileHandle = 0
 	  $FileHandle = FileOpen($Filename, 16)
-	  if @error Then
-		 ;unable to open file
-		 $aFileInfo[1] = 1
+	  if @error or $FileSize = 0 Then
+		 ;unable to open file or filesize is 0
+
+		 ;if filesize not 0 and we can not open the file something is fishy
+		 if $FileSize > 0 then $aFileInfo[1] = 1
 
 		 $aFileInfo[9] = 0
 		 $aFileInfo[10] = 0
