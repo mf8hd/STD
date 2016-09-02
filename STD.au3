@@ -92,7 +92,7 @@ Changelog
 			Remove GetRuleFromRuleSet() and old calls to GetRulename($aRule)
 			Replace GetRuleId($aRule) with GetRuleIdFromRuleSet($iRuleNumber)
 			OutputLineOfQueryResult(): fix changed marker for attributes
-
+3.3.1.4		IsIncludedByRule(): Search for "ExcDir:" and "ExcDirRec:" only if "IncDir:" or "IncDirRec:" returned $iIsIncluded = True
 
 
 
@@ -173,8 +173,8 @@ End
 #pragma compile(UPX, False)
 
 ;Set file infos
-#pragma compile(ProductVersion,"3.3.1.3")
-#pragma compile(FileVersion,"3.3.1.3")
+#pragma compile(ProductVersion,"3.3.1.4")
+#pragma compile(FileVersion,"3.3.1.4")
 ;Versioning: "Incompatible changes to DB"."new feature"."bug fix"."minor fix"
 
 #pragma compile(FileDescription,"Spot The Difference")
@@ -207,11 +207,11 @@ global const $cDEBUGOnlyShowScanBuffer = False	;show only "searching" and buffer
 global const $cDEBUGShowVisitedDirectories = False	;show visited directories during scan !
 
 ;Profiler
-global const $cDEBUGTimeGetFileInfo = False
-global const $cDEBUGTimeGetRuleFromRuleSet = False
-global const $cDEBUGTimeIsExecutable = False
-global const $cDEBUGTimeIsIncludedByRule = False
-global const $cDEBUGTimeIsClimbTargetByRule = False
+global const $cDEBUGTimeGetFileInfo = True
+global const $cDEBUGTimeGetRuleFromRuleSet = True
+global const $cDEBUGTimeIsExecutable = True
+global const $cDEBUGTimeIsIncludedByRule = True
+global const $cDEBUGTimeIsClimbTargetByRule = True
 
 global $iDEBUGTimerGetFileInfo = 0
 global $iDEBUGTimerGetRuleFromRuleSet = 0
@@ -2650,6 +2650,7 @@ Func IsIncludedByRule($PathOrFile,$iRuleNumber)
 
    if $cDEBUGTimeIsIncludedByRule = True then local $iTimer = TimerInit()
    local $iIsIncluded = False
+   local $iIsFile = False
    local $i = 0
    ;local $iMax = 0
    local $iMax = UBound($aRuleSet,1)-1
@@ -2658,6 +2659,8 @@ Func IsIncludedByRule($PathOrFile,$iRuleNumber)
    ;strip leading and trailing " from directories
    $PathOrFile = StringReplace($PathOrFile,"""","")
    ;if StringRight($PathOrFile,1) = "\" then $PathOrFile = StringTrimRight($PathOrFile,1)
+
+   if StringRight($PathOrFile,1) <> "\" then $iIsFile = True
 
    ;_ArrayDisplay($aRule)
 
@@ -2682,113 +2685,82 @@ Func IsIncludedByRule($PathOrFile,$iRuleNumber)
 
    ;ConsoleWrite("...ID..." & $iIsIncluded & " " & $PathOrFile & @crlf)
 
-   ;msgbox(0,"Cmd","#" & $aRuleSet[$i][0] & "#" & @CRLF & "#" & $aRuleSet[$i][1] & "#" & @CRLF & "#" & $PathOrFile & "#" & @CRLF)
+   ;exclude directory command
+   if $iIsIncluded then
+	  for $i = $aRuleStart[$iRuleNumber] to $iMax
+		 if $aRuleSet[$i][2] <> $iRuleNumber then ExitLoop
+		 ;$aRuleSet[$i][0]
+		 ;$aRuleSet[$i][0]
+		 ;$aRuleSet[$i][1]
+		 Select
+			case $aRuleSet[$i][0] = "ExcDirRec:"
+			   if StringLeft($PathOrFile,stringlen($aRuleSet[$i][1] & "\")) = $aRuleSet[$i][1] & "\" then $iIsIncluded = False
+			case $aRuleSet[$i][0] = "ExcDir:"
+			   if StringLeft($PathOrFile,stringlen($aRuleSet[$i][1] & "\")) = $aRuleSet[$i][1] & "\" And not StringInStr(StringReplace(StringLower($PathOrFile),StringLower($aRuleSet[$i][1] & "\"),""),"\") then $iIsIncluded = False
+			case $aRuleSet[$i][0] = "ExcDirs"
+			   if not $iIsFile then $iIsIncluded = False
+			case Else
+		 EndSelect
+	  Next
 
-   ;include file extension command (if it is not a directory and the path is included)
-   if StringRight($PathOrFile,1) <> "\" and $iIsIncluded = True then
-	  $iIsIncluded = False
+	  ;ConsoleWrite("...ED..." & $iIsIncluded & " " & $PathOrFile & @crlf)
+
 
 	  ;msgbox(0,"Cmd","#" & $aRuleSet[$i][0] & "#" & @CRLF & "#" & $aRuleSet[$i][1] & "#" & @CRLF & "#" & $PathOrFile & "#" & @CRLF)
 
-	  ;"IncExt:"
-	  $sExtension = StringRight($PathOrFile,StringLen($PathOrFile)-StringInStr($PathOrFile,".",1,-1))
-	  if StringInStr($aRuleExtensions[$iRuleNumber][$cIncExt],"." & $sExtension & ".") > 0 then
-		 $iIsIncluded = True
-	  EndIf
-
-	  ;"IncExe"
-	  if $aRuleExtensions[$iRuleNumber][$cIncExe] = True Then
-		 if IsExecutable($PathOrFile) then $iIsIncluded = True
-	  EndIf
-
-	  ; "IncAll"
-	  if $aRuleExtensions[$iRuleNumber][$cIncAll] = True Then
-		 $iIsIncluded = True
-	  EndIf
-
-#cs
-	  for $i = $aRuleStart[$iRuleNumber] to $iMax
-		 if $aRuleSet[$i][2] <> $iRuleNumber then ExitLoop
-		 ;$aRuleSet[$i][0]
-		 ;$aRuleSet[$i][1]
-		 Select
-			case $aRuleSet[$i][0] = "IncExt:"
-			   if StringRight($PathOrFile,stringlen("." & $aRuleSet[$i][1])) = "." & $aRuleSet[$i][1] then $iIsIncluded = True
-			   ;$aRuleIncExt[$i]
-			case $aRuleSet[$i][0] = "IncExe"
-			   if IsExecutable($PathOrFile) then $iIsIncluded = True
-			case $aRuleSet[$i][0] = "IncAll"
-			   $iIsIncluded = True
-			case Else
-		 EndSelect
-	  Next
-#ce
-   EndIf
-
-   ;ConsoleWrite("...IE..." & $iIsIncluded & " " & $PathOrFile & @crlf)
-
-   ;exclude directory command
-   for $i = $aRuleStart[$iRuleNumber] to $iMax
-	  if $aRuleSet[$i][2] <> $iRuleNumber then ExitLoop
-	  ;$aRuleSet[$i][0]
-	  ;$aRuleSet[$i][0]
-	  ;$aRuleSet[$i][1]
-	  Select
-		 case $aRuleSet[$i][0] = "ExcDirRec:"
-			if StringLeft($PathOrFile,stringlen($aRuleSet[$i][1] & "\")) = $aRuleSet[$i][1] & "\" then $iIsIncluded = False
-		 case $aRuleSet[$i][0] = "ExcDir:"
-			if StringLeft($PathOrFile,stringlen($aRuleSet[$i][1] & "\")) = $aRuleSet[$i][1] & "\" And not StringInStr(StringReplace(StringLower($PathOrFile),StringLower($aRuleSet[$i][1] & "\"),""),"\") then $iIsIncluded = False
-		 case $aRuleSet[$i][0] = "ExcDirs"
-			if StringRight($PathOrFile,1) = "\" then $iIsIncluded = False
-		 case Else
-	  EndSelect
-   Next
-
-   ;ConsoleWrite("...ED..." & $iIsIncluded & " " & $PathOrFile & @crlf)
-
-   ;exclude file extension command (if it is not a directory and the path is included)
-   if StringRight($PathOrFile,1) <> "\" and $iIsIncluded = True then
-	  ;$iIsIncluded = False
-
-
-	  ;"ExcExt:"
-	  ;Use $sExtension form "IncExt:" above
-	  ;$sExtension = StringRight($PathOrFile,StringInStr($PathOrFile,".",1,-1))
-	  if StringInStr($aRuleExtensions[$iRuleNumber][$cExcExt],"." & $sExtension & ".") > 0 then
+	  ;include file extension command (if it is not a directory and the path is included)
+	  if $iIsFile and $iIsIncluded then
 		 $iIsIncluded = False
-	  EndIf
 
-	  ;"ExcExe"
-	  if $aRuleExtensions[$iRuleNumber][$cExcExe] = True Then
-		 if IsExecutable($PathOrFile) then $iIsIncluded = False
-	  EndIf
+		 ;msgbox(0,"Cmd","#" & $aRuleSet[$i][0] & "#" & @CRLF & "#" & $aRuleSet[$i][1] & "#" & @CRLF & "#" & $PathOrFile & "#" & @CRLF)
 
-	  ; "ExcAll"
-	  if $aRuleExtensions[$iRuleNumber][$cExcAll] = True Then
-		 $iIsIncluded = False
-	  EndIf
+		 ;"IncExt:"
+		 $sExtension = StringRight($PathOrFile,StringLen($PathOrFile)-StringInStr($PathOrFile,".",1,-1))
+		 if StringInStr($aRuleExtensions[$iRuleNumber][$cIncExt],"." & $sExtension & ".") > 0 then
+			$iIsIncluded = True
+		 EndIf
 
-#cs
-	  for $i = $aRuleStart[$iRuleNumber] to $iMax
-		 if $aRuleSet[$i][2] <> $iRuleNumber then ExitLoop
-		 ;$aRuleSet[$i][0]
-		 ;$aRuleSet[$i][1]
-		 Select
-			case $aRuleSet[$i][0] = "ExcExt:"
-			   if StringRight($PathOrFile,stringlen("." & $aRuleSet[$i][1])) = "." & $aRuleSet[$i][1] then $iIsIncluded = False
-			case $aRuleSet[$i][0] = "ExcExe"
-			   if IsExecutable($PathOrFile) then $iIsIncluded = False
-			case $aRuleSet[$i][0] = "ExcAll"
+		 ;"IncExe"
+		 if $aRuleExtensions[$iRuleNumber][$cIncExe] = True Then
+			if IsExecutable($PathOrFile) then $iIsIncluded = True
+		 EndIf
+
+		 ; "IncAll"
+		 if $aRuleExtensions[$iRuleNumber][$cIncAll] = True Then
+			$iIsIncluded = True
+		 EndIf
+
+
+		 ;ConsoleWrite("...IE..." & $iIsIncluded & " " & $PathOrFile & @crlf)
+
+		 ;exclude file extension command (if it is not a directory and the path is included)
+		 if $iIsIncluded then
+			;$iIsIncluded = False
+
+
+			;"ExcExt:"
+			;Use $sExtension form "IncExt:" above
+			;$sExtension = StringRight($PathOrFile,StringInStr($PathOrFile,".",1,-1))
+			if StringInStr($aRuleExtensions[$iRuleNumber][$cExcExt],"." & $sExtension & ".") > 0 then
 			   $iIsIncluded = False
-			case Else
-		 EndSelect
-	  Next
-#ce
-   EndIf
+			EndIf
 
+			;"ExcExe"
+			if $aRuleExtensions[$iRuleNumber][$cExcExe] = True Then
+			   if IsExecutable($PathOrFile) then $iIsIncluded = False
+			EndIf
+
+			; "ExcAll"
+			if $aRuleExtensions[$iRuleNumber][$cExcAll] = True Then
+			   $iIsIncluded = False
+			EndIf
+		 EndIf
+
+	  EndIf
+   EndIf
    ;ConsoleWrite("...EE..." & $iIsIncluded & " " & $PathOrFile & @crlf)
    ;if $iIsIncluded then ConsoleWrite($iIsIncluded & " " & $PathOrFile & @crlf)
-   if $cDEBUGTimeIsIncludedByRule = True then $iDEBUGTimerIsIncludedByRule += TimerDiff($iTimer)
+   if $cDEBUGTimeIsIncludedByRule then $iDEBUGTimerIsIncludedByRule += TimerDiff($iTimer)
    Return $iIsIncluded
 EndFunc
 
@@ -2852,7 +2824,7 @@ Func OLD_IsIncludedByRule($PathOrFile,ByRef $aRule)
    ;msgbox(0,"Cmd","#" & $aRule[$i][0] & "#" & @CRLF & "#" & $aRule[$i][1] & "#" & @CRLF & "#" & $PathOrFile & "#" & @CRLF)
 
    ;include file extension command (if it is not a directory and the path is included)
-   if StringRight($PathOrFile,1) <> "\" and $iIsIncluded = True then
+   if StringRight($PathOrFile,1) <> "\" and $iIsIncluded then
 	  $iIsIncluded = False
 
 	  ;msgbox(0,"Cmd","#" & $aRule[$i][0] & "#" & @CRLF & "#" & $aRule[$i][1] & "#" & @CRLF & "#" & $PathOrFile & "#" & @CRLF)
@@ -2895,7 +2867,7 @@ Func OLD_IsIncludedByRule($PathOrFile,ByRef $aRule)
    ;ConsoleWrite("...ED..." & $iIsIncluded & " " & $PathOrFile & @crlf)
 
    ;exclude file extension command (if it is not a directory and the path is included)
-   if StringRight($PathOrFile,1) <> "\" and $iIsIncluded = True then
+   if StringRight($PathOrFile,1) <> "\" and $iIsIncluded then
 	  ;$iIsIncluded = False
 
 	  $iMax = UBound($aRule,1)-1
