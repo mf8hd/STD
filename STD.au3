@@ -107,7 +107,7 @@ Changelog
 			remove IncludeDirDataInDBByRule()
 			remove GetAllRulenamesFromDB()
 			rename all global variables to $gTypeVariablename
-
+3.3.1.7		DoReport(): delete comments with $gaRulenames
 
 
 #ce
@@ -188,8 +188,8 @@ End
 #pragma compile(UPX, False)
 
 ;Set file infos
-#pragma compile(ProductVersion,"3.3.1.6")
-#pragma compile(FileVersion,"3.3.1.6")
+#pragma compile(ProductVersion,"3.3.1.7")
+#pragma compile(FileVersion,"3.3.1.7")
 ;Versioning: "Incompatible changes to DB"."new feature"."bug fix"."minor fix"
 
 #pragma compile(FileDescription,"Spot The Difference")
@@ -216,9 +216,9 @@ End
 
 ;Constants
 global const $gcVersion = FileGetVersion(@ScriptName,"ProductVersion")
-global const $gcScannameLimit = 65535	;max number of scannames resturnd from the DB
+global const $gcScannameLimit = 65535				;max number of scannames resturnd from the DB
 ;Debug
-global const $gcDEBUGOnlyShowScanBuffer = False	;show only "searching" and buffersize during scan !
+global const $gcDEBUGOnlyShowScanBuffer = False		;show only "searching" and buffersize during scan !
 global const $gcDEBUGShowVisitedDirectories = False	;show visited directories during scan !
 
 ;Profiler
@@ -814,8 +814,6 @@ Func DoReport($ReportFilename)
    local $hCfgQuery = 0			;handle to a query on table config
    local $sTempCfgLine = ""
 
-   ;local $gaRulenames = 0	;all rulenames in a scan
-
    local $sTempText = ""	;
    local $iTempCount = ""	;
 
@@ -904,25 +902,16 @@ Func DoReport($ReportFilename)
 	  ConsoleWrite("Error:" & @CRLF & "New scan does not exist" & @CRLF & "Scan name: " & $sScannameNew)
    else
 
-	  ;build views
+	  ;build temp tables (they are much faster than views in sqlite)
 
 	  ConsoleWrite("Generating report for old:" & $sScannameOld & " <-> new:" & $sScannameNew)
-
-	  ;_SQLite_Exec(-1,"create view if not exists scannew as select * from files where scantime='" & $sScannameNew & "';")
-	  ;_SQLite_Exec(-1,"create view if not exists scanold as select * from files where scantime='" & $sScannameOld & "';")
-
-	  ;_SQLite_Exec(-1,"create view if not exists scannew as " & $sTempSQL & " AND scans.scantime = '" & $sScannameNew & "';")
-	  ;_SQLite_Exec(-1,"create view if not exists scanold as " & $sTempSQL & " AND scans.scantime = '" & $sScannameOld & "';")
 
 	  _SQLite_Exec(-1,"CREATE TEMPORARY TABLE scannew as " & $sTempSQL & " AND scans.scantime = '" & $sScannameNew & "';")
 	  _SQLite_Exec(-1,"CREATE TEMPORARY TABLE scanold as " & $sTempSQL & " AND scans.scantime = '" & $sScannameOld & "';")
 
-
-
 	  ;SELECT scantime,rulename FROM files where scantime = '20160514212002' group by rulename order by rulename asc;
-	  ;$gaRulenames = 0
+
 	  if GetNumberOfRulesFromRuleSet() > 0 Then
-		 ;_ArrayDisplay($gaRulenames)
 
 		 FileWriteLine($ReportFilename,@CRLF & "report for old scan:" & $sScannameOld & " <-> new scan:" & $sScannameNew & @CRLF)
 		 FileWriteLine($ReportFilename,"generated: " & @YEAR & "." & @MON & "." & @MDAY & " " & @HOUR & ":" & @MIN & ":" & @SEC & @CRLF)
@@ -942,7 +931,6 @@ Func DoReport($ReportFilename)
 			$aQueryResult = 0
 			$hQuery = 0
 			$iTempCount = 0
-			;_SQLite_Query(-1, "SELECT scannew.rulename,count(scannew.rulename) FROM scannew,scanold WHERE scannew.path = scanold.path and scannew.rulename = scanold.rulename and scannew.rulename = '" & $gaRulenames[$i] & "' and (scannew.size <> scanold.size or scannew.attributes <> scanold.attributes or scannew.mtime <> scanold.mtime or scannew.ctime <> scanold.ctime or scannew.atime <> scanold.atime or scannew.version <> scanold.version or scannew.spath <> scanold.spath or scannew.crc32 <> scanold.crc32 or scannew.md5 <> scanold.md5);",$hQuery)
 
 			$sTempSQL =  "SELECT "
 			$sTempSQL &= "scannew.rulename,"
@@ -2033,7 +2021,6 @@ Func DoShowUsage()
    ConsoleWrite($sText)
 
 EndFunc
-
 
 
 ;----- get stuff from DB functions -----
