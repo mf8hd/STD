@@ -93,6 +93,13 @@ Changelog
 			Replace GetRuleId($aRule) with GetRuleIdFromRuleSet($iRuleNumber)
 			OutputLineOfQueryResult(): fix changed marker for attributes
 3.3.1.4		IsIncludedByRule(): Search for "ExcDir:" and "ExcDirRec:" only if "IncDir:" or "IncDirRec:" returned $iIsIncluded = True
+3.3.1.5		TreeClimberSecondProcess(), TreeClimber(), GetRuleSetFromDB(), IsIncludedByRule():
+			Replace StringReplace() with "bufferd" count of "\" for "IncDir:","ExcDir:"
+			($aRuleSetLineBackslashCount[],$iCurrentDirBackslashCount)
+			GetRuleSetFromDB(), IsIncludedByRule():
+			replace stringlen($aRuleSet[$i][1] & "\") with "buffered" StringLen() for "IncDir:","ExcDir:","IncDirRec:","ExcDirRec:"
+			($aRuleSetLineDirStringLenPlusOne[])
+			DoReport(),IsFilepropertyIgnoredByRule($sFileproperty,$iRuleNumber): use $aRuleSet[] not $aRule[]
 
 
 
@@ -173,8 +180,8 @@ End
 #pragma compile(UPX, False)
 
 ;Set file infos
-#pragma compile(ProductVersion,"3.3.1.4")
-#pragma compile(FileVersion,"3.3.1.4")
+#pragma compile(ProductVersion,"3.3.1.5")
+#pragma compile(FileVersion,"3.3.1.5")
 ;Versioning: "Incompatible changes to DB"."new feature"."bug fix"."minor fix"
 
 #pragma compile(FileDescription,"Spot The Difference")
@@ -207,11 +214,11 @@ global const $cDEBUGOnlyShowScanBuffer = False	;show only "searching" and buffer
 global const $cDEBUGShowVisitedDirectories = False	;show visited directories during scan !
 
 ;Profiler
-global const $cDEBUGTimeGetFileInfo = True
-global const $cDEBUGTimeGetRuleFromRuleSet = True
-global const $cDEBUGTimeIsExecutable = True
-global const $cDEBUGTimeIsIncludedByRule = True
-global const $cDEBUGTimeIsClimbTargetByRule = True
+global const $cDEBUGTimeGetFileInfo = False
+global const $cDEBUGTimeGetRuleFromRuleSet = False
+global const $cDEBUGTimeIsExecutable = False
+global const $cDEBUGTimeIsIncludedByRule = False
+global const $cDEBUGTimeIsClimbTargetByRule = False
 
 global $iDEBUGTimerGetFileInfo = 0
 global $iDEBUGTimerGetRuleFromRuleSet = 0
@@ -264,7 +271,9 @@ global $aRuleExtensions[1][6] ;all infos of extension statements of a rule
 							  ;--------------------------------------------------------------------------------
 							  ;".txt.dll.docx." | ".txt.dll.xlsx." | True     | False    | True     | False
 							  ;................................................................................
-
+global $aRuleSetLineDirStringLenPlusOne[1]		;stringlen($aRuleSet[$i][1] & "\") for every "IncDir:","ExcDir:","IncDirRec:","ExcDirRec:" line in $aRuleSet[]
+global $aRuleSetLineBackslashCount[1] 			;number of backslashes for every "IncDir:" and "ExcDir:" line in $aRuleSet[]
+global $iCurrentDirBackslashCount 		;number of backslashes in the currently scanned path
 global $aFileInfo[22]	;array with informations about the file
 #cs
 		 $aFileInfo[0]	;name
@@ -936,25 +945,25 @@ Func DoReport($ReportFilename)
 			$sTempSQL &= "scannew.rulename = scanold.rulename and "
 			$sTempSQL &= "scannew.rulename = '" & GetRulename($i) & "' and "
 			$sTempSQL &= "("
-			if not IsFilepropertyIgnoredByRule("status",$aRule)       then $sTempSQL &= "scannew.status <> scanold.status or "
-			if not IsFilepropertyIgnoredByRule("size",$aRule)         then $sTempSQL &= "scannew.size <> scanold.size or "
+			if not IsFilepropertyIgnoredByRule("status",$i)       then $sTempSQL &= "scannew.status <> scanold.status or "
+			if not IsFilepropertyIgnoredByRule("size",$i)         then $sTempSQL &= "scannew.size <> scanold.size or "
 			;$sTempSQL &= "scannew.attributes <> scanold.attributes or "
-			if not IsFilepropertyIgnoredByRule("atime",$aRule)        then $sTempSQL &= "scannew.atime <> scanold.atime or "
-			if not IsFilepropertyIgnoredByRule("mtime",$aRule)        then $sTempSQL &= "scannew.mtime <> scanold.mtime or "
-			if not IsFilepropertyIgnoredByRule("ctime",$aRule)        then $sTempSQL &= "scannew.ctime <> scanold.ctime or "
-			if not IsFilepropertyIgnoredByRule("version",$aRule)      then $sTempSQL &= "scannew.version <> scanold.version or "
-			if not IsFilepropertyIgnoredByRule("spath",$aRule)        then $sTempSQL &= "scannew.spath <> scanold.spath or "
-			if not IsFilepropertyIgnoredByRule("crc32",$aRule)        then $sTempSQL &= "scannew.crc32 <> scanold.crc32 or "
-			if not IsFilepropertyIgnoredByRule("md5",$aRule)          then $sTempSQL &= "scannew.md5 <> scanold.md5 or "
-			if not IsFilepropertyIgnoredByRule("rattrib",$aRule)      then $sTempSQL &= "scannew.rattrib <> scanold.rattrib or "
-			if not IsFilepropertyIgnoredByRule("aattrib",$aRule)      then $sTempSQL &= "scannew.aattrib <> scanold.aattrib or "
-			if not IsFilepropertyIgnoredByRule("sattrib",$aRule)      then $sTempSQL &= "scannew.sattrib <> scanold.sattrib or "
-			if not IsFilepropertyIgnoredByRule("hattrib",$aRule)      then $sTempSQL &= "scannew.hattrib <> scanold.hattrib or "
-			if not IsFilepropertyIgnoredByRule("nattrib",$aRule)      then $sTempSQL &= "scannew.nattrib <> scanold.nattrib or "
-			if not IsFilepropertyIgnoredByRule("dattrib",$aRule)      then $sTempSQL &= "scannew.dattrib <> scanold.dattrib or "
-			if not IsFilepropertyIgnoredByRule("oattrib",$aRule)      then $sTempSQL &= "scannew.oattrib <> scanold.oattrib or "
-			if not IsFilepropertyIgnoredByRule("cattrib",$aRule)      then $sTempSQL &= "scannew.cattrib <> scanold.cattrib or "
-			if not IsFilepropertyIgnoredByRule("tattrib",$aRule)      then $sTempSQL &= "scannew.tattrib <> scanold.tattrib or "
+			if not IsFilepropertyIgnoredByRule("atime",$i)        then $sTempSQL &= "scannew.atime <> scanold.atime or "
+			if not IsFilepropertyIgnoredByRule("mtime",$i)        then $sTempSQL &= "scannew.mtime <> scanold.mtime or "
+			if not IsFilepropertyIgnoredByRule("ctime",$i)        then $sTempSQL &= "scannew.ctime <> scanold.ctime or "
+			if not IsFilepropertyIgnoredByRule("version",$i)      then $sTempSQL &= "scannew.version <> scanold.version or "
+			if not IsFilepropertyIgnoredByRule("spath",$i)        then $sTempSQL &= "scannew.spath <> scanold.spath or "
+			if not IsFilepropertyIgnoredByRule("crc32",$i)        then $sTempSQL &= "scannew.crc32 <> scanold.crc32 or "
+			if not IsFilepropertyIgnoredByRule("md5",$i)          then $sTempSQL &= "scannew.md5 <> scanold.md5 or "
+			if not IsFilepropertyIgnoredByRule("rattrib",$i)      then $sTempSQL &= "scannew.rattrib <> scanold.rattrib or "
+			if not IsFilepropertyIgnoredByRule("aattrib",$i)      then $sTempSQL &= "scannew.aattrib <> scanold.aattrib or "
+			if not IsFilepropertyIgnoredByRule("sattrib",$i)      then $sTempSQL &= "scannew.sattrib <> scanold.sattrib or "
+			if not IsFilepropertyIgnoredByRule("hattrib",$i)      then $sTempSQL &= "scannew.hattrib <> scanold.hattrib or "
+			if not IsFilepropertyIgnoredByRule("nattrib",$i)      then $sTempSQL &= "scannew.nattrib <> scanold.nattrib or "
+			if not IsFilepropertyIgnoredByRule("dattrib",$i)      then $sTempSQL &= "scannew.dattrib <> scanold.dattrib or "
+			if not IsFilepropertyIgnoredByRule("oattrib",$i)      then $sTempSQL &= "scannew.oattrib <> scanold.oattrib or "
+			if not IsFilepropertyIgnoredByRule("cattrib",$i)      then $sTempSQL &= "scannew.cattrib <> scanold.cattrib or "
+			if not IsFilepropertyIgnoredByRule("tattrib",$i)      then $sTempSQL &= "scannew.tattrib <> scanold.tattrib or "
 			$sTempSQL &= ");"
 
 			;fix sql statement
@@ -1021,25 +1030,25 @@ Func DoReport($ReportFilename)
 			$sTempSQL &= "scannew.rulename = scanold.rulename and "
 			$sTempSQL &= "scannew.rulename = '" & GetRulename($i) & "' and "
 			$sTempSQL &= "("
-			if not IsFilepropertyIgnoredByRule("status",$aRule)       then $sTempSQL &= "scannew.status <> scanold.status or "
-			if not IsFilepropertyIgnoredByRule("size",$aRule)         then $sTempSQL &= "scannew.size <> scanold.size or "
+			if not IsFilepropertyIgnoredByRule("status",$i)       then $sTempSQL &= "scannew.status <> scanold.status or "
+			if not IsFilepropertyIgnoredByRule("size",$i)         then $sTempSQL &= "scannew.size <> scanold.size or "
 			;$sTempSQL &= "scannew.attributes <> scanold.attributes or "
-			if not IsFilepropertyIgnoredByRule("atime",$aRule)        then $sTempSQL &= "scannew.atime <> scanold.atime or "
-			if not IsFilepropertyIgnoredByRule("mtime",$aRule)        then $sTempSQL &= "scannew.mtime <> scanold.mtime or "
-			if not IsFilepropertyIgnoredByRule("ctime",$aRule)        then $sTempSQL &= "scannew.ctime <> scanold.ctime or "
-			if not IsFilepropertyIgnoredByRule("version",$aRule)      then $sTempSQL &= "scannew.version <> scanold.version or "
-			if not IsFilepropertyIgnoredByRule("spath",$aRule)        then $sTempSQL &= "scannew.spath <> scanold.spath or "
-			if not IsFilepropertyIgnoredByRule("crc32",$aRule)        then $sTempSQL &= "scannew.crc32 <> scanold.crc32 or "
-			if not IsFilepropertyIgnoredByRule("md5",$aRule)          then $sTempSQL &= "scannew.md5 <> scanold.md5 or "
-			if not IsFilepropertyIgnoredByRule("rattrib",$aRule)      then $sTempSQL &= "scannew.rattrib <> scanold.rattrib or "
-			if not IsFilepropertyIgnoredByRule("aattrib",$aRule)      then $sTempSQL &= "scannew.aattrib <> scanold.aattrib or "
-			if not IsFilepropertyIgnoredByRule("sattrib",$aRule)      then $sTempSQL &= "scannew.sattrib <> scanold.sattrib or "
-			if not IsFilepropertyIgnoredByRule("hattrib",$aRule)      then $sTempSQL &= "scannew.hattrib <> scanold.hattrib or "
-			if not IsFilepropertyIgnoredByRule("nattrib",$aRule)      then $sTempSQL &= "scannew.nattrib <> scanold.nattrib or "
-			if not IsFilepropertyIgnoredByRule("dattrib",$aRule)      then $sTempSQL &= "scannew.dattrib <> scanold.dattrib or "
-			if not IsFilepropertyIgnoredByRule("oattrib",$aRule)      then $sTempSQL &= "scannew.oattrib <> scanold.oattrib or "
-			if not IsFilepropertyIgnoredByRule("cattrib",$aRule)      then $sTempSQL &= "scannew.cattrib <> scanold.cattrib or "
-			if not IsFilepropertyIgnoredByRule("tattrib",$aRule)      then $sTempSQL &= "scannew.tattrib <> scanold.tattrib or "
+			if not IsFilepropertyIgnoredByRule("atime",$i)        then $sTempSQL &= "scannew.atime <> scanold.atime or "
+			if not IsFilepropertyIgnoredByRule("mtime",$i)        then $sTempSQL &= "scannew.mtime <> scanold.mtime or "
+			if not IsFilepropertyIgnoredByRule("ctime",$i)        then $sTempSQL &= "scannew.ctime <> scanold.ctime or "
+			if not IsFilepropertyIgnoredByRule("version",$i)      then $sTempSQL &= "scannew.version <> scanold.version or "
+			if not IsFilepropertyIgnoredByRule("spath",$i)        then $sTempSQL &= "scannew.spath <> scanold.spath or "
+			if not IsFilepropertyIgnoredByRule("crc32",$i)        then $sTempSQL &= "scannew.crc32 <> scanold.crc32 or "
+			if not IsFilepropertyIgnoredByRule("md5",$i)          then $sTempSQL &= "scannew.md5 <> scanold.md5 or "
+			if not IsFilepropertyIgnoredByRule("rattrib",$i)      then $sTempSQL &= "scannew.rattrib <> scanold.rattrib or "
+			if not IsFilepropertyIgnoredByRule("aattrib",$i)      then $sTempSQL &= "scannew.aattrib <> scanold.aattrib or "
+			if not IsFilepropertyIgnoredByRule("sattrib",$i)      then $sTempSQL &= "scannew.sattrib <> scanold.sattrib or "
+			if not IsFilepropertyIgnoredByRule("hattrib",$i)      then $sTempSQL &= "scannew.hattrib <> scanold.hattrib or "
+			if not IsFilepropertyIgnoredByRule("nattrib",$i)      then $sTempSQL &= "scannew.nattrib <> scanold.nattrib or "
+			if not IsFilepropertyIgnoredByRule("dattrib",$i)      then $sTempSQL &= "scannew.dattrib <> scanold.dattrib or "
+			if not IsFilepropertyIgnoredByRule("oattrib",$i)      then $sTempSQL &= "scannew.oattrib <> scanold.oattrib or "
+			if not IsFilepropertyIgnoredByRule("cattrib",$i)      then $sTempSQL &= "scannew.cattrib <> scanold.cattrib or "
+			if not IsFilepropertyIgnoredByRule("tattrib",$i)      then $sTempSQL &= "scannew.tattrib <> scanold.tattrib or "
 			$sTempSQL &= ");"
 
 			;fix sql statement
@@ -1095,25 +1104,25 @@ Func DoReport($ReportFilename)
 			$sTempSQL &= "scannew.rulename = scanold.rulename and "
 			$sTempSQL &= "scannew.rulename = '" & GetRulename($i) & "' and "
 			$sTempSQL &= "("
-			if not IsFilepropertyIgnoredByRule("status",$aRule)       then $sTempSQL &= "scannew.status <> scanold.status or "
-			if not IsFilepropertyIgnoredByRule("size",$aRule)         then $sTempSQL &= "scannew.size <> scanold.size or "
+			if not IsFilepropertyIgnoredByRule("status",$i)       then $sTempSQL &= "scannew.status <> scanold.status or "
+			if not IsFilepropertyIgnoredByRule("size",$i)         then $sTempSQL &= "scannew.size <> scanold.size or "
 			;$sTempSQL &= "scannew.attributes <> scanold.attributes or "
-			if not IsFilepropertyIgnoredByRule("atime",$aRule)        then $sTempSQL &= "scannew.atime <> scanold.atime or "
-			if not IsFilepropertyIgnoredByRule("mtime",$aRule)        then $sTempSQL &= "scannew.mtime <> scanold.mtime or "
-			if not IsFilepropertyIgnoredByRule("ctime",$aRule)        then $sTempSQL &= "scannew.ctime <> scanold.ctime or "
-			if not IsFilepropertyIgnoredByRule("version",$aRule)      then $sTempSQL &= "scannew.version <> scanold.version or "
-			if not IsFilepropertyIgnoredByRule("spath",$aRule)        then $sTempSQL &= "scannew.spath <> scanold.spath or "
-			if not IsFilepropertyIgnoredByRule("crc32",$aRule)        then $sTempSQL &= "scannew.crc32 <> scanold.crc32 or "
-			if not IsFilepropertyIgnoredByRule("md5",$aRule)          then $sTempSQL &= "scannew.md5 <> scanold.md5 or "
-			if not IsFilepropertyIgnoredByRule("rattrib",$aRule)      then $sTempSQL &= "scannew.rattrib <> scanold.rattrib or "
-			if not IsFilepropertyIgnoredByRule("aattrib",$aRule)      then $sTempSQL &= "scannew.aattrib <> scanold.aattrib or "
-			if not IsFilepropertyIgnoredByRule("sattrib",$aRule)      then $sTempSQL &= "scannew.sattrib <> scanold.sattrib or "
-			if not IsFilepropertyIgnoredByRule("hattrib",$aRule)      then $sTempSQL &= "scannew.hattrib <> scanold.hattrib or "
-			if not IsFilepropertyIgnoredByRule("nattrib",$aRule)      then $sTempSQL &= "scannew.nattrib <> scanold.nattrib or "
-			if not IsFilepropertyIgnoredByRule("dattrib",$aRule)      then $sTempSQL &= "scannew.dattrib <> scanold.dattrib or "
-			if not IsFilepropertyIgnoredByRule("oattrib",$aRule)      then $sTempSQL &= "scannew.oattrib <> scanold.oattrib or "
-			if not IsFilepropertyIgnoredByRule("cattrib",$aRule)      then $sTempSQL &= "scannew.cattrib <> scanold.cattrib or "
-			if not IsFilepropertyIgnoredByRule("tattrib",$aRule)      then $sTempSQL &= "scannew.tattrib <> scanold.tattrib or "
+			if not IsFilepropertyIgnoredByRule("atime",$i)        then $sTempSQL &= "scannew.atime <> scanold.atime or "
+			if not IsFilepropertyIgnoredByRule("mtime",$i)        then $sTempSQL &= "scannew.mtime <> scanold.mtime or "
+			if not IsFilepropertyIgnoredByRule("ctime",$i)        then $sTempSQL &= "scannew.ctime <> scanold.ctime or "
+			if not IsFilepropertyIgnoredByRule("version",$i)      then $sTempSQL &= "scannew.version <> scanold.version or "
+			if not IsFilepropertyIgnoredByRule("spath",$i)        then $sTempSQL &= "scannew.spath <> scanold.spath or "
+			if not IsFilepropertyIgnoredByRule("crc32",$i)        then $sTempSQL &= "scannew.crc32 <> scanold.crc32 or "
+			if not IsFilepropertyIgnoredByRule("md5",$i)          then $sTempSQL &= "scannew.md5 <> scanold.md5 or "
+			if not IsFilepropertyIgnoredByRule("rattrib",$i)      then $sTempSQL &= "scannew.rattrib <> scanold.rattrib or "
+			if not IsFilepropertyIgnoredByRule("aattrib",$i)      then $sTempSQL &= "scannew.aattrib <> scanold.aattrib or "
+			if not IsFilepropertyIgnoredByRule("sattrib",$i)      then $sTempSQL &= "scannew.sattrib <> scanold.sattrib or "
+			if not IsFilepropertyIgnoredByRule("hattrib",$i)      then $sTempSQL &= "scannew.hattrib <> scanold.hattrib or "
+			if not IsFilepropertyIgnoredByRule("nattrib",$i)      then $sTempSQL &= "scannew.nattrib <> scanold.nattrib or "
+			if not IsFilepropertyIgnoredByRule("dattrib",$i)      then $sTempSQL &= "scannew.dattrib <> scanold.dattrib or "
+			if not IsFilepropertyIgnoredByRule("oattrib",$i)      then $sTempSQL &= "scannew.oattrib <> scanold.oattrib or "
+			if not IsFilepropertyIgnoredByRule("cattrib",$i)      then $sTempSQL &= "scannew.cattrib <> scanold.cattrib or "
+			if not IsFilepropertyIgnoredByRule("tattrib",$i)      then $sTempSQL &= "scannew.tattrib <> scanold.tattrib or "
 			$sTempSQL &= ");"
 
 			;fix sql statement
@@ -2158,12 +2167,38 @@ Func GetRuleSetFromDB()
 			;----- scan statements -----
 			Case stringleft($sTempCfgLine,stringlen("IncDirRec:")) = "IncDirRec:"
 			   InsertStatementInRuleSet(2,"IncDirRec:",$sTempCfgLine,$iRuleCurrent)
+
+			   ;caclulate StringLen()+1 of given path
+			   redim $aRuleSetLineDirStringLenPlusOne[UBound($aRuleSet,1)]
+			   $aRuleSetLineDirStringLenPlusOne[UBound($aRuleSet,1)-1]=StringLen($aRuleSet[UBound($aRuleSet,1)-1][1])+1
 			Case stringleft($sTempCfgLine,stringlen("ExcDirRec:")) = "ExcDirRec:"
 			   InsertStatementInRuleSet(2,"ExcDirRec:",$sTempCfgLine,$iRuleCurrent)
+
+			   ;caclulate StringLen()+1 of given path
+			   redim $aRuleSetLineDirStringLenPlusOne[UBound($aRuleSet,1)]
+			   $aRuleSetLineDirStringLenPlusOne[UBound($aRuleSet,1)-1]=StringLen($aRuleSet[UBound($aRuleSet,1)-1][1])+1
 			Case stringleft($sTempCfgLine,stringlen("IncDir:")) = "IncDir:"
 			   InsertStatementInRuleSet(2,"IncDir:",$sTempCfgLine,$iRuleCurrent)
+
+			   ;caclulate StringLen()+1 of given path
+			   redim $aRuleSetLineDirStringLenPlusOne[UBound($aRuleSet,1)]
+			   $aRuleSetLineDirStringLenPlusOne[UBound($aRuleSet,1)-1]=StringLen($aRuleSet[UBound($aRuleSet,1)-1][1])+1
+
+			   ;count number of backslashes in given directory
+			   redim $aRuleSetLineBackslashCount[UBound($aRuleSet,1)]
+			   StringReplace($aRuleSet[UBound($aRuleSet,1)-1][1],"\","")
+			   $aRuleSetLineBackslashCount[UBound($aRuleSet,1)-1]=@extended
 			Case stringleft($sTempCfgLine,stringlen("ExcDir:")) = "ExcDir:"
 			   InsertStatementInRuleSet(2,"ExcDir:",$sTempCfgLine,$iRuleCurrent)
+
+			   ;caclulate StringLen()+1 of given path
+			   redim $aRuleSetLineDirStringLenPlusOne[UBound($aRuleSet,1)]
+			   $aRuleSetLineDirStringLenPlusOne[UBound($aRuleSet,1)-1]=StringLen($aRuleSet[UBound($aRuleSet,1)-1][1])+1
+
+			   ;count number of backslashes in given directory
+			   redim $aRuleSetLineBackslashCount[UBound($aRuleSet,1)]
+			   StringReplace($aRuleSet[UBound($aRuleSet,1)-1][1],"\","")
+			   $aRuleSetLineBackslashCount[UBound($aRuleSet,1)-1]=@extended
 			Case stringleft($sTempCfgLine,stringlen("IncExt:")) = "IncExt:"
 			   ;InsertStatementInRuleSet(1,"IncExt:",$sTempCfgLine,$iRuleCurrent)
 			   $aRuleExtensions[$iRuleCurrent][$cIncExt] &= StringTrimLeft($sTempCfgLine,stringlen("IncExt:")) & "."
@@ -2548,7 +2583,34 @@ Func InsertStatementInRuleSet($iMode,$sStatement,$sCfgLine,$iRuleNr)
 EndFunc
 
 
-Func IsFilepropertyIgnoredByRule($sFileproperty,ByRef $aRule)
+Func IsFilepropertyIgnoredByRule($sFileproperty,$iRuleNumber)
+
+   ;determin if $sFileproperty is ignored by the current rule
+   ;--------------------------------------------------
+
+
+   local $iIsIgnored = False
+   local $i = 0
+   ;local $iMax = 0
+   local $iMax = UBound($aRuleSet,1)-1
+
+	  ;_ArrayDisplay($aRule)
+   for $i = $aRuleStart[$iRuleNumber] to $iMax
+	  if $aRuleSet[$i][2] <> $iRuleNumber then ExitLoop
+
+		 Select
+			case $aRuleSet[$i][0] = "Ign:"
+			   if StringStripWS($sFileproperty,$STR_STRIPALL) = StringStripWS($aRuleSet[$i][1],$STR_STRIPALL) then $iIsIgnored = True
+			   ;ConsoleWrite(StringStripWS($sFileproperty,$STR_STRIPALL) & ":" & StringStripWS($aRule[$i][1],$STR_STRIPALL) & @CRLF)
+			case Else
+		 EndSelect
+	  Next
+
+   Return $iIsIgnored
+EndFunc
+
+
+Func OLD_IsFilepropertyIgnoredByRule($sFileproperty,ByRef $aRule)
 
    ;determin if $sFileproperty is ignored by the current rule
    ;--------------------------------------------------
@@ -2675,9 +2737,9 @@ Func IsIncludedByRule($PathOrFile,$iRuleNumber)
 	  ;msgbox(0,"Cmd","#" & $aRuleSet[$i][0] & "#" & @CRLF & "#" & $aRuleSet[$i][1] & "#" & @CRLF & "#" & $PathOrFile & "#" & @CRLF & "#" & StringLeft($PathOrFile,stringlen($aRuleSet[$i][1] & "\")) & "#" & @CRLF & "#" & $aRuleSet[$i][1] & "\")
 	  Select
 		 case $aRuleSet[$i][0] = "IncDirRec:"
-			if StringLeft($PathOrFile,stringlen($aRuleSet[$i][1] & "\")) = $aRuleSet[$i][1] & "\" then $iIsIncluded = True
+		 	if StringLeft($PathOrFile,$aRuleSetLineDirStringLenPlusOne[$i]) = $aRuleSet[$i][1] & "\" then $iIsIncluded = True
 		 case $aRuleSet[$i][0] = "IncDir:"
-			if StringLeft($PathOrFile,stringlen($aRuleSet[$i][1] & "\")) = $aRuleSet[$i][1] & "\" And Not StringInStr(StringReplace(StringLower($PathOrFile),StringLower($aRuleSet[$i][1] & "\"),""),"\") then $iIsIncluded = True
+			if StringLeft($PathOrFile,$aRuleSetLineDirStringLenPlusOne[$i]) = $aRuleSet[$i][1] & "\" And $iCurrentDirBackslashCount = $aRuleSetLineBackslashCount[$i] then $iIsIncluded = True
 		 case Else
 	  EndSelect
 
@@ -2694,9 +2756,9 @@ Func IsIncludedByRule($PathOrFile,$iRuleNumber)
 		 ;$aRuleSet[$i][1]
 		 Select
 			case $aRuleSet[$i][0] = "ExcDirRec:"
-			   if StringLeft($PathOrFile,stringlen($aRuleSet[$i][1] & "\")) = $aRuleSet[$i][1] & "\" then $iIsIncluded = False
+			   if StringLeft($PathOrFile,$aRuleSetLineDirStringLenPlusOne[$i]) = $aRuleSet[$i][1] & "\" then $iIsIncluded = False
 			case $aRuleSet[$i][0] = "ExcDir:"
-			   if StringLeft($PathOrFile,stringlen($aRuleSet[$i][1] & "\")) = $aRuleSet[$i][1] & "\" And not StringInStr(StringReplace(StringLower($PathOrFile),StringLower($aRuleSet[$i][1] & "\"),""),"\") then $iIsIncluded = False
+			   if StringLeft($PathOrFile,$aRuleSetLineDirStringLenPlusOne[$i]) = $aRuleSet[$i][1] & "\" And $iCurrentDirBackslashCount = $aRuleSetLineBackslashCount[$i] then $iIsIncluded = False
 			case $aRuleSet[$i][0] = "ExcDirs"
 			   if not $iIsFile then $iIsIncluded = False
 			case Else
@@ -3279,6 +3341,10 @@ Func TreeClimberSecondProcess($sStartPath,$iPID)
 
 		 if $iIsClimbTarget Then
 			if $cDEBUGShowVisitedDirectories = True then ConsoleWrite("** visited **" & $sFullPath & @CRLF)
+
+			;count number of "\" in current path
+			StringReplace($sFullPath,"\","")
+			$iCurrentDirBackslashCount = @extended
 			TreeClimberSecondProcess($sFullPath,$iPID)
 		 EndIf
 	  EndIf
@@ -3388,7 +3454,13 @@ Func TreeClimber($sStartPath,$iScanSubdirs)
 			EndIf
 		 Next
 
-		 if $iIsClimbTarget Then TreeClimber($sFullPath,True)
+		 if $iIsClimbTarget Then
+			;count number of "\" in current path
+			StringReplace($sFullPath,"\","")
+			$iCurrentDirBackslashCount = @extended
+
+			TreeClimber($sFullPath,True)
+		 EndIf
 	  EndIf
 
 	  ; check all the rules on this file / directory
