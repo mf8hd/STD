@@ -86,7 +86,8 @@ Changelog
 			IsExecutable(): remember result of last use, so the file is tested just once while itterating over all rules (performance !)
 3.3.1.1		GetFileInfo(): sanitized variable names
 			profiler options: $cDEBUGTimeGetFileInfo, $cDEBUGTimeGetRuleFromRuleSet, $cDEBUGTimeIsExecutable, $cDEBUGTimeIsIncludedByRule, $cDEBUGTimeIsClimbTargetByRule
-
+3.3.1.2		GetRuleSetFromDB(),GetRuleFromRuleSet(): Write begin of all rules in $aRuleSet[] to $aRuleStart[] (performance !)
+			IsClimbTargetByRule($PathOrFile,$iRuleNumber),IsIncludedByRule($PathOrFile,$iRuleNumber),GetRulename($iRuleNumber): use $aRuleSet[] not $aRule[] , so GetRuleFromRuleSet() is obsolete (performance !)
 
 
 #ce
@@ -166,8 +167,8 @@ End
 #pragma compile(UPX, False)
 
 ;Set file infos
-#pragma compile(ProductVersion,"3.3.1.1")
-#pragma compile(FileVersion,"3.3.1.1")
+#pragma compile(ProductVersion,"3.3.1.2")
+#pragma compile(FileVersion,"3.3.1.2")
 ;Versioning: "Incompatible changes to DB"."new feature"."bug fix"."minor fix"
 
 #pragma compile(FileDescription,"Spot The Difference")
@@ -200,11 +201,11 @@ global const $cDEBUGOnlyShowScanBuffer = False	;show only "searching" and buffer
 global const $cDEBUGShowVisitedDirectories = False	;show visited directories during scan !
 
 ;Profiler
-global const $cDEBUGTimeGetFileInfo = True
-global const $cDEBUGTimeGetRuleFromRuleSet = True
-global const $cDEBUGTimeIsExecutable = True
-global const $cDEBUGTimeIsIncludedByRule = True
-global const $cDEBUGTimeIsClimbTargetByRule = True
+global const $cDEBUGTimeGetFileInfo = False
+global const $cDEBUGTimeGetRuleFromRuleSet = False
+global const $cDEBUGTimeIsExecutable = False
+global const $cDEBUGTimeIsIncludedByRule = False
+global const $cDEBUGTimeIsClimbTargetByRule = False
 
 global $iDEBUGTimerGetFileInfo = 0
 global $iDEBUGTimerGetRuleFromRuleSet = 0
@@ -243,6 +244,7 @@ global $aRuleSet[1][3]	;all rules form config db table
 						;IncDir:    | "c:\tst1" | 2
 						;IncExt:    | log       | 2
 						;.....................................
+global $aRuleStart[1]   ;Index of all rules in $aRuleSet[]
 global $aFileInfo[22]	;array with informations about the file
 #cs
 		 $aFileInfo[0]	;name
@@ -1600,12 +1602,12 @@ Func DoSecondProcess()
 
 			; check all the rules on this file / directory
 			for $iRuleCounter = 1 to $iRuleCounterMax
-			   GetRuleFromRuleSet($iRuleCounter)
+			   ;GetRuleFromRuleSet($iRuleCounter)
 
-			   if IsIncludedByRule($sFullPath,$aRule) then
+			   if IsIncludedByRule($sFullPath,$iRuleCounter) then
 				  ;list every file or directory we scan - reading is NOT scanning !!!
 				  ;ConsoleWrite(GetRulename($aRule) & " : " & $sStartPath & "\" & $sFileName & @CRLF)
-				  $sTempText = GetRulename($aRule) & " : " & $sFullPath
+				  $sTempText = GetRulename($iRuleCounter) & " : " & $sFullPath
 				  ;$sTempText = OEM2ANSI($sTempText) ; translate from OEM to ANSI
 				  ;DllCall('user32.dll','Int','OemToChar','str',$sTempText,'str','') ; translate from OEM to ANSI
 				  if not $cDEBUGOnlyShowScanBuffer then ConsoleWrite($sTempText & @CRLF)
@@ -2107,12 +2109,20 @@ Func GetRuleSetFromDB()
 			   $iRuleCount += 1
 			   $iRuleCurrent = $iRuleCount
 
+			   redim $aRuleStart[UBound($aRuleStart)+1]
+			   $aRuleStart[$iRuleCount]=UBound($aRuleSet,1)
+
+
 			   InsertStatementInRuleSet(1,"Rule:",$sTempCfgLine,$iRuleCurrent)
 
 			   redim $aRuleSet[UBound($aRuleSet,1)+1][3]
 			   $aRuleSet[UBound($aRuleSet,1)-1][0] = "RuleId:"
 			   $aRuleSet[UBound($aRuleSet,1)-1][1] = GetRuleIDFromDB($aRuleSet[UBound($aRuleSet,1)-2][1])
 			   $aRuleSet[UBound($aRuleSet,1)-1][2] = $iRuleCurrent
+
+			   ;_ArrayDisplay($aRuleStart)
+			   ;_ArrayDisplay($aRuleSet)
+
 
 			;----- scan statements -----
 			Case stringleft($sTempCfgLine,stringlen("IncDirRec:")) = "IncDirRec:"
@@ -2336,7 +2346,26 @@ EndFunc
 
 ;----- rule related functions -----
 
-Func GetRulename(ByRef $aRule)
+Func GetRulename($iRuleNumber)
+
+   ;get name of the rule
+   ;--------------------
+
+   local $sRulename = ""
+   local $iMax = UBound($aRuleSet,1)-1
+
+   for $i = $aRuleStart[$iRuleNumber] to $iMax
+	  if $aRuleSet[$i][2] <> $iRuleNumber then ExitLoop
+	  ;$aRule[$i][0]
+	  ;$aRule[$i][1]
+	  if $aRuleSet[$i][0] = "Rule:" then $sRulename = $aRuleSet[$i][1]
+   Next
+
+   return $sRulename
+EndFunc
+
+
+Func OLD_GetRulename(ByRef $aRule)
 
    ;get name of the rule
    ;--------------------
@@ -2364,14 +2393,17 @@ Func GetRuleFromRuleSet($iRuleNumber)
    local $iCount = 0		;counter
    if $cDEBUGTimeGetRuleFromRuleSet = True then local $iTimer = TimerInit()
    local $iCountMax = UBound($aRuleSet,1)-1
+   local $iCountMin = $aRuleStart[$iRuleNumber]
 
-   for $iCount = 1 to $iCountMax
+
+   for $iCount = $iCountMin to $iCountMax
 	  if $aRuleSet[$iCount][2] = $iRuleNumber then
 
 		 redim $aRule[UBound($aRule,1)+1][2]
 		 $aRule[UBound($aRule,1)-1][0] = $aRuleSet[$iCount][0]
 		 $aRule[UBound($aRule,1)-1][1] = $aRuleSet[$iCount][1]
-
+	  Else
+		 ExitLoop
 	  EndIf
    Next
 
@@ -2530,7 +2562,138 @@ Func IncludeDirDataInDBByRule(ByRef $aRule)
 EndFunc
 
 
-Func IsIncludedByRule($PathOrFile,ByRef $aRule)
+Func IsIncludedByRule($PathOrFile,$iRuleNumber)
+
+   ;determin if $PathOrFile satisfy the current rule
+   ;--------------------------------------------------
+
+   ;$PathOrFile is a directory if there is a \ at the ende !
+   ;$PathOrFile is a file if there is NO \ at the ende !
+
+   #cs
+	  file format config.cfg
+
+	  Rule:RULENAME				;name of rule
+	  IncDirRec:PATH			;directory to include, including all subdirectories
+	  ExcDirRec:PATH			;directory to exclude, including all subdirectories
+	  IncDir:PATH				;directory to include, only this directory
+	  ExcDir:PATH				;directory to exclude, only this directory
+	  IncExt:FILEEXTENTION		;file extention to include
+	  ExcExt:FILEEXTENTION		;file extention to exclude
+	  IncExe					;all executable files, no matter what the extention is
+	  IncAll					;all files, no matter what the extention is aka *.*
+	  ExcExe					;no executable files, no matter what the extention is
+	  ExcAll					;no files, no matter what the extention is aka *.*, only directories
+	  ExcDirs
+	  End
+   #ce
+
+   if $cDEBUGTimeIsIncludedByRule = True then local $iTimer = TimerInit()
+   local $iIsIncluded = False
+   local $i = 0
+   ;local $iMax = 0
+   local $iMax = UBound($aRuleSet,1)-1
+
+   ;strip leading and trailing " from directories
+   $PathOrFile = StringReplace($PathOrFile,"""","")
+   ;if StringRight($PathOrFile,1) = "\" then $PathOrFile = StringTrimRight($PathOrFile,1)
+
+   ;_ArrayDisplay($aRule)
+
+   ;include directory command
+   ;$iMax = UBound($aRule,1)-1
+   ;msgbox(0,"iMax",$iMax)
+
+   for $i = $aRuleStart[$iRuleNumber] to $iMax
+	  if $aRuleSet[$i][2] <> $iRuleNumber then ExitLoop
+	  ;$aRuleSet[$i][0]
+	  ;$aRuleSet[$i][1]
+	  ;msgbox(0,"Cmd","#" & $aRuleSet[$i][0] & "#" & @CRLF & "#" & $aRuleSet[$i][1] & "#" & @CRLF & "#" & $PathOrFile & "#" & @CRLF & "#" & StringLeft($PathOrFile,stringlen($aRuleSet[$i][1] & "\")) & "#" & @CRLF & "#" & $aRuleSet[$i][1] & "\")
+	  Select
+		 case $aRuleSet[$i][0] = "IncDirRec:"
+			if StringLeft($PathOrFile,stringlen($aRuleSet[$i][1] & "\")) = $aRuleSet[$i][1] & "\" then $iIsIncluded = True
+		 case $aRuleSet[$i][0] = "IncDir:"
+			if StringLeft($PathOrFile,stringlen($aRuleSet[$i][1] & "\")) = $aRuleSet[$i][1] & "\" And Not StringInStr(StringReplace(StringLower($PathOrFile),StringLower($aRuleSet[$i][1] & "\"),""),"\") then $iIsIncluded = True
+		 case Else
+	  EndSelect
+
+   Next
+
+   ;ConsoleWrite("...ID..." & $iIsIncluded & " " & $PathOrFile & @crlf)
+
+   ;msgbox(0,"Cmd","#" & $aRuleSet[$i][0] & "#" & @CRLF & "#" & $aRuleSet[$i][1] & "#" & @CRLF & "#" & $PathOrFile & "#" & @CRLF)
+
+   ;include file extension command (if it is not a directory and the path is included)
+   if StringRight($PathOrFile,1) <> "\" and $iIsIncluded = True then
+	  $iIsIncluded = False
+
+	  ;msgbox(0,"Cmd","#" & $aRuleSet[$i][0] & "#" & @CRLF & "#" & $aRuleSet[$i][1] & "#" & @CRLF & "#" & $PathOrFile & "#" & @CRLF)
+
+	  for $i = $aRuleStart[$iRuleNumber] to $iMax
+		 if $aRuleSet[$i][2] <> $iRuleNumber then ExitLoop
+		 ;$aRuleSet[$i][0]
+		 ;$aRuleSet[$i][1]
+		 Select
+			case $aRuleSet[$i][0] = "IncExt:"
+			   if StringRight($PathOrFile,stringlen("." & $aRuleSet[$i][1])) = "." & $aRuleSet[$i][1] then $iIsIncluded = True
+			case $aRuleSet[$i][0] = "IncExe"
+			   if IsExecutable($PathOrFile) then $iIsIncluded = True
+			case $aRuleSet[$i][0] = "IncAll"
+			   $iIsIncluded = True
+			case Else
+		 EndSelect
+	  Next
+   EndIf
+
+   ;ConsoleWrite("...IE..." & $iIsIncluded & " " & $PathOrFile & @crlf)
+
+   ;exclude directory command
+   for $i = $aRuleStart[$iRuleNumber] to $iMax
+	  if $aRuleSet[$i][2] <> $iRuleNumber then ExitLoop
+	  ;$aRuleSet[$i][0]
+	  ;$aRuleSet[$i][0]
+	  ;$aRuleSet[$i][1]
+	  Select
+		 case $aRuleSet[$i][0] = "ExcDirRec:"
+			if StringLeft($PathOrFile,stringlen($aRuleSet[$i][1] & "\")) = $aRuleSet[$i][1] & "\" then $iIsIncluded = False
+		 case $aRuleSet[$i][0] = "ExcDir:"
+			if StringLeft($PathOrFile,stringlen($aRuleSet[$i][1] & "\")) = $aRuleSet[$i][1] & "\" And not StringInStr(StringReplace(StringLower($PathOrFile),StringLower($aRuleSet[$i][1] & "\"),""),"\") then $iIsIncluded = False
+		 case $aRuleSet[$i][0] = "ExcDirs"
+			if StringRight($PathOrFile,1) = "\" then $iIsIncluded = False
+		 case Else
+	  EndSelect
+   Next
+
+   ;ConsoleWrite("...ED..." & $iIsIncluded & " " & $PathOrFile & @crlf)
+
+   ;exclude file extension command (if it is not a directory and the path is included)
+   if StringRight($PathOrFile,1) <> "\" and $iIsIncluded = True then
+	  ;$iIsIncluded = False
+
+	  for $i = $aRuleStart[$iRuleNumber] to $iMax
+		 if $aRuleSet[$i][2] <> $iRuleNumber then ExitLoop
+		 ;$aRuleSet[$i][0]
+		 ;$aRuleSet[$i][1]
+		 Select
+			case $aRuleSet[$i][0] = "ExcExt:"
+			   if StringRight($PathOrFile,stringlen("." & $aRuleSet[$i][1])) = "." & $aRuleSet[$i][1] then $iIsIncluded = False
+			case $aRuleSet[$i][0] = "ExcExe"
+			   if IsExecutable($PathOrFile) then $iIsIncluded = False
+			case $aRuleSet[$i][0] = "ExcAll"
+			   $iIsIncluded = False
+			case Else
+		 EndSelect
+	  Next
+   EndIf
+
+   ;ConsoleWrite("...EE..." & $iIsIncluded & " " & $PathOrFile & @crlf)
+   ;if $iIsIncluded then ConsoleWrite($iIsIncluded & " " & $PathOrFile & @crlf)
+   if $cDEBUGTimeIsIncludedByRule = True then $iDEBUGTimerIsIncludedByRule += TimerDiff($iTimer)
+   Return $iIsIncluded
+EndFunc
+
+
+Func OLD_IsIncludedByRule($PathOrFile,ByRef $aRule)
 
    ;determin if $PathOrFile satisfy the current rule
    ;--------------------------------------------------
@@ -2658,7 +2821,72 @@ Func IsIncludedByRule($PathOrFile,ByRef $aRule)
 EndFunc
 
 
-Func IsClimbTargetByRule($sPath,ByRef $aRule)
+Func IsClimbTargetByRule($sPath,$iRuleNumber)
+
+   ;determin if $sPath satisfy the current rule as a climb target
+   ;--------------------------------------------------
+
+   ;$sPath is a directory with a \ at the ende !
+
+   #cs
+	  file format config.cfg
+
+	  Rule:RULENAME				;name of rule
+	  IncDirRec:PATH			;directory to include, including all subdirectories
+	  ExcDirRec:PATH			;directory to exclude, including all subdirectories
+	  IncDir:PATH				;directory to include, only this directory
+	  ExcDir:PATH				;directory to exclude, only this directory
+	  IncExt:FILEEXTENTION		;file extention to include
+	  ExcExt:FILEEXTENTION		;file extention to exclude
+	  IncExe					;all executable files, no matter what the extention is
+	  IncAll					;all files, no matter what the extention is aka *.*
+	  ExcExe					;no executable files, no matter what the extention is
+	  ExcAll					;no files, no matter what the extention is aka *.*, only directories
+	  End
+   #ce
+
+   if $cDEBUGTimeIsClimbTargetByRule = True then local $iTimer = TimerInit()
+   local $iIsClimbTarget = False
+   local $i = 0
+   ;local $iMax = 0
+   local $iMax = UBound($aRuleSet,1)-1
+
+   ;strip leading and trailing " from directories
+   $sPath = StringReplace($sPath,"""","")
+
+   ;include directory command
+   for $i = $aRuleStart[$iRuleNumber] to $iMax
+	  if $aRuleSet[$i][2] <> $iRuleNumber then ExitLoop
+	  Select
+		 case $aRuleSet[$i][0] = "IncDirRec:"
+			if StringLeft($sPath,stringlen($aRuleSet[$i][1] & "\")) = $aRuleSet[$i][1] & "\" then $iIsClimbTarget = True
+		 case $aRuleSet[$i][0] = "IncDir:"
+			if StringLeft($sPath,stringlen($aRuleSet[$i][1] & "\")) = $aRuleSet[$i][1] & "\" And Not StringInStr(StringReplace(StringLower($sPath),StringLower($aRuleSet[$i][1] & "\"),""),"\") then $iIsClimbTarget = True
+		 case Else
+	  EndSelect
+   Next
+
+
+   ;exclude directory command
+   for $i = $aRuleStart[$iRuleNumber] to $iMax
+	  if $aRuleSet[$i][2] <> $iRuleNumber then ExitLoop
+	  ;$aRuleSet[$i][0]
+	  ;$aRuleSet[$i][1]
+	  Select
+		 case $aRuleSet[$i][0] = "ExcDirRec:"
+			if StringLeft($sPath,stringlen($aRuleSet[$i][1] & "\")) = $aRuleSet[$i][1] & "\" then $iIsClimbTarget = False
+		 case $aRuleSet[$i][0] = "ExcDir:"
+			if StringLeft($sPath,stringlen($aRuleSet[$i][1] & "\")) = $aRuleSet[$i][1] & "\" And not StringInStr(StringReplace(StringLower($sPath),StringLower($aRuleSet[$i][1] & "\"),""),"\") then $iIsClimbTarget = False
+		 case Else
+	  EndSelect
+   Next
+
+   if $cDEBUGTimeIsClimbTargetByRule = True then $iDEBUGTimerIsClimbTargetByRule += TimerDiff($iTimer)
+   Return $iIsClimbTarget
+EndFunc
+
+
+Func OLD_IsClimbTargetByRule($sPath,ByRef $aRule)
 
    ;determin if $sPath satisfy the current rule as a climb target
    ;--------------------------------------------------
@@ -2963,10 +3191,10 @@ Func TreeClimberSecondProcess($sStartPath,$iPID)
 		 $iIsClimbTarget = False
 		 ; check all the rules on this directory
 		 for $iRuleCounter = 1 to $iRuleCounterMax
-			GetRuleFromRuleSet($iRuleCounter)
+			;GetRuleFromRuleSet($iRuleCounter)
 			;_ArrayDisplay($aRule)
 			;ConsoleWrite("TreeClimber: " & $sFullPath & "\" & " : " & $iIsClimbTarget & @CRLF)
-			if IsClimbTargetByRule($sFullPath & "\",$aRule) then
+			if IsClimbTargetByRule($sFullPath & "\",$iRuleCounter) then
 			   $iIsClimbTarget = True
 			EndIf
 		 Next
@@ -2979,18 +3207,18 @@ Func TreeClimberSecondProcess($sStartPath,$iPID)
 
 	  ; check all the rules on this file / directory
 	  for $iRuleCounter = 1 to $iRuleCounterMax
-		 GetRuleFromRuleSet($iRuleCounter)
+		 ;GetRuleFromRuleSet($iRuleCounter)
 
 		 ;check if current directory entry should be scanned according to the current rule
 		 if $iIsDirectory Then
 			;it is a directory
-			if IsIncludedByRule($sFullPath & "\",$aRule) then
+			if IsIncludedByRule($sFullPath & "\",$iRuleCounter) then
 			   $iScanFile = True
 			   ExitLoop
 			EndIf
 		 Else
 			;it is a file
-			if IsIncludedByRule($sFullPath,$aRule) then
+			if IsIncludedByRule($sFullPath,$iRuleCounter) then
 			   $iScanFile = True
 			   ExitLoop
 			EndIf
@@ -3074,10 +3302,10 @@ Func TreeClimber($sStartPath,$iScanSubdirs)
 	  if $iIsDirectory Then
 		 $iIsClimbTarget = False
 		 for $iRuleCounter = 1 to $iRuleCounterMax
-			GetRuleFromRuleSet($iRuleCounter)
+			;GetRuleFromRuleSet($iRuleCounter)
 			;_ArrayDisplay($aRule)
 			;ConsoleWrite("TreeClimber: " & $sFullPath & "\" & " : " & $iIsClimbTarget & @CRLF)
-			if IsClimbTargetByRule($sFullPath & "\",$aRule) then
+			if IsClimbTargetByRule($sFullPath & "\",$iRuleCounter) then
 			   $iIsClimbTarget = True
 			EndIf
 		 Next
@@ -3087,18 +3315,18 @@ Func TreeClimber($sStartPath,$iScanSubdirs)
 
 	  ; check all the rules on this file / directory
 	  for $iRuleCounter = 1 to $iRuleCounterMax
-		 GetRuleFromRuleSet($iRuleCounter)
+		 ;GetRuleFromRuleSet($iRuleCounter)
 
 		 ;check if current directory entry should be scanned according to the current rule
 		 if $iIsDirectory Then
 			;it is a directory
-			if IsIncludedByRule($sFullPath & "\",$aRule) then
+			if IsIncludedByRule($sFullPath & "\",$iRuleCounter) then
 			   $iScanFile = True
 			   ExitLoop
 			EndIf
 		 Else
 			;it is a file
-			if IsIncludedByRule($sFullPath,$aRule) then
+			if IsIncludedByRule($sFullPath,$iRuleCounter) then
 			   $iScanFile = True
 			   ExitLoop
 			EndIf
@@ -3114,12 +3342,12 @@ Func TreeClimber($sStartPath,$iScanSubdirs)
 
 		 ; check all the rules on this file / directory
 		 for $iRuleCounter = 1 to $iRuleCounterMax
-			GetRuleFromRuleSet($iRuleCounter)
+			;GetRuleFromRuleSet($iRuleCounter)
 
-			if IsIncludedByRule($sFullPath,$aRule) then
+			if IsIncludedByRule($sFullPath,$iRuleCounter) then
 			   ;list every file or directory we scan - reading is NOT scanning !!!
 			   ;ConsoleWrite(GetRulename($aRule) & " : " & $sStartPath & "\" & $sFileName & @CRLF)
-			   $sTempText = GetRulename($aRule) & " : " & $sFullPath
+			   $sTempText = GetRulename($iRuleCounter) & " : " & $sFullPath
 			   ;$sTempText = OEM2ANSI($sTempText) ; translate from OEM to ANSI
 			   ;DllCall('user32.dll','Int','OemToChar','str',$sTempText,'str','') ; translate from OEM to ANSI
 			   ConsoleWrite($sTempText & @CRLF)
