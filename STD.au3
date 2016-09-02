@@ -39,7 +39,7 @@ Changelog
 2.0.1.1		GetFileInfo(): first get filesize then calculate md5 and crc32
 2.0.1.2		OutputLineOfQueryResult(): changes in attributes not indicated by a * in report
 			OutputLineOfQueryResult(): if filesize is greater 0 and the file can not be read, then set file status  = 1
-
+2.1.0.0		OpenDB(): create db index for path and fileinfo
 
 #ce
 
@@ -106,7 +106,7 @@ End
 ;Set file infos
 #pragma compile(FileDescription,"Spot The Difference")
 #pragma compile(ProductName,"Spot The Difference")
-#pragma compile(ProductVersion,"2.0.1.2")
+#pragma compile(ProductVersion,"2.1.0.0")
 ;Versioning: "Incompatible changes to DB"."new feature"."bug fix"."minor fix"
 #pragma compile(LegalCopyright,"Reinhard Dittmann")
 #pragma compile(InternalName,"STD")
@@ -1706,6 +1706,10 @@ Func OpenDB($sDBName)
    _SQLite_Exec(-1,"CREATE TABLE IF NOT EXISTS rules (ruleid INTEGER PRIMARY KEY AUTOINCREMENT, rulename );")
    _SQLite_Exec(-1,"CREATE TABLE IF NOT EXISTS filenames (filenameid INTEGER PRIMARY KEY AUTOINCREMENT, path, spath );")
    _SQLite_Exec(-1,"CREATE TABLE IF NOT EXISTS filedata (scanid not null,ruleid not null,filenameid not null, status,size,attributes,mtime,ctime,atime,version,crc32,md5,ptime, PRIMARY KEY(scanid,ruleid,filenameid) );")
+
+   ;_SQLite_Exec(-1,"CREATE INDEX IF NOT EXISTS config_index ON config (linenumber);")
+   _SQLite_Exec(-1,"CREATE INDEX IF NOT EXISTS filenames_path ON filenames (path);")
+   _SQLite_Exec(-1,"CREATE INDEX IF NOT EXISTS filedata_pk ON filedata (scanid,ruleid,filenameid);")
 
    Return True
 EndFunc
