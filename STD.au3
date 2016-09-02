@@ -79,6 +79,7 @@ Changelog
 			help extended
 			OpenDB(): write errors to console not to MsgBox()
 			/duplicates: list files with identical size,crc32 and md5 in a scan
+3.3.0.1		DoSecondProcess(): calculate scantime better
 #ce
 
 ;ToDo List
@@ -156,8 +157,8 @@ End
 #pragma compile(UPX, False)
 
 ;Set file infos
-#pragma compile(ProductVersion,"3.3.0.0")
-#pragma compile(FileVersion,"3.3.0.0")
+#pragma compile(ProductVersion,"3.3.0.1")
+#pragma compile(FileVersion,"3.3.0.1")
 ;Versioning: "Incompatible changes to DB"."new feature"."bug fix"."minor fix"
 
 #pragma compile(FileDescription,"Spot The Difference")
@@ -1526,6 +1527,7 @@ Func DoSecondProcess()
    local $iRuleCounterMax = 0
    local $sTempText = ""
    local $ScanTimer = TimerInit()
+   local $iIdleCounter = 0				;times we had to wait for the list process (first process)
 
    GetRuleSetFromDB()
 
@@ -1548,7 +1550,7 @@ Func DoSecondProcess()
 	  if @extended then
 		 if $cDEBUGOnlyShowScanBuffer then
 			StringReplace($sInputBuffer,@CRLF,"")
-			ConsoleWrite("** " & @extended & " ** " & $sTempText & @CRLF)
+			ConsoleWrite( StringFormat("** %9i **",@extended) & $sTempText & @CRLF)
 		 EndIf
 		 While StringInStr($sInputBuffer,@CRLF) > 0
 
@@ -1579,11 +1581,12 @@ Func DoSecondProcess()
 	  Else
 		 ;no data in stdin, so let´s wait a bid
 		 if $cDEBUGOnlyShowScanBuffer then ConsoleWrite("** searching **" & @CRLF)
-		 sleep(500)
+		 sleep(1000)
+		 $iIdleCounter += 1
 	  EndIf
    WEnd
 
-   ConsoleWrite("Scan: " & Round(TimerDiff($ScanTimer)) & @CRLF)
+   ConsoleWrite("Scan: " & Round(TimerDiff($ScanTimer) - $iIdleCounter*1000) & @CRLF)
 
 EndFunc
 
