@@ -40,6 +40,7 @@ Changelog
 2.0.1.2		OutputLineOfQueryResult(): changes in attributes not indicated by a * in report
 			OutputLineOfQueryResult(): if filesize is greater 0 and the file can not be read, then set file status  = 1
 2.1.0.0		OpenDB(): create db index for path and fileinfo
+2.1.0.1		close all _SQLite_Query() with _SQLite_QueryFinalize()
 
 #ce
 
@@ -106,7 +107,7 @@ End
 ;Set file infos
 #pragma compile(FileDescription,"Spot The Difference")
 #pragma compile(ProductName,"Spot The Difference")
-#pragma compile(ProductVersion,"2.1.0.0")
+#pragma compile(ProductVersion,"2.1.0.1")
 ;Versioning: "Incompatible changes to DB"."new feature"."bug fix"."minor fix"
 #pragma compile(LegalCopyright,"Reinhard Dittmann")
 #pragma compile(InternalName,"STD")
@@ -290,7 +291,7 @@ select
 	  While _SQLite_FetchData($hQuery, $aQueryResult) = $SQLITE_OK
 		 FileWriteLine($ConfigFilename,_HexToString($aQueryResult[0]))
 	  WEnd
-
+	  _SQLite_QueryFinalize($hQuery)
 	  CloseDB()
 
    Case $CmdLine[1] = "/validate"
@@ -544,6 +545,8 @@ Func DoReport($ReportFilename)
 			   $iTempCount = $aQueryResult[1]
 			WEnd
 			$sTempText &= StringFormat(" %7i",$iTempCount)
+			_SQLite_QueryFinalize($hQuery)
+
 
 			;return new files
 			$aQueryResult = 0
@@ -555,6 +558,8 @@ Func DoReport($ReportFilename)
 			   $iTempCount = $aQueryResult[1]
 			WEnd
 			$sTempText &= StringFormat(" %7i",$iTempCount)
+			_SQLite_QueryFinalize($hQuery)
+
 
 			;return deleted files
 			$aQueryResult = 0
@@ -566,6 +571,8 @@ Func DoReport($ReportFilename)
 			   $iTempCount = $aQueryResult[1]
 			WEnd
 			$sTempText &= StringFormat(" %7i",$iTempCount)
+			_SQLite_QueryFinalize($hQuery)
+
 
 			FileWriteLine($ReportFilename,$sTempText)
 		 Next
@@ -584,6 +591,7 @@ Func DoReport($ReportFilename)
 			   ;OutputLineOfQueryResult($aQueryResult,$ReportFilename)
 			   FileWriteLine($ReportFilename,StringFormat("%-8s : %s","changed",_HexToString($aQueryResult[0])))
 			WEnd
+			_SQLite_QueryFinalize($hQuery)
 
 			;return new files
 			$aQueryResult = 0
@@ -593,6 +601,7 @@ Func DoReport($ReportFilename)
 			   ;OutputLineOfQueryResult($aQueryResult,$ReportFilename)
 			   FileWriteLine($ReportFilename,StringFormat("%-8s : %s","new",_HexToString($aQueryResult[0])))
 			WEnd
+			_SQLite_QueryFinalize($hQuery)
 
 			;return deleted files
 			$aQueryResult = 0
@@ -602,6 +611,7 @@ Func DoReport($ReportFilename)
 			   ;OutputLineOfQueryResult($aQueryResult,$ReportFilename)
 			   FileWriteLine($ReportFilename,StringFormat("%-8s : %s","missing",_HexToString($aQueryResult[0])))
 			WEnd
+			_SQLite_QueryFinalize($hQuery)
 
 		 Next
 		 FileWriteLine($ReportFilename,@CRLF & "======================================================================" & @CRLF)
@@ -617,6 +627,7 @@ Func DoReport($ReportFilename)
 			While _SQLite_FetchData($hQuery, $aQueryResult) = $SQLITE_OK
 			   OutputLineOfQueryResult($aQueryResult,$ReportFilename)
 			WEnd
+			_SQLite_QueryFinalize($hQuery)
 
 			;return new files
 			$aQueryResult = 0
@@ -625,6 +636,7 @@ Func DoReport($ReportFilename)
 			While _SQLite_FetchData($hQuery, $aQueryResult) = $SQLITE_OK
 			   OutputLineOfQueryResult($aQueryResult,$ReportFilename)
 			WEnd
+			_SQLite_QueryFinalize($hQuery)
 
 			;return deleted files
 			$aQueryResult = 0
@@ -633,7 +645,7 @@ Func DoReport($ReportFilename)
 			While _SQLite_FetchData($hQuery, $aQueryResult) = $SQLITE_OK
 			   OutputLineOfQueryResult($aQueryResult,$ReportFilename)
 			WEnd
-
+			_SQLite_QueryFinalize($hQuery)
 		 Next
 	  EndIf
 
@@ -698,7 +710,7 @@ Func DoReport($ReportFilename)
 		 EndSelect
 
 	  WEnd
-
+	  _SQLite_QueryFinalize($hCfgQuery)
 
 	  ;send email
 	  $sEMailBody = "STD Report"
@@ -930,7 +942,7 @@ Func DoExportScan($sScanname,$sCSVFilename)
 			;ConsoleWrite($sTempText)
 			FileWriteLine($sCSVFilename,$sTempText)
 		 WEnd
-
+		 _SQLite_QueryFinalize($hCSVQuery)
 	  next
    EndIf
 
@@ -1097,6 +1109,7 @@ Func DoScan()
 	  WEnd
 	  ;end read $ConfigFilename
 
+	  _SQLite_QueryFinalize($hCfgQuery)
 
 EndFunc
 
