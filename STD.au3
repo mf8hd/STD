@@ -80,6 +80,11 @@ Changelog
 			OpenDB(): write errors to console not to MsgBox()
 			/duplicates: list files with identical size,crc32 and md5 in a scan
 3.3.0.1		DoSecondProcess(): calculate scantime better
+3.3.0.2		/history
+			/duplicates: has 3 commandline parameter, not only 2
+3.3.1.0		new debug option $cDEBUGShowVisitedDirectories
+			IsExecutable(): remember result of last use, so the file is tested just once while itterating over all rules (performance !)
+
 #ce
 
 ;ToDo List
@@ -157,8 +162,8 @@ End
 #pragma compile(UPX, False)
 
 ;Set file infos
-#pragma compile(ProductVersion,"3.3.0.1")
-#pragma compile(FileVersion,"3.3.0.1")
+#pragma compile(ProductVersion,"3.3.1.0")
+#pragma compile(FileVersion,"3.3.1.0")
 ;Versioning: "Incompatible changes to DB"."new feature"."bug fix"."minor fix"
 
 #pragma compile(FileDescription,"Spot The Difference")
@@ -187,7 +192,8 @@ End
 global const $cVersion = FileGetVersion(@ScriptName,"ProductVersion")
 global const $cScannameLimit = 65535	;max number of scannames resturnd from the DB
 ;Debug
-global const $cDEBUGOnlyShowScanBuffer = True	;Beim Scan nur Idle und Puffergröße anzeigen !
+global const $cDEBUGOnlyShowScanBuffer = False	;show only "searching" and buffersize during scan !
+global const $cDEBUGShowVisitedDirectories = True	;show visited directories during scan !
 
 ;Compile options
 Opt("TrayIconHide", 1)
@@ -252,6 +258,10 @@ global $hDBHandle = ""	;handle of db
 Global $oMyRet[2]
 Global $oMyError = ObjEvent("AutoIt.Error", "MyErrFunc")
 
+;IsExecutable() global lookup
+global $iIsExecutableLastResult = False	;result of last call to IsExecutable()
+global $sIsExecutableLastFilename = ""	;filname used for last call to IsExecutable()
+
 #cs
 db stucture
    scantime			time the scan took place
@@ -281,7 +291,7 @@ EndIf
 
 select
    Case $CmdLine[1] = "/duplicates"
-	  if $CmdLine[0] < 2 then
+	  if $CmdLine[0] < 3 then
  		 ShowHelp()
 		 exit (1)
 	  EndIf
@@ -398,7 +408,7 @@ select
 	  EndIf
 
 	  ;$sDBName = $CmdLine[2]
-	  ;$ReportFilename = $CmdLine[3]
+	  ;SEARCHSTRING = $CmdLine[3]
 
 	  OpenDB($CmdLine[2])
 
@@ -2677,19 +2687,31 @@ Func IsExecutable($Filename)
    ;by looking at the magic number
    ;--------------------------------------------
 
+;	global $iIsExecutableLastResult = False	;result of last call to IsExecutable()
+;	global $sIsExecutableLastFilename = ""	;filname used for last call to IsExecutable()
+
    local $sBuffer = ""
    local $FileHandle = 0
 
-   $FileHandle = FileOpen($Filename, 16)
-   $sBuffer = FileRead($FileHandle,2)
-   FileClose($FileHandle)
-
-   if $sBuffer = "MZ" or $sBuffer = "ZM" then
-	  return True
+   if $Filename = $sIsExecutableLastFilename Then
+	  ;no need to access and check the file, we know the result already
+	  return $iIsExecutableLastResult
    Else
-	  return False
-   EndIf
 
+	  $FileHandle = FileOpen($Filename, 16)
+	  $sBuffer = FileRead($FileHandle,2)
+	  FileClose($FileHandle)
+
+	  $sIsExecutableLastFilename = $Filename
+
+	  if $sBuffer = "MZ" or $sBuffer = "ZM" then
+		 $iIsExecutableLastResult = True
+		 return True
+	  Else
+		 $iIsExecutableLastResult = False
+		 return False
+	  EndIf
+   EndIf
 EndFunc
 
 
@@ -2904,7 +2926,10 @@ Func TreeClimberSecondProcess($sStartPath,$iPID)
 			EndIf
 		 Next
 
-		 if $iIsClimbTarget Then TreeClimberSecondProcess($sFullPath,$iPID)
+		 if $iIsClimbTarget Then
+			if $cDEBUGShowVisitedDirectories = True then ConsoleWrite("** visited **" & $sFullPath & @CRLF)
+			TreeClimberSecondProcess($sFullPath,$iPID)
+		 EndIf
 	  EndIf
 
 	  ; check all the rules on this file / directory
