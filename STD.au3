@@ -88,6 +88,12 @@ Changelog
 			profiler options: $cDEBUGTimeGetFileInfo, $cDEBUGTimeGetRuleFromRuleSet, $cDEBUGTimeIsExecutable, $cDEBUGTimeIsIncludedByRule, $cDEBUGTimeIsClimbTargetByRule
 3.3.1.2		GetRuleSetFromDB(),GetRuleFromRuleSet(): Write begin of all rules in $aRuleSet[] to $aRuleStart[] (performance !)
 			IsClimbTargetByRule($PathOrFile,$iRuleNumber),IsIncludedByRule($PathOrFile,$iRuleNumber),GetRulename($iRuleNumber): use $aRuleSet[] not $aRule[] , so GetRuleFromRuleSet() is obsolete (performance !)
+3.3.1.3		GetRuleSetFromDB(),IsIncludedByRule(): use $aRuleExtensions (performance !)
+			Remove GetRuleFromRuleSet() and old calls to GetRulename($aRule)
+			Replace GetRuleId($aRule) with GetRuleIdFromRuleSet($iRuleNumber)
+			OutputLineOfQueryResult(): fix changed marker for attributes
+
+
 
 
 #ce
@@ -167,8 +173,8 @@ End
 #pragma compile(UPX, False)
 
 ;Set file infos
-#pragma compile(ProductVersion,"3.3.1.2")
-#pragma compile(FileVersion,"3.3.1.2")
+#pragma compile(ProductVersion,"3.3.1.3")
+#pragma compile(FileVersion,"3.3.1.3")
 ;Versioning: "Incompatible changes to DB"."new feature"."bug fix"."minor fix"
 
 #pragma compile(FileDescription,"Spot The Difference")
@@ -244,7 +250,21 @@ global $aRuleSet[1][3]	;all rules form config db table
 						;IncDir:    | "c:\tst1" | 2
 						;IncExt:    | log       | 2
 						;.....................................
-global $aRuleStart[1]   ;Index of all rules in $aRuleSet[]
+global $aRuleStart[1]   ;Index of start of all rules in $aRuleSet[]
+global const $cIncExt = 0 	  ;column index for IncExt parameters in $aRuleExtensions[]
+global const $cExcExt = 1	  ;column index for ExcExt parameters in $aRuleExtensions[]
+global const $cIncExe = 2	  ;column index for IncExe parameters in $aRuleExtensions[]
+global const $cExcExe = 3	  ;column index for ExcExe parameters in $aRuleExtensions[]
+global const $cIncAll = 4	  ;column index for IncAll parameters in $aRuleExtensions[]
+global const $cExcAll = 5	  ;column index for ExcAll parameters in $aRuleExtensions[]
+global $aRuleExtensions[1][6] ;all infos of extension statements of a rule
+							  ;................................................................................
+							  ;IncExt           | ExcExt           | IncExe   | ExcExe   | IncAll   | ExcAll
+							  ;$cIncExt         | $cExcExt         | $cIncExe | $cExcExe | $cIncAll | $cExcAll
+							  ;--------------------------------------------------------------------------------
+							  ;".txt.dll.docx." | ".txt.dll.xlsx." | True     | False    | True     | False
+							  ;................................................................................
+
 global $aFileInfo[22]	;array with informations about the file
 #cs
 		 $aFileInfo[0]	;name
@@ -897,9 +917,9 @@ Func DoReport($ReportFilename)
 
 		 ;summery per rule
 		 for $i = 1 to GetNumberOfRulesFromRuleSet()
-			GetRuleFromRuleSet($i)
+			;GetRuleFromRuleSet($i)
 
-			$sTempText = StringFormat("%-40s",GetRulename($aRule))
+			$sTempText = StringFormat("%-40s",GetRulename($i))
 
 			;return scan differences
 			$aQueryResult = 0
@@ -914,7 +934,7 @@ Func DoReport($ReportFilename)
 			$sTempSQL &= "WHERE "
 			$sTempSQL &= "scannew.path = scanold.path and "
 			$sTempSQL &= "scannew.rulename = scanold.rulename and "
-			$sTempSQL &= "scannew.rulename = '" & GetRulename($aRule) & "' and "
+			$sTempSQL &= "scannew.rulename = '" & GetRulename($i) & "' and "
 			$sTempSQL &= "("
 			if not IsFilepropertyIgnoredByRule("status",$aRule)       then $sTempSQL &= "scannew.status <> scanold.status or "
 			if not IsFilepropertyIgnoredByRule("size",$aRule)         then $sTempSQL &= "scannew.size <> scanold.size or "
@@ -956,7 +976,7 @@ Func DoReport($ReportFilename)
 			$aQueryResult = 0
 			$hQuery = 0
 			$iTempCount = 0
-			_SQLite_Query(-1,"SELECT scannew.rulename,count(scannew.rulename) FROM scannew LEFT JOIN scanold ON scannew.path = scanold.path and scannew.rulename = scanold.rulename WHERE scannew.rulename = '" & GetRulename($aRule) & "' and scanold.path IS NULL;" ,$hQuery)
+			_SQLite_Query(-1,"SELECT scannew.rulename,count(scannew.rulename) FROM scannew LEFT JOIN scanold ON scannew.path = scanold.path and scannew.rulename = scanold.rulename WHERE scannew.rulename = '" & GetRulename($i) & "' and scanold.path IS NULL;" ,$hQuery)
 			While _SQLite_FetchData($hQuery, $aQueryResult) = $SQLITE_OK
 			   ;OutputLineOfQueryResultSummary($aQueryResult,$ReportFilename)
 			   $iTempCount = $aQueryResult[1]
@@ -969,7 +989,7 @@ Func DoReport($ReportFilename)
 			$aQueryResult = 0
 			$hQuery = 0
 			$iTempCount = 0
-			_SQLite_Query(-1,"SELECT scanold.rulename,count(scanold.rulename) FROM scanold LEFT JOIN scannew ON scannew.path = scanold.path and scannew.rulename = scanold.rulename WHERE scanold.rulename = '" & GetRulename($aRule) & "' and scannew.path IS NULL;",$hQuery)
+			_SQLite_Query(-1,"SELECT scanold.rulename,count(scanold.rulename) FROM scanold LEFT JOIN scannew ON scannew.path = scanold.path and scannew.rulename = scanold.rulename WHERE scanold.rulename = '" & GetRulename($i) & "' and scannew.path IS NULL;",$hQuery)
 			While _SQLite_FetchData($hQuery, $aQueryResult) = $SQLITE_OK
 			   ;OutputLineOfQueryResultSummary($aQueryResult,$ReportFilename)
 			   $iTempCount = $aQueryResult[1]
@@ -985,9 +1005,9 @@ Func DoReport($ReportFilename)
 
 		 ;list per rule
 		 for $i = 1 to GetNumberOfRulesFromRuleSet()
-			GetRuleFromRuleSet($i)
+			;GetRuleFromRuleSet($i)
 
-			FileWriteLine($ReportFilename,@crlf & "---- rule: " & GetRulename($aRule) & " ----")
+			FileWriteLine($ReportFilename,@crlf & "---- rule: " & GetRulename($i) & " ----")
 
 			;return scan differences
 			$aQueryResult = 0
@@ -999,7 +1019,7 @@ Func DoReport($ReportFilename)
 			$sTempSQL &= "WHERE "
 			$sTempSQL &= "scannew.path = scanold.path and "
 			$sTempSQL &= "scannew.rulename = scanold.rulename and "
-			$sTempSQL &= "scannew.rulename = '" & GetRulename($aRule) & "' and "
+			$sTempSQL &= "scannew.rulename = '" & GetRulename($i) & "' and "
 			$sTempSQL &= "("
 			if not IsFilepropertyIgnoredByRule("status",$aRule)       then $sTempSQL &= "scannew.status <> scanold.status or "
 			if not IsFilepropertyIgnoredByRule("size",$aRule)         then $sTempSQL &= "scannew.size <> scanold.size or "
@@ -1037,7 +1057,7 @@ Func DoReport($ReportFilename)
 			;return new files
 			$aQueryResult = 0
 			$hQuery = 0
-			_SQLite_Query(-1,"SELECT scannew.path FROM scannew LEFT JOIN scanold ON scannew.path = scanold.path and scannew.rulename = scanold.rulename WHERE scannew.rulename = '" & GetRulename($aRule) & "' and scanold.path IS NULL;" ,$hQuery)
+			_SQLite_Query(-1,"SELECT scannew.path FROM scannew LEFT JOIN scanold ON scannew.path = scanold.path and scannew.rulename = scanold.rulename WHERE scannew.rulename = '" & GetRulename($i) & "' and scanold.path IS NULL;" ,$hQuery)
 			While _SQLite_FetchData($hQuery, $aQueryResult) = $SQLITE_OK
 			   ;OutputLineOfQueryResult($aQueryResult,$ReportFilename)
 			   FileWriteLine($ReportFilename,StringFormat("%-8s : %s","new",_HexToString($aQueryResult[0])))
@@ -1047,7 +1067,7 @@ Func DoReport($ReportFilename)
 			;return deleted files
 			$aQueryResult = 0
 			$hQuery = 0
-			_SQLite_Query(-1,"SELECT scanold.path FROM scanold LEFT JOIN scannew ON scannew.path = scanold.path and scannew.rulename = scanold.rulename WHERE scanold.rulename = '" & GetRulename($aRule) & "' and scannew.path IS NULL;",$hQuery)
+			_SQLite_Query(-1,"SELECT scanold.path FROM scanold LEFT JOIN scannew ON scannew.path = scanold.path and scannew.rulename = scanold.rulename WHERE scanold.rulename = '" & GetRulename($i) & "' and scannew.path IS NULL;",$hQuery)
 			While _SQLite_FetchData($hQuery, $aQueryResult) = $SQLITE_OK
 			   ;OutputLineOfQueryResult($aQueryResult,$ReportFilename)
 			   FileWriteLine($ReportFilename,StringFormat("%-8s : %s","missing",_HexToString($aQueryResult[0])))
@@ -1059,9 +1079,9 @@ Func DoReport($ReportFilename)
 
 		 ;details per rule
 		 for $i = 1 to GetNumberOfRulesFromRuleSet()
-			GetRuleFromRuleSet($i)
+			;GetRuleFromRuleSet($i)
 
-			FileWriteLine($ReportFilename,@crlf & "---- rule: " & GetRulename($aRule) & " ----")
+			FileWriteLine($ReportFilename,@crlf & "---- rule: " & GetRulename($i) & " ----")
 
 			;return scan differences
 			$aQueryResult = 0
@@ -1073,7 +1093,7 @@ Func DoReport($ReportFilename)
 			$sTempSQL &= "WHERE "
 			$sTempSQL &= "scannew.path = scanold.path and "
 			$sTempSQL &= "scannew.rulename = scanold.rulename and "
-			$sTempSQL &= "scannew.rulename = '" & GetRulename($aRule) & "' and "
+			$sTempSQL &= "scannew.rulename = '" & GetRulename($i) & "' and "
 			$sTempSQL &= "("
 			if not IsFilepropertyIgnoredByRule("status",$aRule)       then $sTempSQL &= "scannew.status <> scanold.status or "
 			if not IsFilepropertyIgnoredByRule("size",$aRule)         then $sTempSQL &= "scannew.size <> scanold.size or "
@@ -1110,7 +1130,7 @@ Func DoReport($ReportFilename)
 			;return new files
 			$aQueryResult = 0
 			$hQuery = 0
-			_SQLite_Query(-1,"SELECT scanold.*,scannew.* FROM scannew LEFT JOIN scanold ON scannew.path = scanold.path and scannew.rulename = scanold.rulename WHERE scannew.rulename = '" & GetRulename($aRule) & "' and scanold.path IS NULL;" ,$hQuery)
+			_SQLite_Query(-1,"SELECT scanold.*,scannew.* FROM scannew LEFT JOIN scanold ON scannew.path = scanold.path and scannew.rulename = scanold.rulename WHERE scannew.rulename = '" & GetRulename($i) & "' and scanold.path IS NULL;" ,$hQuery)
 			While _SQLite_FetchData($hQuery, $aQueryResult) = $SQLITE_OK
 			   OutputLineOfQueryResult($aQueryResult,$ReportFilename)
 			WEnd
@@ -1119,7 +1139,7 @@ Func DoReport($ReportFilename)
 			;return deleted files
 			$aQueryResult = 0
 			$hQuery = 0
-			_SQLite_Query(-1,"SELECT scanold.*,scannew.* FROM scanold LEFT JOIN scannew ON scannew.path = scanold.path and scannew.rulename = scanold.rulename WHERE scanold.rulename = '" & GetRulename($aRule) & "' and scannew.path IS NULL;",$hQuery)
+			_SQLite_Query(-1,"SELECT scanold.*,scannew.* FROM scanold LEFT JOIN scannew ON scannew.path = scanold.path and scannew.rulename = scanold.rulename WHERE scanold.rulename = '" & GetRulename($i) & "' and scannew.path IS NULL;",$hQuery)
 			While _SQLite_FetchData($hQuery, $aQueryResult) = $SQLITE_OK
 			   OutputLineOfQueryResult($aQueryResult,$ReportFilename)
 			WEnd
@@ -1612,7 +1632,7 @@ Func DoSecondProcess()
 				  ;DllCall('user32.dll','Int','OemToChar','str',$sTempText,'str','') ; translate from OEM to ANSI
 				  if not $cDEBUGOnlyShowScanBuffer then ConsoleWrite($sTempText & @CRLF)
 
-				  _SQLite_Exec(-1,"INSERT INTO filedata (scanid,ruleid,filenameid,status,size,attributes,mtime,ctime,atime,version,crc32,md5,ptime,rattrib,aattrib,sattrib,hattrib,nattrib,dattrib,oattrib,cattrib,tattrib)  values ('" & $iScanId & "', '" & GetRuleId($aRule) & "', '" & GetFilenameIDFromDB(_StringToHex($aFileInfo[0]),$aFileInfo[8]) & "','" & $aFileInfo[1] & "','" & $aFileInfo[2] & "','" & $aFileInfo[3] & "','" & $aFileInfo[4] & "','" & $aFileInfo[5] & "','" & $aFileInfo[6] & "','" & $aFileInfo[7] & "','" & $aFileInfo[9] & "','" & $aFileInfo[10] & "','" & $aFileInfo[11] & "','" & $aFileInfo[13] & "','" & $aFileInfo[14] & "','" & $aFileInfo[15] & "','" & $aFileInfo[16] & "','" & $aFileInfo[17] & "','" & $aFileInfo[18] & "','" & $aFileInfo[19] & "','" & $aFileInfo[20] & "','" & $aFileInfo[21] & "');")
+				  _SQLite_Exec(-1,"INSERT INTO filedata (scanid,ruleid,filenameid,status,size,attributes,mtime,ctime,atime,version,crc32,md5,ptime,rattrib,aattrib,sattrib,hattrib,nattrib,dattrib,oattrib,cattrib,tattrib)  values ('" & $iScanId & "', '" & GetRuleIdFromRuleSet($iRuleCounter) & "', '" & GetFilenameIDFromDB(_StringToHex($aFileInfo[0]),$aFileInfo[8]) & "','" & $aFileInfo[1] & "','" & $aFileInfo[2] & "','" & $aFileInfo[3] & "','" & $aFileInfo[4] & "','" & $aFileInfo[5] & "','" & $aFileInfo[6] & "','" & $aFileInfo[7] & "','" & $aFileInfo[9] & "','" & $aFileInfo[10] & "','" & $aFileInfo[11] & "','" & $aFileInfo[13] & "','" & $aFileInfo[14] & "','" & $aFileInfo[15] & "','" & $aFileInfo[16] & "','" & $aFileInfo[17] & "','" & $aFileInfo[18] & "','" & $aFileInfo[19] & "','" & $aFileInfo[20] & "','" & $aFileInfo[21] & "');")
 			   EndIf
 			Next
 		 WEnd
@@ -2030,9 +2050,13 @@ Func GetRuleSetFromDB()
    local $hCfgQuery = 0			;handle to a query on table config
 
    local $iRuleCurrent = 0		;current rule number (rule 0 is global setting)
-   local $iRuleCount = 0		    ;number of rules so far (rule 0 is global setting)
+   local $iRuleCount = 0		;number of rules so far (rule 0 is global setting)
 
    dim $aRuleSet[1][3]			;reset/clear $aRuleSet
+   dim $aRuleStart[1]   		;reset/clear
+   dim $aRuleExtensions[1][6]	;reset/clear
+
+
 
    ;read the rules from table config
    $iCfgLineNr = 1
@@ -2110,8 +2134,15 @@ Func GetRuleSetFromDB()
 			   $iRuleCurrent = $iRuleCount
 
 			   redim $aRuleStart[UBound($aRuleStart)+1]
-			   $aRuleStart[$iRuleCount]=UBound($aRuleSet,1)
+			   $aRuleStart[$iRuleCount] = UBound($aRuleSet,1)
 
+			   redim $aRuleExtensions[UBound($aRuleExtensions,1)+1][6]
+			   $aRuleExtensions[$iRuleCount][$cIncExt] = "."
+			   $aRuleExtensions[$iRuleCount][$cExcExt] = "."
+			   $aRuleExtensions[$iRuleCount][$cIncExe] = False
+			   $aRuleExtensions[$iRuleCount][$cExcExe] = False
+			   $aRuleExtensions[$iRuleCount][$cIncAll] = False
+			   $aRuleExtensions[$iRuleCount][$cExcAll] = False
 
 			   InsertStatementInRuleSet(1,"Rule:",$sTempCfgLine,$iRuleCurrent)
 
@@ -2134,17 +2165,23 @@ Func GetRuleSetFromDB()
 			Case stringleft($sTempCfgLine,stringlen("ExcDir:")) = "ExcDir:"
 			   InsertStatementInRuleSet(2,"ExcDir:",$sTempCfgLine,$iRuleCurrent)
 			Case stringleft($sTempCfgLine,stringlen("IncExt:")) = "IncExt:"
-			   InsertStatementInRuleSet(1,"IncExt:",$sTempCfgLine,$iRuleCurrent)
+			   ;InsertStatementInRuleSet(1,"IncExt:",$sTempCfgLine,$iRuleCurrent)
+			   $aRuleExtensions[$iRuleCurrent][$cIncExt] &= StringTrimLeft($sTempCfgLine,stringlen("IncExt:")) & "."
 			Case stringleft($sTempCfgLine,stringlen("ExcExt:")) = "ExcExt:"
-			   InsertStatementInRuleSet(1,"ExcExt:",$sTempCfgLine,$iRuleCurrent)
+			   ;InsertStatementInRuleSet(1,"ExcExt:",$sTempCfgLine,$iRuleCurrent)
+			   $aRuleExtensions[$iRuleCurrent][$cExcExt] &= StringTrimLeft($sTempCfgLine,stringlen("ExcExt:")) & "."
 			Case StringStripWS($sTempCfgLine,$STR_STRIPALL ) = "IncExe"
-			   InsertStatementInRuleSet(0,"IncExe",$sTempCfgLine,$iRuleCurrent)
+			   ;InsertStatementInRuleSet(0,"IncExe",$sTempCfgLine,$iRuleCurrent)
+			   $aRuleExtensions[$iRuleCurrent][$cIncExe]=True
 			Case StringStripWS($sTempCfgLine,$STR_STRIPALL ) = "ExcExe"
-			   InsertStatementInRuleSet(0,"ExcExe",$sTempCfgLine,$iRuleCurrent)
+			   ;InsertStatementInRuleSet(0,"ExcExe",$sTempCfgLine,$iRuleCurrent)
+			   $aRuleExtensions[$iRuleCurrent][$cExcExe]=True
 			Case StringStripWS($sTempCfgLine,$STR_STRIPALL ) = "IncAll"
-			   InsertStatementInRuleSet(0,"IncAll",$sTempCfgLine,$iRuleCurrent)
+			   ;InsertStatementInRuleSet(0,"IncAll",$sTempCfgLine,$iRuleCurrent)
+			   $aRuleExtensions[$iRuleCurrent][$cIncAll]=True
 			Case StringStripWS($sTempCfgLine,$STR_STRIPALL ) = "ExcAll"
-			   InsertStatementInRuleSet(0,"ExcAll",$sTempCfgLine,$iRuleCurrent)
+			   ;InsertStatementInRuleSet(0,"ExcAll",$sTempCfgLine,$iRuleCurrent)
+			   $aRuleExtensions[$iRuleCurrent][$cExcAll]=True
 			Case StringStripWS($sTempCfgLine,$STR_STRIPALL ) = "ExcDirs"
 			   InsertStatementInRuleSet(0,"ExcDirs",$sTempCfgLine,$iRuleCurrent)
 
@@ -2158,6 +2195,7 @@ Func GetRuleSetFromDB()
 		 $iCfgLineNr = $iCfgLineNr + 1
 		 if StringStripWS($sTempCfgLine,$STR_STRIPALL ) = "End" then
 			;outside of a rule block we are in the global settings rule
+
 			$iRuleCurrent = 0
 			ExitLoop
 		 EndIf
@@ -2389,7 +2427,7 @@ Func GetRuleFromRuleSet($iRuleNumber)
    ;copy commands of rule $iRuleNumber from $aRuleSet into $aRule
    ;------------------------------------------------
 
-   dim $aRule[1][2]			;reset/clear $aRuleSet
+   dim $aRule[1][2]			;reset/clear $aRule
    local $iCount = 0		;counter
    if $cDEBUGTimeGetRuleFromRuleSet = True then local $iTimer = TimerInit()
    local $iCountMax = UBound($aRuleSet,1)-1
@@ -2431,7 +2469,29 @@ Func GetNumberOfRulesFromRuleSet()
 EndFunc
 
 
-Func GetRuleId(ByRef $aRule)
+Func GetRuleIdFromRuleSet($iRuleNumber)
+
+   ;get id of the rule
+   ;!!! rule id is not the rule number !!!
+   ;--------------------
+
+   local $sRuleId = ""
+   local $iCountMax = UBound($aRuleSet,1)-1
+   local $iCountMin = $aRuleStart[$iRuleNumber]
+
+   for $i = $iCountMin to $iCountMax
+	  if $aRuleSet[$i][2] = $iRuleNumber then
+		 if $aRuleSet[$i][0] = "RuleId:" then $sRuleId = $aRuleSet[$i][1]
+	  Else
+		 ExitLoop
+	  EndIf
+   Next
+
+   return $sRuleId
+EndFunc
+
+
+Func OLD_GetRuleId(ByRef $aRule)
 
    ;get id of the rule
    ;!!! rule id is not the rule number !!!
@@ -2593,6 +2653,7 @@ Func IsIncludedByRule($PathOrFile,$iRuleNumber)
    local $i = 0
    ;local $iMax = 0
    local $iMax = UBound($aRuleSet,1)-1
+   local $sExtension = ""
 
    ;strip leading and trailing " from directories
    $PathOrFile = StringReplace($PathOrFile,"""","")
@@ -2629,6 +2690,23 @@ Func IsIncludedByRule($PathOrFile,$iRuleNumber)
 
 	  ;msgbox(0,"Cmd","#" & $aRuleSet[$i][0] & "#" & @CRLF & "#" & $aRuleSet[$i][1] & "#" & @CRLF & "#" & $PathOrFile & "#" & @CRLF)
 
+	  ;"IncExt:"
+	  $sExtension = StringRight($PathOrFile,StringLen($PathOrFile)-StringInStr($PathOrFile,".",1,-1))
+	  if StringInStr($aRuleExtensions[$iRuleNumber][$cIncExt],"." & $sExtension & ".") > 0 then
+		 $iIsIncluded = True
+	  EndIf
+
+	  ;"IncExe"
+	  if $aRuleExtensions[$iRuleNumber][$cIncExe] = True Then
+		 if IsExecutable($PathOrFile) then $iIsIncluded = True
+	  EndIf
+
+	  ; "IncAll"
+	  if $aRuleExtensions[$iRuleNumber][$cIncAll] = True Then
+		 $iIsIncluded = True
+	  EndIf
+
+#cs
 	  for $i = $aRuleStart[$iRuleNumber] to $iMax
 		 if $aRuleSet[$i][2] <> $iRuleNumber then ExitLoop
 		 ;$aRuleSet[$i][0]
@@ -2636,6 +2714,7 @@ Func IsIncludedByRule($PathOrFile,$iRuleNumber)
 		 Select
 			case $aRuleSet[$i][0] = "IncExt:"
 			   if StringRight($PathOrFile,stringlen("." & $aRuleSet[$i][1])) = "." & $aRuleSet[$i][1] then $iIsIncluded = True
+			   ;$aRuleIncExt[$i]
 			case $aRuleSet[$i][0] = "IncExe"
 			   if IsExecutable($PathOrFile) then $iIsIncluded = True
 			case $aRuleSet[$i][0] = "IncAll"
@@ -2643,6 +2722,7 @@ Func IsIncludedByRule($PathOrFile,$iRuleNumber)
 			case Else
 		 EndSelect
 	  Next
+#ce
    EndIf
 
    ;ConsoleWrite("...IE..." & $iIsIncluded & " " & $PathOrFile & @crlf)
@@ -2670,6 +2750,25 @@ Func IsIncludedByRule($PathOrFile,$iRuleNumber)
    if StringRight($PathOrFile,1) <> "\" and $iIsIncluded = True then
 	  ;$iIsIncluded = False
 
+
+	  ;"ExcExt:"
+	  ;Use $sExtension form "IncExt:" above
+	  ;$sExtension = StringRight($PathOrFile,StringInStr($PathOrFile,".",1,-1))
+	  if StringInStr($aRuleExtensions[$iRuleNumber][$cExcExt],"." & $sExtension & ".") > 0 then
+		 $iIsIncluded = False
+	  EndIf
+
+	  ;"ExcExe"
+	  if $aRuleExtensions[$iRuleNumber][$cExcExe] = True Then
+		 if IsExecutable($PathOrFile) then $iIsIncluded = False
+	  EndIf
+
+	  ; "ExcAll"
+	  if $aRuleExtensions[$iRuleNumber][$cExcAll] = True Then
+		 $iIsIncluded = False
+	  EndIf
+
+#cs
 	  for $i = $aRuleStart[$iRuleNumber] to $iMax
 		 if $aRuleSet[$i][2] <> $iRuleNumber then ExitLoop
 		 ;$aRuleSet[$i][0]
@@ -2684,6 +2783,7 @@ Func IsIncludedByRule($PathOrFile,$iRuleNumber)
 			case Else
 		 EndSelect
 	  Next
+#ce
    EndIf
 
    ;ConsoleWrite("...EE..." & $iIsIncluded & " " & $PathOrFile & @crlf)
@@ -3048,7 +3148,7 @@ Func OutputLineOfQueryResult(ByRef $aQueryResult,$ReportFilename)
    local $i = 0
    local $sTempOld = ""
    local $sTempNew = ""
-
+   local $iIsNewOrMissing = False
 
    if $aQueryResult[1] = "" Then FileWriteLine($ReportFilename,"-- new     --"  & @CRLF & _HexToString($aQueryResult[24]) & @CRLF & @CRLF)
 
@@ -3060,8 +3160,14 @@ Func OutputLineOfQueryResult(ByRef $aQueryResult,$ReportFilename)
    $sTempNew = ""
    $sTempOld = $aQueryResult[0]
    $sTempNew = $aQueryResult[0 + 23]
-   if $sTempOld = "" then $sTempOld = "-"
-   if $sTempNew = "" then $sTempNew = "-"
+   if $sTempOld = "" then
+	  $sTempOld = "-"
+	  $iIsNewOrMissing = True
+   EndIf
+   if $sTempNew = "" then
+	  $sTempNew = "-"
+	  $iIsNewOrMissing = True
+   EndIf
    FileWriteLine($ReportFilename,StringFormat("%-15s %1s %35s %-35s","","","expected","observed"))
    FileWriteLine($ReportFilename,StringFormat("%-15s %1s %35s %-35s",$aDesc[$i] & ":"," ",$sTempOld,$sTempNew))
 
@@ -3083,10 +3189,10 @@ Func OutputLineOfQueryResult(ByRef $aQueryResult,$ReportFilename)
 			FileWriteLine($ReportFilename,StringFormat("%-15s %1s %35s %-35s",$aDesc[$i] & ":","*",$sTempOld,$sTempNew))
 		 EndIf
 #ce
-	  ElseIf $i = 7 Then
-		 FileWriteLine($ReportFilename,StringFormat("%-15s %1s %35s %-35s",$aDesc[$i] & ":"," ",$sTempOld,$sTempNew))
+;	  ElseIf $i = 7 Then
+;		 FileWriteLine($ReportFilename,StringFormat("%-15s %1s %35s %-35s",$aDesc[$i] & ":"," ",$sTempOld,$sTempNew))
 	  else
-		 if $sTempOld = $sTempNew or $sTempOld = "-" or $sTempNew = "-" or $i = 0 or $i = 2 or $i = 12  then
+		 if $sTempOld = $sTempNew or $iIsNewOrMissing or $i = 0 or $i = 12  then
 			FileWriteLine($ReportFilename,StringFormat("%-15s %1s %35s %-35s",$aDesc[$i] & ":"," ",$sTempOld,$sTempNew))
 		 Else
 			FileWriteLine($ReportFilename,StringFormat("%-15s %1s %35s %-35s",$aDesc[$i] & ":","*",$sTempOld,$sTempNew))
@@ -3106,7 +3212,7 @@ Func OutputLineOfQueryResult(ByRef $aQueryResult,$ReportFilename)
    if $sTempOld = "" then $sTempOld = "-"
    if $sTempNew = "" then $sTempNew = "-"
 
-   if $sTempOld = $sTempNew or $sTempOld = "-" or $sTempNew = "-" Then
+   if $sTempOld = $sTempNew or $iIsNewOrMissing Then
 	  FileWriteLine($ReportFilename,StringFormat("%-15s %1s %35s %-35s","attributes" & ":"," ",$sTempOld,$sTempNew))
    Else
 	  FileWriteLine($ReportFilename,StringFormat("%-15s %1s %35s %-35s","attributes" & ":","*",$sTempOld,$sTempNew))
@@ -3122,7 +3228,7 @@ Func OutputLineOfQueryResult(ByRef $aQueryResult,$ReportFilename)
    FileWriteLine($ReportFilename,"")
    FileWriteLine($ReportFilename,StringFormat("%-15s %1s %s","old path:"," ",$sTempOld))
    ;FileWriteLine($ReportFilename,StringFormat("%-15s %1s %s","new path:"," ",$sTempNew))
-   if $sTempOld = $sTempNew or $sTempOld = "-" or $sTempNew = "-" then
+   if $sTempOld = $sTempNew or $iIsNewOrMissing then
 	  FileWriteLine($ReportFilename,StringFormat("%-15s %1s %s","new path:"," ",$sTempNew))
    Else
 	  FileWriteLine($ReportFilename,StringFormat("%-15s %1s %s","new path:","*",$sTempNew))
@@ -3359,7 +3465,7 @@ Func TreeClimber($sStartPath,$iScanSubdirs)
 				  _SQLite_Exec(-1,"INSERT INTO filedata (scanid,ruleid,filenameid,status,size,attributes,mtime,ctime,atime,version,crc32,md5,ptime,rattrib,aattrib,sattrib,hattrib,nattrib,dattrib,oattrib,cattrib,tattrib)  values ('" & $iScanId & "', '" & GetRuleId($aRule) & "', '" & GetFilenameIDFromDB(_StringToHex($aFileInfo[0]),$aFileInfo[8]) & "','" & $aFileInfo[1] & "','" & $aFileInfo[2] & "','" & $aFileInfo[3] & "','" & $aFileInfo[4] & "','" & $aFileInfo[5] & "','" & $aFileInfo[6] & "','" & $aFileInfo[7] & "','" & $aFileInfo[9] & "','" & $aFileInfo[10] & "','" & $aFileInfo[11] & "','" & $aFileInfo[13] & "','" & $aFileInfo[14] & "','" & $aFileInfo[15] & "','" & $aFileInfo[16] & "','" & $aFileInfo[17] & "','" & $aFileInfo[18] & "','" & $aFileInfo[19] & "','" & $aFileInfo[20] & "','" & $aFileInfo[21] & "');")
 			   EndIf
 #ce
-			   _SQLite_Exec(-1,"INSERT INTO filedata (scanid,ruleid,filenameid,status,size,attributes,mtime,ctime,atime,version,crc32,md5,ptime,rattrib,aattrib,sattrib,hattrib,nattrib,dattrib,oattrib,cattrib,tattrib)  values ('" & $iScanId & "', '" & GetRuleId($aRule) & "', '" & GetFilenameIDFromDB(_StringToHex($aFileInfo[0]),$aFileInfo[8]) & "','" & $aFileInfo[1] & "','" & $aFileInfo[2] & "','" & $aFileInfo[3] & "','" & $aFileInfo[4] & "','" & $aFileInfo[5] & "','" & $aFileInfo[6] & "','" & $aFileInfo[7] & "','" & $aFileInfo[9] & "','" & $aFileInfo[10] & "','" & $aFileInfo[11] & "','" & $aFileInfo[13] & "','" & $aFileInfo[14] & "','" & $aFileInfo[15] & "','" & $aFileInfo[16] & "','" & $aFileInfo[17] & "','" & $aFileInfo[18] & "','" & $aFileInfo[19] & "','" & $aFileInfo[20] & "','" & $aFileInfo[21] & "');")
+			   _SQLite_Exec(-1,"INSERT INTO filedata (scanid,ruleid,filenameid,status,size,attributes,mtime,ctime,atime,version,crc32,md5,ptime,rattrib,aattrib,sattrib,hattrib,nattrib,dattrib,oattrib,cattrib,tattrib)  values ('" & $iScanId & "', '" & GetRuleIdFromRuleSet($iRuleCounter) & "', '" & GetFilenameIDFromDB(_StringToHex($aFileInfo[0]),$aFileInfo[8]) & "','" & $aFileInfo[1] & "','" & $aFileInfo[2] & "','" & $aFileInfo[3] & "','" & $aFileInfo[4] & "','" & $aFileInfo[5] & "','" & $aFileInfo[6] & "','" & $aFileInfo[7] & "','" & $aFileInfo[9] & "','" & $aFileInfo[10] & "','" & $aFileInfo[11] & "','" & $aFileInfo[13] & "','" & $aFileInfo[14] & "','" & $aFileInfo[15] & "','" & $aFileInfo[16] & "','" & $aFileInfo[17] & "','" & $aFileInfo[18] & "','" & $aFileInfo[19] & "','" & $aFileInfo[20] & "','" & $aFileInfo[21] & "');")
 			EndIf
 		 Next
 	  EndIf
