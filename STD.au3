@@ -111,8 +111,11 @@ Changelog
 3.3.1.8		DoScanWithSecondProcess(),TreeClimberSecondProcess(): Only check relevant rules on the current file or directory (performance !)
 			   Ininially all rules are relevant -> fixme this is not true but IsClimbTarget() works only with $aRuleSet !!!
 			$gcDEBUG: Main switch for debug output.
-
-
+3.3.1.9		DoScanWithSecondProcess(): $aRelevantRulesForClimbTarget is set corrently for the initial directories too.
+			$gcDEBUGDoNotStartSecondProcess: Debug - run only the list process and do not start the scan process
+			$gcDEBUGRunWithoutCompilation: Debug - force the program to run, without beeing compiled
+			GetRulename(): reimplemented (performance !)
+			DoSecondProcess(),TreeClimberSecondProcess(): rulenumber and filename are sent from list process to scan process via stdout,stdin
 
 #ce
 
@@ -192,8 +195,8 @@ End
 #pragma compile(UPX, False)
 
 ;Set file infos
-#pragma compile(ProductVersion,"3.3.1.8")
-#pragma compile(FileVersion,"3.3.1.8")
+#pragma compile(ProductVersion,"3.3.1.9")
+#pragma compile(FileVersion,"3.3.1.9")
 ;Versioning: "Incompatible changes to DB"."new feature"."bug fix"."minor fix"
 
 #pragma compile(FileDescription,"Spot The Difference")
@@ -226,6 +229,10 @@ global const $gcDEBUG = False						;master switch for debug output
 
 global $gcDEBUGOnlyShowScanBuffer = False		;show only "searching" and buffersize during scan !
 global $gcDEBUGShowVisitedDirectories = False	;show visited directories during scan !
+global $gcDEBUGDoNotStartSecondProcess = False	;run only the list process and do not start the scan process
+global $gcDEBUGRunWithoutCompilation = False		;force the program to run, without beeing compiled
+Global $gcDEBUGShowEmptyScanBuffer = True		;show "*** searching ***" if the scan process is waiting for the list process
+
 
 ;Profiler
 global $gcDEBUGTimeGetFileInfo = True
@@ -243,6 +250,9 @@ global $giDEBUGTimerIsClimbTargetByRule = 0
 if $gcDEBUG = False Then
    $gcDEBUGOnlyShowScanBuffer = False
    $gcDEBUGShowVisitedDirectories = False
+   $gcDEBUGDoNotStartSecondProcess = False
+   $gcDEBUGRunWithoutCompilation = False
+   $gcDEBUGShowEmptyScanBuffer = False
 
    $gcDEBUGTimeGetFileInfo = False
    $gcDEBUGTimeGetRuleFromRuleSet = False
@@ -546,7 +556,7 @@ select
 		 exit (1)
 	  EndIf
 
-	  if @Compiled Then
+	  if @Compiled or $gcDEBUGRunWithoutCompilation Then
 		 ;$sDBName = $CmdLine[2]
 
 		 OpenDB($CmdLine[2])
@@ -1462,6 +1472,9 @@ Func DoScanWithSecondProcess($sDBName)
 
    GetRuleSetFromDB()
 
+   ;only these rules must be checkt on the climbtarget (subdirectory)
+   dim $aRelevantRulesForClimbTarget[UBound($gaRuleStart,1)]
+
    ;make a unique list ($aAllIncDirs) of only the top most dirs from the "IncDirRec:" and "IncDir:" statements in the ruleset
 
    ;read every line in the ruleset
@@ -1502,32 +1515,46 @@ Func DoScanWithSecondProcess($sDBName)
    ;start the second process we send the filelist to
    ;$iPID = Run( @scriptname & " /secondprocess " & $sDBName, @WorkingDir, @SW_MINIMIZE, $STDIN_CHILD + $RUN_CREATE_NEW_CONSOLE)
 
-   $iPID = Run( @scriptname & " /secondprocess " & $sDBName, @WorkingDir, @SW_MINIMIZE, $STDIN_CHILD)
-   if @error then Exit
+   if Not $gcDEBUGDoNotStartSecondProcess then
+	  $iPID = Run( @scriptname & " /secondprocess " & $sDBName, @WorkingDir, @SW_MINIMIZE, $STDIN_CHILD)
+	  if @error then Exit
+   EndIf
 
+   ;_ArrayDisplay($aAllIncDirs)
 
-   ;only these rules must be checkt on the climbtarget (subdirectory)
-   dim $aRelevantRulesForClimbTarget[UBound($gaRuleSet,1)]
-   ;initialize array and mark all rules as relevant (!!! fixme !!!)
-   for $iRuleCounter = 1 to UBound($gaRuleSet,1)-1
-	  $aRelevantRulesForClimbTarget[$iRuleCounter] = True
-   Next
-
-   ;_ArrayDisplay($aRelevantRulesForClimbTarget)
    ;process all dirs in $aAllIncDirs
    for $i=1 to UBound($aAllIncDirs,1)-1
-	  ;ConsoleWrite($aAllIncDirs[$i] & @CRLF)
-	  TreeClimberSecondProcess($aAllIncDirs[$i],$iPID,$aRelevantRulesForClimbTarget)
+	  ;ConsoleWrite($aAllIncDirs[$i] & "\" & @CRLF)
+	  for $iRuleCounter = 1 to UBound($gaRuleStart,1)-1
+		 ;ConsoleWrite($iRuleCounter & @CRLF)
+		 ;_ArrayDisplay($gaRuleStart)
+		 ;_ArrayDisplay($gaRuleSet)
+
+		 if IsClimbTargetByRule($aAllIncDirs[$i] & "\",$iRuleCounter) then
+			$aRelevantRulesForClimbTarget[$iRuleCounter] = True
+		 Else
+			$aRelevantRulesForClimbTarget[$iRuleCounter] = False
+		 EndIf
+	  Next
+	  ;_ArrayDisplay($aRelevantRulesForClimbTarget)
+	  ;_ArrayDisplay($aAllIncDirs)
+	  if Not $gcDEBUGDoNotStartSecondProcess then
+
+		 TreeClimberSecondProcess($aAllIncDirs[$i],$iPID,$aRelevantRulesForClimbTarget)
+	  EndIf
    Next
 
-   StdioClose($iPID)
+   if Not $gcDEBUGDoNotStartSecondProcess then
+	  StdioClose($iPID)
+   EndIf
    ;ConsoleWrite("Duration: " & Round(TimerDiff($ScanTimer)) & @CRLF)
 
    $ScanTimer = Round(TimerDiff($ScanTimer))
 
-   ;wait for "second process" to end
-   ProcessWaitClose($iPID)
-
+   if Not $gcDEBUGDoNotStartSecondProcess then
+	  ;wait for "second process" to end
+	  ProcessWaitClose($iPID)
+   EndIf
    ConsoleWrite("List: " & $ScanTimer & @CRLF)
 
    if $gcDEBUGTimeGetFileInfo = True 			then ConsoleWrite("List-GetFileInfo:         " & Round($giDEBUGTimerGetFileInfo) & @CRLF)
@@ -1649,9 +1676,24 @@ Func DoSecondProcess()
 
 			$sInputBuffer = StringTrimLeft($sInputBuffer,Stringlen($sFullPath)+2)
 
+			$iRuleCounter = Number(StringLeft($sFullPath,5))
+
+			$sFullPath = StringTrimLeft($sFullPath,5)
+
 			;get the file information
 			GetFileInfo($gaFileInfo,$sFullPath)
 
+			;list every file or directory we scan - reading is NOT scanning !!!
+			;ConsoleWrite(GetRulename($gaRule) & " : " & $sStartPath & "\" & $sFileName & @CRLF)
+			$sTempText = GetRulename($iRuleCounter) & " : " & $sFullPath
+			;$sTempText = OEM2ANSI($sTempText) ; translate from OEM to ANSI
+			;DllCall('user32.dll','Int','OemToChar','str',$sTempText,'str','') ; translate from OEM to ANSI
+			if not $gcDEBUGOnlyShowScanBuffer then ConsoleWrite($sTempText & @CRLF)
+
+			_SQLite_Exec(-1,"INSERT INTO filedata (scanid,ruleid,filenameid,status,size,attributes,mtime,ctime,atime,version,crc32,md5,ptime,rattrib,aattrib,sattrib,hattrib,nattrib,dattrib,oattrib,cattrib,tattrib)  values ('" & $giScanId & "', '" & GetRuleIdFromRuleSet($iRuleCounter) & "', '" & GetFilenameIDFromDB(_StringToHex($gaFileInfo[0]),$gaFileInfo[8]) & "','" & $gaFileInfo[1] & "','" & $gaFileInfo[2] & "','" & $gaFileInfo[3] & "','" & $gaFileInfo[4] & "','" & $gaFileInfo[5] & "','" & $gaFileInfo[6] & "','" & $gaFileInfo[7] & "','" & $gaFileInfo[9] & "','" & $gaFileInfo[10] & "','" & $gaFileInfo[11] & "','" & $gaFileInfo[13] & "','" & $gaFileInfo[14] & "','" & $gaFileInfo[15] & "','" & $gaFileInfo[16] & "','" & $gaFileInfo[17] & "','" & $gaFileInfo[18] & "','" & $gaFileInfo[19] & "','" & $gaFileInfo[20] & "','" & $gaFileInfo[21] & "');")
+
+
+#cs
 			; check all the rules on this file / directory
 			for $iRuleCounter = 1 to $iRuleCounterMax
 			   ;GetRuleFromRuleSet($iRuleCounter)
@@ -1667,10 +1709,11 @@ Func DoSecondProcess()
 				  _SQLite_Exec(-1,"INSERT INTO filedata (scanid,ruleid,filenameid,status,size,attributes,mtime,ctime,atime,version,crc32,md5,ptime,rattrib,aattrib,sattrib,hattrib,nattrib,dattrib,oattrib,cattrib,tattrib)  values ('" & $giScanId & "', '" & GetRuleIdFromRuleSet($iRuleCounter) & "', '" & GetFilenameIDFromDB(_StringToHex($gaFileInfo[0]),$gaFileInfo[8]) & "','" & $gaFileInfo[1] & "','" & $gaFileInfo[2] & "','" & $gaFileInfo[3] & "','" & $gaFileInfo[4] & "','" & $gaFileInfo[5] & "','" & $gaFileInfo[6] & "','" & $gaFileInfo[7] & "','" & $gaFileInfo[9] & "','" & $gaFileInfo[10] & "','" & $gaFileInfo[11] & "','" & $gaFileInfo[13] & "','" & $gaFileInfo[14] & "','" & $gaFileInfo[15] & "','" & $gaFileInfo[16] & "','" & $gaFileInfo[17] & "','" & $gaFileInfo[18] & "','" & $gaFileInfo[19] & "','" & $gaFileInfo[20] & "','" & $gaFileInfo[21] & "');")
 			   EndIf
 			Next
+#ce
 		 WEnd
 	  Else
 		 ;no data in stdin, so let´s wait a bid
-		 if $gcDEBUGOnlyShowScanBuffer then ConsoleWrite("** searching **" & @CRLF)
+		 if $gcDEBUGOnlyShowScanBuffer or $gcDEBUGShowEmptyScanBuffer then ConsoleWrite("** searching **" & @CRLF)
 		 sleep(1000)
 		 $iIdleCounter += 1
 	  EndIf
@@ -2479,6 +2522,7 @@ Func GetRulename($iRuleNumber)
    ;--------------------
 
    local $sRulename = ""
+   #cs
    local $iMax = UBound($gaRuleSet,1)-1
 
    for $i = $gaRuleStart[$iRuleNumber] to $iMax
@@ -2487,7 +2531,8 @@ Func GetRulename($iRuleNumber)
 	  ;$gaRule[$i][1]
 	  if $gaRuleSet[$i][0] = "Rule:" then $sRulename = $gaRuleSet[$i][1]
    Next
-
+   #ce
+   $sRulename = $gaRuleSet[$gaRuleStart[$iRuleNumber]][1]
    return $sRulename
 EndFunc
 
@@ -3112,20 +3157,24 @@ Func TreeClimberSecondProcess($sStartPath,$iPID,$aRelevantRules)
 		 if $iIsDirectory Then
 			;it is a directory
 			if IsIncludedByRule($sFullPath & "\",$iRuleCounter) then
-			   $iScanFile = True
-			   ExitLoop
+			   ;$iScanFile = True
+			   ;ExitLoop
+			   StdinWrite($iPID,StringFormat("%5i%s",$iRuleCounter,$sFullPath & "\") & @CRLF)
+			   if @error then Exit
 			EndIf
 		 Else
 			;it is a file
 			if IsIncludedByRule($sFullPath,$iRuleCounter) then
-			   $iScanFile = True
-			   ExitLoop
+			   ;$iScanFile = True
+			   ;ExitLoop
+			   StdinWrite($iPID,StringFormat("%5i%s",$iRuleCounter,$sFullPath) & @CRLF)
+			   if @error then Exit
 			EndIf
 		 EndIf
 	  Next
 
 
-
+#cs
 	  ;write $sFullPath to stdin of second process
 	  if $iScanFile then
 
@@ -3138,6 +3187,7 @@ Func TreeClimberSecondProcess($sStartPath,$iPID,$aRelevantRules)
 			if @error then Exit
 		 EndIf
 	  EndIf
+#ce
    WEnd
 
    ; Close the search handle.
