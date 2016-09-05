@@ -108,6 +108,7 @@ Changelog
 			remove GetAllRulenamesFromDB()
 			rename all global variables to $gTypeVariablename
 3.3.1.7		DoReport(): delete comments with $gaRulenames
+3.3.1.8		DoScanWithSecondProcess(),TreeClimberSecondProcess(): Only check relevant rules on the current file or directory (performance !)
 
 
 #ce
@@ -188,8 +189,8 @@ End
 #pragma compile(UPX, False)
 
 ;Set file infos
-#pragma compile(ProductVersion,"3.3.1.7")
-#pragma compile(FileVersion,"3.3.1.7")
+#pragma compile(ProductVersion,"3.3.1.8")
+#pragma compile(FileVersion,"3.3.1.8")
 ;Versioning: "Incompatible changes to DB"."new feature"."bug fix"."minor fix"
 
 #pragma compile(FileDescription,"Spot The Difference")
@@ -1438,7 +1439,7 @@ Func DoScanWithSecondProcess($sDBName)
    local $iFound = False
    Local $iPID = 0						;process id of second process
    local $ScanTimer = TimerInit()
-
+   local $iRuleCounter = 0
    local $aAllIncDirs[1]				;all the root directries we have to include
 
    GetRuleSetFromDB()
@@ -1482,10 +1483,23 @@ Func DoScanWithSecondProcess($sDBName)
    $iPID = Run( @scriptname & " /secondprocess " & $sDBName, @WorkingDir, @SW_MINIMIZE, $STDIN_CHILD)
    if @error then Exit
 
+   ;only these rules must be checkt on the climbtarget (subdirectory)
+   dim $aRelevantRulesForClimbTarget[UBound($gaRuleSet,1)]
+
    ;process all dirs in $aAllIncDirs
    for $i=1 to UBound($aAllIncDirs,1)-1
 	  ;ConsoleWrite($aAllIncDirs[$i] & @CRLF)
-	  TreeClimberSecondProcess($aAllIncDirs[$i],$iPID)
+	  for $iRuleCounter = 1 to UBound($gaRuleSet,1)-1
+		 ;GetRuleFromRuleSet($iRuleCounter)
+		 ;_ArrayDisplay($gaRule)
+		 ;ConsoleWrite("TreeClimber: " & $sFullPath & "\" & " : " & $iIsClimbTarget & @CRLF)
+		 if IsClimbTargetByRule($aAllIncDirs[$i],$iRuleCounter) then
+			$aRelevantRulesForClimbTarget[$iRuleCounter] = True
+
+		 EndIf
+	  Next
+
+	  TreeClimberSecondProcess($aAllIncDirs[$i],$iPID,$aRelevantRulesForClimbTarget)
    Next
 
    StdioClose($iPID)
@@ -2991,7 +3005,7 @@ Func OutputLineOfQueryResult(ByRef $aQueryResult,$ReportFilename)
 EndFunc
 
 
-Func TreeClimberSecondProcess($sStartPath,$iPID)
+Func TreeClimberSecondProcess($sStartPath,$iPID,$aRelevantRules)
 
    ;read any directory entry in $sStartPath and its subdirectories
    ;and scan according to %aRule
@@ -3027,6 +3041,9 @@ Func TreeClimberSecondProcess($sStartPath,$iPID)
    $iRuleCounterMax = GetNumberOfRulesFromRuleSet()
    ;ConsoleWrite("TreeClimber: " & $iRuleCounterMax & @CRLF)
 
+   ;only these rules must be checkt on the climbtarget (subdirectory)
+   dim $aRelevantRulesForClimbTarget[$iRuleCounterMax+1]
+
    ; Assign a Local variable the empty string which will contain the files names found.
    Local $sFileName = ""
 
@@ -3051,6 +3068,7 @@ Func TreeClimberSecondProcess($sStartPath,$iPID)
 			;_ArrayDisplay($gaRule)
 			;ConsoleWrite("TreeClimber: " & $sFullPath & "\" & " : " & $iIsClimbTarget & @CRLF)
 			if IsClimbTargetByRule($sFullPath & "\",$iRuleCounter) then
+			   $aRelevantRulesForClimbTarget[$iRuleCounter] = True
 			   $iIsClimbTarget = True
 			EndIf
 		 Next
@@ -3061,13 +3079,16 @@ Func TreeClimberSecondProcess($sStartPath,$iPID)
 			;count number of "\" in current path
 			StringReplace($sFullPath,"\","")
 			$giCurrentDirBackslashCount = @extended
-			TreeClimberSecondProcess($sFullPath,$iPID)
+			TreeClimberSecondProcess($sFullPath,$iPID,$aRelevantRulesForClimbTarget)
 		 EndIf
 	  EndIf
 
 	  ; check all the rules on this file / directory
 	  for $iRuleCounter = 1 to $iRuleCounterMax
 		 ;GetRuleFromRuleSet($iRuleCounter)
+
+		 ;check only relevant rules for this directory
+		 if $aRelevantRules[$iRuleCounter] = False then ContinueLoop
 
 		 ;check if current directory entry should be scanned according to the current rule
 		 if $iIsDirectory Then
