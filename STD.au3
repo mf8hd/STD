@@ -109,6 +109,7 @@ Changelog
 			rename all global variables to $gTypeVariablename
 3.3.1.7		DoReport(): delete comments with $gaRulenames
 3.3.1.8		DoScanWithSecondProcess(),TreeClimberSecondProcess(): Only check relevant rules on the current file or directory (performance !)
+			   Ininially all rules are relevant -> fixme this is not true but IsClimbTarget() works only with $aRuleSet !!!
 
 
 #ce
@@ -223,11 +224,11 @@ global const $gcDEBUGOnlyShowScanBuffer = False		;show only "searching" and buff
 global const $gcDEBUGShowVisitedDirectories = False	;show visited directories during scan !
 
 ;Profiler
-global const $gcDEBUGTimeGetFileInfo = False
-global const $gcDEBUGTimeGetRuleFromRuleSet = False
-global const $gcDEBUGTimeIsExecutable = False
-global const $gcDEBUGTimeIsIncludedByRule = False
-global const $gcDEBUGTimeIsClimbTargetByRule = False
+global const $gcDEBUGTimeGetFileInfo = True
+global const $gcDEBUGTimeGetRuleFromRuleSet = True
+global const $gcDEBUGTimeIsExecutable = True
+global const $gcDEBUGTimeIsIncludedByRule = True
+global const $gcDEBUGTimeIsClimbTargetByRule = True
 
 global $giDEBUGTimerGetFileInfo = 0
 global $giDEBUGTimerGetRuleFromRuleSet = 0
@@ -1478,27 +1479,27 @@ Func DoScanWithSecondProcess($sDBName)
 
    ;_ArrayDisplay($aAllIncDirs)
 
+
+
+
    ;start the second process we send the filelist to
    ;$iPID = Run( @scriptname & " /secondprocess " & $sDBName, @WorkingDir, @SW_MINIMIZE, $STDIN_CHILD + $RUN_CREATE_NEW_CONSOLE)
+
    $iPID = Run( @scriptname & " /secondprocess " & $sDBName, @WorkingDir, @SW_MINIMIZE, $STDIN_CHILD)
    if @error then Exit
 
+
    ;only these rules must be checkt on the climbtarget (subdirectory)
    dim $aRelevantRulesForClimbTarget[UBound($gaRuleSet,1)]
+   ;initialize array and mark all rules as relevant (!!! fixme !!!)
+   for $iRuleCounter = 1 to UBound($gaRuleSet,1)-1
+	  $aRelevantRulesForClimbTarget[$iRuleCounter] = True
+   Next
 
+   ;_ArrayDisplay($aRelevantRulesForClimbTarget)
    ;process all dirs in $aAllIncDirs
    for $i=1 to UBound($aAllIncDirs,1)-1
 	  ;ConsoleWrite($aAllIncDirs[$i] & @CRLF)
-	  for $iRuleCounter = 1 to UBound($gaRuleSet,1)-1
-		 ;GetRuleFromRuleSet($iRuleCounter)
-		 ;_ArrayDisplay($gaRule)
-		 ;ConsoleWrite("TreeClimber: " & $sFullPath & "\" & " : " & $iIsClimbTarget & @CRLF)
-		 if IsClimbTargetByRule($aAllIncDirs[$i],$iRuleCounter) then
-			$aRelevantRulesForClimbTarget[$iRuleCounter] = True
-
-		 EndIf
-	  Next
-
 	  TreeClimberSecondProcess($aAllIncDirs[$i],$iPID,$aRelevantRulesForClimbTarget)
    Next
 
