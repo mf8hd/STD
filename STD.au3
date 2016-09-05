@@ -110,6 +110,8 @@ Changelog
 3.3.1.7		DoReport(): delete comments with $gaRulenames
 3.3.1.8		DoScanWithSecondProcess(),TreeClimberSecondProcess(): Only check relevant rules on the current file or directory (performance !)
 			   Ininially all rules are relevant -> fixme this is not true but IsClimbTarget() works only with $aRuleSet !!!
+			$gcDEBUG: Main switch for debug output.
+
 
 
 #ce
@@ -220,21 +222,36 @@ End
 global const $gcVersion = FileGetVersion(@ScriptName,"ProductVersion")
 global const $gcScannameLimit = 65535				;max number of scannames resturnd from the DB
 ;Debug
-global const $gcDEBUGOnlyShowScanBuffer = False		;show only "searching" and buffersize during scan !
-global const $gcDEBUGShowVisitedDirectories = False	;show visited directories during scan !
+global const $gcDEBUG = False						;master switch for debug output
+
+global $gcDEBUGOnlyShowScanBuffer = False		;show only "searching" and buffersize during scan !
+global $gcDEBUGShowVisitedDirectories = False	;show visited directories during scan !
 
 ;Profiler
-global const $gcDEBUGTimeGetFileInfo = True
-global const $gcDEBUGTimeGetRuleFromRuleSet = True
-global const $gcDEBUGTimeIsExecutable = True
-global const $gcDEBUGTimeIsIncludedByRule = True
-global const $gcDEBUGTimeIsClimbTargetByRule = True
+global $gcDEBUGTimeGetFileInfo = True
+global $gcDEBUGTimeGetRuleFromRuleSet = True
+global $gcDEBUGTimeIsExecutable = True
+global $gcDEBUGTimeIsIncludedByRule = True
+global $gcDEBUGTimeIsClimbTargetByRule = True
 
 global $giDEBUGTimerGetFileInfo = 0
 global $giDEBUGTimerGetRuleFromRuleSet = 0
 global $giDEBUGTimerIsExecutable = 0
 global $giDEBUGTimerIsIncludedByRule = 0
 global $giDEBUGTimerIsClimbTargetByRule = 0
+
+if $gcDEBUG = False Then
+   $gcDEBUGOnlyShowScanBuffer = False
+   $gcDEBUGShowVisitedDirectories = False
+
+   $gcDEBUGTimeGetFileInfo = False
+   $gcDEBUGTimeGetRuleFromRuleSet = False
+   $gcDEBUGTimeIsExecutable = False
+   $gcDEBUGTimeIsIncludedByRule = False
+   $gcDEBUGTimeIsClimbTargetByRule = False
+EndIf
+
+
 
 
 ;Compile options
