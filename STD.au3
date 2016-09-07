@@ -109,7 +109,7 @@ Changelog
 			rename all global variables to $gTypeVariablename
 3.3.1.7		DoReport(): delete comments with $gaRulenames
 3.3.1.8		DoScanWithSecondProcess(),TreeClimberSecondProcess(): Only check relevant rules on the current file or directory (performance !)
-			   Ininially all rules are relevant -> fixme this is not true but IsClimbTarget() works only with $aRuleSet !!!
+			   Initially all rules are relevant -> fixme this is not true but IsClimbTarget() works only with $aRuleSet !!!
 			$gcDEBUG: Main switch for debug output.
 3.3.1.9		DoScanWithSecondProcess(): $aRelevantRulesForClimbTarget is set corrently for the initial directories too.
 			$gcDEBUGDoNotStartSecondProcess: Debug - run only the list process and do not start the scan process
@@ -123,6 +123,12 @@ Changelog
 			rename $gaRuleExtensions[] to $gaRuleData[] and add $gcNoHashes,$gcExcDirs,$gcHasExcDir
 			IsIncludedByRule(),IsClimbTargetByRule(): search for "ExcDir:" or "ExcDirRec:" only if the rule has these statements
 			new statement NoHashes in CONFIGFILE
+3.5.0.0		show debug settings in DoShowVersion()
+			DoReport(): read email options from $aRuleSet and not from table "config"
+			DoReport(): compare any two scans, given as parameters
+			help extended
+			DoReport(),OutputLineOfQueryResultHeadline(): beautify report
+			allways check if DB file exists
 
 
 #ce
@@ -147,12 +153,12 @@ ToDo:
 	  - record total scan time and save it in DB
 	  done - /scan2 use
 	  done - help for /history is missing
-	  - allways check if DB-file exists !
-	  - mail report: email options should be read from $aRuleSet and not from table "config"
+	  done - allways check if DB-file exists !
+	  done - mail report: email options should be read from $aRuleSet and not from table "config"
 	  - use a spellchecker on source code
-	  - /scan : eliminate IsExecutable() in second process (performance !)
+	  done - /scan : eliminate IsExecutable() in second process (performance !)
 	  - /delete : sqlite "vacuum" copies DB content to a new file. Check for diskspace !
-	  - /report : compare any two scans, given as parameters
+	  done - /report : compare any two scans, given as parameters
 	  - rename statements "IncDirRec:" and "ExcDirRec:" to "IncDirSub:" and "ExcDirSub:" (?)
 	  done - /duplicates : show duplicate files in DB based on status = 0, size, crc32 and md5
 	  - redesign DB : there is a row of data in table 'filedata' for every rule ! (redundant !)
@@ -203,8 +209,8 @@ End
 #pragma compile(UPX, False)
 
 ;Set file infos
-#pragma compile(ProductVersion,"3.4.0.0")
-#pragma compile(FileVersion,"3.4.0.0")
+#pragma compile(ProductVersion,"3.5.0.0")
+#pragma compile(FileVersion,"3.5.0.0")
 ;Versioning: "Incompatible changes to DB"."new feature"."bug fix"."minor fix"
 
 #pragma compile(FileDescription,"Spot The Difference")
@@ -388,12 +394,15 @@ select
 	  ;$sDBName = $CmdLine[2]
 	  ;$sScanname = $CmdLine[3]
 
-	  OpenDB($CmdLine[2])
+	  if FileExists($CmdLine[2]) then
+		 OpenDB($CmdLine[2])
 
-	  DoDuplicates($CmdLine[3])
+		 DoDuplicates($CmdLine[3])
 
-	  CloseDB()
-
+		 CloseDB()
+	  Else
+		 ConsoleWriteError("Error:" & @CRLF & "Database file not found !" & @CRLF & "Filename:" & $CmdLine[2])
+	  EndIf
 
    Case $CmdLine[1] = "/exportscan"
 	  if $CmdLine[0] < 4 then
@@ -405,11 +414,15 @@ select
 	  ;$sScanname = $CmdLine[3]
 	  ;$sCSVFilename = $CmdLine[4]
 
-	  OpenDB($CmdLine[2])
+	  if FileExists($CmdLine[2]) then
+		 OpenDB($CmdLine[2])
 
-	  DoExportScan($CmdLine[3],$CmdLine[4])
+		 DoExportScan($CmdLine[3],$CmdLine[4])
 
-	  CloseDB()
+		 CloseDB()
+	  Else
+		 ConsoleWriteError("Error:" & @CRLF & "Database file not found !" & @CRLF & "Filename:" & $CmdLine[2])
+	  EndIf
 
    Case $CmdLine[1] = "/importcfg"
 	  if $CmdLine[0] < 3 then
@@ -435,11 +448,15 @@ select
 	  ;$sDBName = $CmdLine[2]
 	  ;$ConfigFilename = $CmdLine[3]
 
-	  OpenDB($CmdLine[2])
+	  if FileExists($CmdLine[2]) then
+		 OpenDB($CmdLine[2])
 
-	  DoExportCfg($CmdLine[3])
+		 DoExportCfg($CmdLine[3])
 
-	  CloseDB()
+		 CloseDB()
+	  Else
+		 ConsoleWriteError("Error:" & @CRLF & "Database file not found !" & @CRLF & "Filename:" & $CmdLine[2])
+	  EndIf
 
    Case $CmdLine[1] = "/validate"
 	  if $CmdLine[0] < 3 then
@@ -450,11 +467,15 @@ select
 	  ;$sDBName = $CmdLine[2]
 	  ;$sScanname = $CmdLine[3]
 
-	  OpenDB($CmdLine[2])
+	  if FileExists($CmdLine[2]) then
+		 OpenDB($CmdLine[2])
 
-	  DoValidateScan($CmdLine[3])
+		 DoValidateScan($CmdLine[3])
 
-	  CloseDB()
+		 CloseDB()
+	  Else
+		 ConsoleWriteError("Error:" & @CRLF & "Database file not found !" & @CRLF & "Filename:" & $CmdLine[2])
+	  EndIf
 
 
    Case $CmdLine[1] = "/invalidate"
@@ -466,11 +487,15 @@ select
 	  ;$sDBName = $CmdLine[2]
 	  ;$sScanname = $CmdLine[3]
 
-	  OpenDB($CmdLine[2])
+	  if FileExists($CmdLine[2]) then
+		 OpenDB($CmdLine[2])
 
-	  DoInvalidateScan($CmdLine[3])
+		 DoInvalidateScan($CmdLine[3])
 
-	  CloseDB()
+		 CloseDB()
+	  Else
+		 ConsoleWriteError("Error:" & @CRLF & "Database file not found !" & @CRLF & "Filename:" & $CmdLine[2])
+	  EndIf
 
 
    Case $CmdLine[1] = "/delete"
@@ -482,11 +507,15 @@ select
 	  ;$sDBName = $CmdLine[2]
 	  ;$sScanname = $CmdLine[3]
 
-	  OpenDB($CmdLine[2])
+	  if FileExists($CmdLine[2]) then
+		 OpenDB($CmdLine[2])
 
-	  DoDeleteScan($CmdLine[3])
+		 DoDeleteScan($CmdLine[3])
 
-	  CloseDB()
+		 CloseDB()
+	  Else
+		 ConsoleWriteError("Error:" & @CRLF & "Database file not found !" & @CRLF & "Filename:" & $CmdLine[2])
+	  EndIf
 
 
    Case $CmdLine[1] = "/history"
@@ -499,11 +528,15 @@ select
 	  ;$sDBName = $CmdLine[2]
 	  ;SEARCHSTRING = $CmdLine[3]
 
-	  OpenDB($CmdLine[2])
+	  if FileExists($CmdLine[2]) then
+		 OpenDB($CmdLine[2])
 
-	  DoHistory($CmdLine[3])
+		 DoHistory($CmdLine[3])
 
-	  CloseDB()
+		 CloseDB()
+	  Else
+		 ConsoleWriteError("Error:" & @CRLF & "Database file not found !" & @CRLF & "Filename:" & $CmdLine[2])
+	  EndIf
 
 
    Case $CmdLine[1] = "/list"
@@ -512,11 +545,16 @@ select
 		 exit (1)
 	  EndIf
 	  ;$sDBName = $CmdLine[2]
-	  OpenDB($CmdLine[2])
 
-	  DoListScan()
+	  if FileExists($CmdLine[2]) then
+		 OpenDB($CmdLine[2])
 
-	  CloseDB()
+		 DoListScan()
+
+		 CloseDB()
+	  Else
+		 ConsoleWriteError("Error:" & @CRLF & "Database file not found !" & @CRLF & "Filename:" & $CmdLine[2])
+	  EndIf
 
 
    Case $CmdLine[1] = "/secondprocess"
@@ -527,11 +565,15 @@ select
 
 	  ;$sDBName = $CmdLine[2]
 
-	  OpenDB($CmdLine[2])
+	  if FileExists($CmdLine[2]) then
+		 OpenDB($CmdLine[2])
 
-	  DoSecondProcess()
+		 DoSecondProcess()
 
-	  CloseDB()
+		 CloseDB()
+	  Else
+		 ConsoleWriteError("Error:" & @CRLF & "Database file not found !" & @CRLF & "Filename:" & $CmdLine[2])
+	  EndIf
 
 
    Case $CmdLine[1] = "/scan"
@@ -544,18 +586,48 @@ select
 	  if @Compiled or $gcDEBUGRunWithoutCompilation Then
 		 ;$sDBName = $CmdLine[2]
 
-		 OpenDB($CmdLine[2])
+		 if FileExists($CmdLine[2]) then
+			OpenDB($CmdLine[2])
 
-		 DoScanWithSecondProcess($CmdLine[2])
+			DoScanWithSecondProcess($CmdLine[2])
 
-		 CloseDB()
+			CloseDB()
+		 Else
+			ConsoleWriteError("Error:" & @CRLF & "Database file not found !" & @CRLF & "Filename:" & $CmdLine[2])
+		 EndIf
 	  Else
 		 ConsoleWriteError("For the " & $CmdLine[1] & " command to work " & @ScriptName & " must be compiled !")
 	  EndIf
 
    Case $CmdLine[1] = "/report"
 
-	  if $CmdLine[0] < 3 then
+	  if $CmdLine[0] = 3 then
+		 ;@ScriptName /report report.txt
+
+		 if FileExists($CmdLine[2]) then
+			OpenDB($CmdLine[2])
+
+			DoReport($CmdLine[3])
+
+			CloseDB()
+		 Else
+			ConsoleWriteError("Error:" & @CRLF & "Database file not found !" & @CRLF & "Filename:" & $CmdLine[2])
+		 EndIf
+
+	  elseif $CmdLine[0] = 5 then
+		 ;@ScriptName /report OLDSCANNAME NEWSCANNAME report.txt
+
+		 if FileExists($CmdLine[2]) then
+			OpenDB($CmdLine[2])
+
+			DoReport($CmdLine[5],$CmdLine[3],$CmdLine[4])
+
+			CloseDB()
+		 Else
+			ConsoleWriteError("Error:" & @CRLF & "Database file not found !" & @CRLF & "Filename:" & $CmdLine[2])
+		 EndIf
+
+	  Else
 		 DoShowUsage()
 		 exit (1)
 	  EndIf
@@ -563,11 +635,6 @@ select
 	  ;$sDBName = $CmdLine[2]
 	  ;$ReportFilename = $CmdLine[3]
 
-	  OpenDB($CmdLine[2])
-
-	  DoReport($CmdLine[3])
-
-	  CloseDB()
 
    Case $CmdLine[1] = "/help"
 	  DoShowHelp()
@@ -805,7 +872,7 @@ Func DoDeleteScan($sScanname)
 EndFunc
 
 
-Func DoReport($ReportFilename)
+Func DoReport($ReportFilename,$sScannameOld = "lastvalid",$sScannameNew = "last")
    local $rc = 0				;mailer return code
    local $iEmailReport = False	;send report per email (smtp)
    local $sEMailBody = ""		;bodytext of email
@@ -818,8 +885,8 @@ Func DoReport($ReportFilename)
    $aEMail[3]		;name of smtp server (hostname or ip-address)
    $aEMail[4]		;smtp port on SMTPSERVERNAME, defaults to 25
 #ce
-   local $sScannameOld = ""
-   local $sScannameNew = ""
+   ;local $sScannameOld = ""
+   ;local $sScannameNew = ""
 
    local $aQueryResult = 0	;result of a query
    local $hQuery = 0		;handle to a query
@@ -832,9 +899,13 @@ Func DoReport($ReportFilename)
    local $iTempCount = ""	;
 
    local $i = 0
+   local $iCountMax = 0
+   local $iCountMin = 0
 
    local $sTempSQL = ""
+   local $iRuleNumber = 0
 
+   local $iHasRuleHeader = False	;headline for each rule ist already printed
 
    GetRuleSetFromDB()
 
@@ -895,30 +966,36 @@ Func DoReport($ReportFilename)
 
 
 
-   $sScannameNew = ""
+   ;$sScannameNew = ""
    $aQueryResult = 0
-   if GetScannamesFromDB("last",$aQueryResult) Then
+   if GetScannamesFromDB($sScannameNew,$aQueryResult) Then
 	  ;_ArrayDisplay($aQueryResult)
 	  $sScannameNew = $aQueryResult[2]
+   Else
+	  ConsoleWrite("Error:" & @CRLF & "New scan does not exist" & @CRLF & "Scan name: " & $sScannameNew)
+	  $sScannameNew = ""
    EndIf
 
-   $sScannameOld = ""
+   ;$sScannameOld = ""
    $aQueryResult = 0
-   if GetScannamesFromDB("lastvalid",$aQueryResult) Then
+   if GetScannamesFromDB($sScannameOld,$aQueryResult) Then
 	  ;_ArrayDisplay($aQueryResult)
 	  $sScannameOld = $aQueryResult[2]
+   Else
+	  ConsoleWrite("Error:" & @CRLF & "Old scan does not exist" & @CRLF & "Scan name: " & $sScannameOld)
+	  $sScannameOld = ""
    EndIf
 
 
    if $sScannameOld = "" Then
-	  ConsoleWrite("Error:" & @CRLF & "Old scan does not exist" & @CRLF & "Scan name: " & $sScannameOld)
+	  ;ConsoleWrite("Error:" & @CRLF & "Old scan does not exist" & @CRLF & "Scan name: " & $sScannameOld)
    ElseIf $sScannameNew = "" Then
-	  ConsoleWrite("Error:" & @CRLF & "New scan does not exist" & @CRLF & "Scan name: " & $sScannameNew)
+	  ;ConsoleWrite("Error:" & @CRLF & "New scan does not exist" & @CRLF & "Scan name: " & $sScannameNew)
    else
 
 	  ;build temp tables (they are much faster than views in sqlite)
 
-	  ConsoleWrite("Generating report for old:" & $sScannameOld & " <-> new:" & $sScannameNew)
+	  ConsoleWrite("report for old scan """ & $sScannameOld & """ and new scan """ & $sScannameNew & """")
 
 	  _SQLite_Exec(-1,"CREATE TEMPORARY TABLE scannew as " & $sTempSQL & " AND scans.scantime = '" & $sScannameNew & "';")
 	  _SQLite_Exec(-1,"CREATE TEMPORARY TABLE scanold as " & $sTempSQL & " AND scans.scantime = '" & $sScannameOld & "';")
@@ -927,13 +1004,14 @@ Func DoReport($ReportFilename)
 
 	  if GetNumberOfRulesFromRuleSet() > 0 Then
 
-		 FileWriteLine($ReportFilename,@CRLF & "report for old scan:" & $sScannameOld & " <-> new scan:" & $sScannameNew & @CRLF)
+		 FileWriteLine($ReportFilename,@CRLF & "STD - Spot The Difference - v" & $gcVersion & @CRLF)
+		 FileWriteLine($ReportFilename,"report for old scan """ & $sScannameOld & """ and new scan """ & $sScannameNew & """" & @CRLF)
 		 FileWriteLine($ReportFilename,"generated: " & @YEAR & "." & @MON & "." & @MDAY & " " & @HOUR & ":" & @MIN & ":" & @SEC & @CRLF)
 		 FileWriteLine($ReportFilename,@CRLF & "======================================================================" & @CRLF)
 
 		 $sTempText = ""
 		 FileWriteLine($ReportFilename,StringFormat(@CRLF & "%-40s %7s %7s %7s","rulename","changed","new","missing"))
-		 FileWriteLine($ReportFilename,StringFormat("%-40s %7s %7s %7s","--------","-------","-------","-------"))
+		 FileWriteLine($ReportFilename,StringFormat("%-40s %7s %7s %7s","----------------------------------------","-------","-------","-------"))
 
 		 ;summery per rule
 		 for $i = 1 to GetNumberOfRulesFromRuleSet()
@@ -1024,7 +1102,10 @@ Func DoReport($ReportFilename)
 		 ;list per rule
 		 for $i = 1 to GetNumberOfRulesFromRuleSet()
 
-			FileWriteLine($ReportFilename,@crlf & "---- rule: " & GetRulename($i) & " ----")
+			$iHasRuleHeader = False
+			;FileWriteLine($ReportFilename,@crlf & "----------------------------------------------------------------------")
+			;FileWriteLine($ReportFilename,"rule     : " & GetRulename($i))
+			;FileWriteLine($ReportFilename,"----------------------------------------------------------------------" & @CRLF)
 
 			;return scan differences
 			$aQueryResult = 0
@@ -1067,6 +1148,10 @@ Func DoReport($ReportFilename)
 			_SQLite_Query(-1, $sTempSQL,$hQuery)
 			While _SQLite_FetchData($hQuery, $aQueryResult) = $SQLITE_OK
 			   ;OutputLineOfQueryResult($aQueryResult,$ReportFilename)
+			   if not $iHasRuleHeader then
+				  OutputLineOfQueryResultHeadline($i,$ReportFilename)
+				  $iHasRuleHeader = True
+			   EndIf
 			   FileWriteLine($ReportFilename,StringFormat("%-8s : %s","changed",_HexToString($aQueryResult[0])))
 			WEnd
 			_SQLite_QueryFinalize($hQuery)
@@ -1077,6 +1162,10 @@ Func DoReport($ReportFilename)
 			_SQLite_Query(-1,"SELECT scannew.path FROM scannew LEFT JOIN scanold ON scannew.path = scanold.path and scannew.rulename = scanold.rulename WHERE scannew.rulename = '" & GetRulename($i) & "' and scanold.path IS NULL;" ,$hQuery)
 			While _SQLite_FetchData($hQuery, $aQueryResult) = $SQLITE_OK
 			   ;OutputLineOfQueryResult($aQueryResult,$ReportFilename)
+			   if not $iHasRuleHeader then
+				  OutputLineOfQueryResultHeadline($i,$ReportFilename)
+				  $iHasRuleHeader = True
+			   EndIf
 			   FileWriteLine($ReportFilename,StringFormat("%-8s : %s","new",_HexToString($aQueryResult[0])))
 			WEnd
 			_SQLite_QueryFinalize($hQuery)
@@ -1087,6 +1176,10 @@ Func DoReport($ReportFilename)
 			_SQLite_Query(-1,"SELECT scanold.path FROM scanold LEFT JOIN scannew ON scannew.path = scanold.path and scannew.rulename = scanold.rulename WHERE scanold.rulename = '" & GetRulename($i) & "' and scannew.path IS NULL;",$hQuery)
 			While _SQLite_FetchData($hQuery, $aQueryResult) = $SQLITE_OK
 			   ;OutputLineOfQueryResult($aQueryResult,$ReportFilename)
+			   if not $iHasRuleHeader then
+				  OutputLineOfQueryResultHeadline($i,$ReportFilename)
+				  $iHasRuleHeader = True
+			   EndIf
 			   FileWriteLine($ReportFilename,StringFormat("%-8s : %s","missing",_HexToString($aQueryResult[0])))
 			WEnd
 			_SQLite_QueryFinalize($hQuery)
@@ -1097,7 +1190,10 @@ Func DoReport($ReportFilename)
 		 ;details per rule
 		 for $i = 1 to GetNumberOfRulesFromRuleSet()
 
-			FileWriteLine($ReportFilename,@crlf & "---- rule: " & GetRulename($i) & " ----")
+			$iHasRuleHeader = False
+			;FileWriteLine($ReportFilename,@crlf & "----------------------------------------------------------------------")
+			;FileWriteLine($ReportFilename,"rule     : " & GetRulename($i))
+			;FileWriteLine($ReportFilename,"----------------------------------------------------------------------" & @CRLF)
 
 			;return scan differences
 			$aQueryResult = 0
@@ -1139,6 +1235,10 @@ Func DoReport($ReportFilename)
 
 			_SQLite_Query(-1, $sTempSQL,$hQuery)
 			While _SQLite_FetchData($hQuery, $aQueryResult) = $SQLITE_OK
+			   if not $iHasRuleHeader then
+				  OutputLineOfQueryResultHeadline($i,$ReportFilename)
+				  $iHasRuleHeader = True
+			   EndIf
 			   OutputLineOfQueryResult($aQueryResult,$ReportFilename)
 			WEnd
 			_SQLite_QueryFinalize($hQuery)
@@ -1148,6 +1248,10 @@ Func DoReport($ReportFilename)
 			$hQuery = 0
 			_SQLite_Query(-1,"SELECT scanold.*,scannew.* FROM scannew LEFT JOIN scanold ON scannew.path = scanold.path and scannew.rulename = scanold.rulename WHERE scannew.rulename = '" & GetRulename($i) & "' and scanold.path IS NULL;" ,$hQuery)
 			While _SQLite_FetchData($hQuery, $aQueryResult) = $SQLITE_OK
+			   if not $iHasRuleHeader then
+				  OutputLineOfQueryResultHeadline($i,$ReportFilename)
+				  $iHasRuleHeader = True
+			   EndIf
 			   OutputLineOfQueryResult($aQueryResult,$ReportFilename)
 			WEnd
 			_SQLite_QueryFinalize($hQuery)
@@ -1157,6 +1261,10 @@ Func DoReport($ReportFilename)
 			$hQuery = 0
 			_SQLite_Query(-1,"SELECT scanold.*,scannew.* FROM scanold LEFT JOIN scannew ON scannew.path = scanold.path and scannew.rulename = scanold.rulename WHERE scanold.rulename = '" & GetRulename($i) & "' and scannew.path IS NULL;",$hQuery)
 			While _SQLite_FetchData($hQuery, $aQueryResult) = $SQLITE_OK
+   			   if not $iHasRuleHeader then
+				  OutputLineOfQueryResultHeadline($i,$ReportFilename)
+				  $iHasRuleHeader = True
+			   EndIf
 			   OutputLineOfQueryResult($aQueryResult,$ReportFilename)
 			WEnd
 			_SQLite_QueryFinalize($hQuery)
@@ -1176,6 +1284,7 @@ Func DoReport($ReportFilename)
 
 
 	  ;read email parameters from table config
+#cs
 	  $aCfgQueryResult = 0
 	  $hCfgQuery = 0
 	  _SQLite_Query(-1, "SELECT line FROM config ORDER BY linenumber ASC;",$hCfgQuery)
@@ -1225,6 +1334,35 @@ Func DoReport($ReportFilename)
 
 	  WEnd
 	  _SQLite_QueryFinalize($hCfgQuery)
+#ce
+
+	  ;read email parameters from $gaRuleSet
+	  $iRuleNumber = 0
+	  $iCountMax = UBound($gaRuleSet,1)-1
+	  $iCountMin = 1
+
+	  for $i = $iCountMin to $iCountMax
+		 if $gaRuleSet[$i][2] = $iRuleNumber then
+;			if $gaRuleSet[$i][0] = "RuleId:" then $sRuleId = $gaRuleSet[$i][1]
+			Select
+			   Case $gaRuleSet[$i][0] = "EmailFrom:"
+				  $aEMail[0] = $gaRuleSet[$i][1]
+			   Case $gaRuleSet[$i][0] = "EmailTo:"
+				  $aEMail[1] = $gaRuleSet[$i][1]
+			   Case $gaRuleSet[$i][0] = "EmailSubject:"
+				  $aEMail[2] = $gaRuleSet[$i][1]
+			   Case $gaRuleSet[$i][0] = "EmailServer:"
+				  $aEMail[3] = $gaRuleSet[$i][1]
+			   Case $gaRuleSet[$i][0] = "EmailPort:"
+				  $aEMail[4] = $gaRuleSet[$i][1]
+			   case Else
+			EndSelect
+
+		 Else
+			ExitLoop
+		 EndIf
+	  Next
+
 
 	  ;send email
 	  $sEMailBody = "STD Report"
@@ -1642,7 +1780,7 @@ Func DoShowHelp()
 
    local $sText = ""
 
-   $sText &= "Spot The Difference (" & $gcVersion & ")" & @CRLF
+   $sText &= "STD - Spot The Difference (" & $gcVersion & ")" & @CRLF
    $sText &= "A poor mans file integrity checker." & @CRLF
    $sText &= @CRLF
    $sText &= "Prerequisites:" & @CRLF
@@ -1672,10 +1810,15 @@ Func DoShowHelp()
    $sText &= "and insert directory and/or file information into DB" & @CRLF
 
    $sText &= @CRLF
-   $sText &= @ScriptName & " /report DB REPORTFILE" & @CRLF
+   $sText &= @ScriptName & " /report DB [OLDSCANNAME NEWSCANNAME] REPORTFILE" & @CRLF
    $sText &= @ScriptName & " /report c:\test.sqlite c:\report.txt" & @CRLF
-   $sText &= "Write the differences between last and last validated scan to REPORTFILE" & @CRLF
-   $sText &= "REPORTFILE is either a regular filename or a SPECIAL_REPORTNAME" & @CRLF
+   $sText &= @ScriptName & " /report c:\test.sqlite 20160514131610 last c:\report.txt" & @CRLF
+   $sText &= "Write the differences between NEWSCANNAME and OLDSCANNAME to REPORTFILE." & @CRLF
+   $sText &= "If NEWSCANNAME and OLDSCANNAME are omitted then NEWSCANNAME defaults to last" & @CRLF
+   $sText &= "and OLDSCANNAME to lastvalid." & @CRLF
+   $sText &= "REPORTFILE is either a regular filename or a SPECIAL_REPORTNAME." & @CRLF
+   $sText &= "OLDSCANNAME and NEWSCANNAME are either existing scans" & @CRLF
+   $sText &= "or SPECIAL_SCANNAMEs." & @CRLF
 
 
    $sText &= @CRLF
@@ -1928,7 +2071,7 @@ Func DoShowVersions()
 	  $sSQliteVersion = _SQLite_LibVersion()
    EndIf
 
-   $sText &= "Spot The Difference (" & $gcVersion & ")" & @CRLF
+   $sText &= "STD - Spot The Difference (" & $gcVersion & ")" & @CRLF
    $sText &= "A poor mans file integrity checker." & @CRLF
    $sText &= @CRLF
    $sText &= "AutoIT version:     " & @AutoItVersion & @CRLF
@@ -1936,6 +2079,25 @@ Func DoShowVersions()
    $sText &= "SQLite.dll version: " & $sSQliteVersion & @CRLF
    $sText &= "SQLite.dll path:    " & $sSQliteDll & @CRLF
    $sText &= @CRLF
+
+   if $gcDEBUG = True Then
+	  $sText &= @CRLF
+	  $sText &= @CRLF
+	  $sText &= "Debug Settings" & @CRLF
+	  $sText &= @CRLF
+	  $sText &= "OnlyShowScanBuffer:      " & $gcDEBUGOnlyShowScanBuffer & @CRLF
+	  $sText &= "ShowVisitedDirectories:  " & $gcDEBUGShowVisitedDirectories  & @CRLF
+	  $sText &= "DoNotStartSecondProcess: " & $gcDEBUGDoNotStartSecondProcess & @CRLF
+	  $sText &= "RunWithoutCompilation:   " & $gcDEBUGRunWithoutCompilation  & @CRLF
+	  $sText &= "ShowEmptyScanBuffer:     " & $gcDEBUGShowEmptyScanBuffer & @CRLF
+	  $sText &= @CRLF
+	  $sText &= "TimeGetFileInfo:         " & $gcDEBUGTimeGetFileInfo & @CRLF
+	  $sText &= "TimeGetRuleFromRuleSet:  " & $gcDEBUGTimeGetRuleFromRuleSet & @CRLF
+	  $sText &= "TimeIsExecutable:        " & $gcDEBUGTimeIsExecutable & @CRLF
+	  $sText &= "TimeIsIncludedByRule:    " & $gcDEBUGTimeIsIncludedByRule & @CRLF
+	  $sText &= "TimeIsClimbTargetByRule: " & $gcDEBUGTimeIsClimbTargetByRule & @CRLF
+   EndIf
+
 
    ConsoleWrite($sText)
 
@@ -1951,7 +2113,7 @@ Func DoShowUsage()
 
    local $sText = ""
 
-   $sText &= "Spot The Difference (" & $gcVersion & ")" & @CRLF
+   $sText &= "STD - Spot The Difference (" & $gcVersion & ")" & @CRLF
    $sText &= "A poor mans file integrity checker." & @CRLF
    $sText &= @CRLF
    $sText &= @ScriptName & " /importcfg DB CONFIGFILE" & @CRLF
@@ -1964,6 +2126,7 @@ Func DoShowUsage()
    $sText &= "Scan directories" & @CRLF
    $sText &= @CRLF
    $sText &= @ScriptName & " /report DB REPORTFILE" & @CRLF
+   $sText &= @ScriptName & " /report DB [OLDSCANNAME NEWSCANNAME] REPORTFILE" & @CRLF
    $sText &= "Write the differences between last and last validated scan to REPORTFILE" & @CRLF
    $sText &= @CRLF
    $sText &= @ScriptName & " /list DB" & @CRLF
@@ -2880,11 +3043,14 @@ Func OutputLineOfQueryResult(ByRef $aQueryResult,$ReportFilename)
    local $sTempNew = ""
    local $iIsNewOrMissing = False
 
-   if $aQueryResult[1] = "" Then FileWriteLine($ReportFilename,"-- new     --"  & @CRLF & _HexToString($aQueryResult[24]) & @CRLF & @CRLF)
+   ;FileWriteLine($ReportFilename,". . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . " )
+   FileWriteLine($ReportFilename, "......................................................................" )
+   if $aQueryResult[1] = "" Then FileWriteLine($ReportFilename, "new          : "  & _HexToString($aQueryResult[24]) )
 
-   if $aQueryResult[24] = "" Then FileWriteLine($ReportFilename,"-- missing --"  & @CRLF & _HexToString($aQueryResult[1]) & @CRLF & @CRLF)
+   if $aQueryResult[24] = "" Then FileWriteLine($ReportFilename,"missing      : "  & _HexToString($aQueryResult[1]) )
 
-   if $aQueryResult[1] = $aQueryResult[24] Then FileWriteLine($ReportFilename,"-- changed --"  & @CRLF & _HexToString($aQueryResult[1]) & @CRLF & @CRLF)
+   if $aQueryResult[1] = $aQueryResult[24] Then FileWriteLine($ReportFilename,"changed      : "  & _HexToString($aQueryResult[1]) )
+   FileWriteLine($ReportFilename,". . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . " & @CRLF)
 
    $sTempOld = ""
    $sTempNew = ""
@@ -2898,8 +3064,8 @@ Func OutputLineOfQueryResult(ByRef $aQueryResult,$ReportFilename)
 	  $sTempNew = "-"
 	  $iIsNewOrMissing = True
    EndIf
-   FileWriteLine($ReportFilename,StringFormat("%-15s %1s %35s %-35s","","","expected","observed"))
-   FileWriteLine($ReportFilename,StringFormat("%-15s %1s %35s %-35s",$aDesc[$i] & ":"," ",$sTempOld,$sTempNew))
+   FileWriteLine($ReportFilename,StringFormat("%-10s %1s %1s %35s %-35s","","","","expected","observed"))
+   FileWriteLine($ReportFilename,StringFormat("%-10s %1s %1s %35s %-35s",$aDesc[$i]," "," ",$sTempOld,$sTempNew))
 
    for $i = 2 to 13
 	  $sTempOld = ""
@@ -2923,9 +3089,9 @@ Func OutputLineOfQueryResult(ByRef $aQueryResult,$ReportFilename)
 ;		 FileWriteLine($ReportFilename,StringFormat("%-15s %1s %35s %-35s",$aDesc[$i] & ":"," ",$sTempOld,$sTempNew))
 	  else
 		 if $sTempOld = $sTempNew or $iIsNewOrMissing or $i = 0 or $i = 12  then
-			FileWriteLine($ReportFilename,StringFormat("%-15s %1s %35s %-35s",$aDesc[$i] & ":"," ",$sTempOld,$sTempNew))
+			FileWriteLine($ReportFilename,StringFormat("%-10s %1s %1s %35s %-35s",$aDesc[$i]," "," ",$sTempOld,$sTempNew))
 		 Else
-			FileWriteLine($ReportFilename,StringFormat("%-15s %1s %35s %-35s",$aDesc[$i] & ":","*",$sTempOld,$sTempNew))
+			FileWriteLine($ReportFilename,StringFormat("%-10s %1s %1s %35s %-35s",$aDesc[$i]," ","*",$sTempOld,$sTempNew))
 		 EndIf
 	  EndIf
 
@@ -2943,9 +3109,9 @@ Func OutputLineOfQueryResult(ByRef $aQueryResult,$ReportFilename)
    if $sTempNew = "" then $sTempNew = "-"
 
    if $sTempOld = $sTempNew or $iIsNewOrMissing Then
-	  FileWriteLine($ReportFilename,StringFormat("%-15s %1s %35s %-35s","attributes" & ":"," ",$sTempOld,$sTempNew))
+	  FileWriteLine($ReportFilename,StringFormat("%-10s %1s %1s %35s %-35s","attributes"," "," ",$sTempOld,$sTempNew))
    Else
-	  FileWriteLine($ReportFilename,StringFormat("%-15s %1s %35s %-35s","attributes" & ":","*",$sTempOld,$sTempNew))
+	  FileWriteLine($ReportFilename,StringFormat("%-10s %1s %1s %35s %-35s","attributes"," ","*",$sTempOld,$sTempNew))
    EndIf
 
 
@@ -2956,16 +3122,30 @@ Func OutputLineOfQueryResult(ByRef $aQueryResult,$ReportFilename)
    if $sTempOld = "" then $sTempOld = "-"
    if $sTempNew = "" then $sTempNew = "-"
    FileWriteLine($ReportFilename,"")
-   FileWriteLine($ReportFilename,StringFormat("%-15s %1s %s","old path:"," ",$sTempOld))
+   FileWriteLine($ReportFilename,StringFormat("%-10s %1s %1s %s","old path"," "," ",$sTempOld))
    ;FileWriteLine($ReportFilename,StringFormat("%-15s %1s %s","new path:"," ",$sTempNew))
    if $sTempOld = $sTempNew or $iIsNewOrMissing then
-	  FileWriteLine($ReportFilename,StringFormat("%-15s %1s %s","new path:"," ",$sTempNew))
+	  FileWriteLine($ReportFilename,StringFormat("%-10s %1s %1s %s","new path"," "," ",$sTempNew))
    Else
-	  FileWriteLine($ReportFilename,StringFormat("%-15s %1s %s","new path:","*",$sTempNew))
+	  FileWriteLine($ReportFilename,StringFormat("%-10s %1s %1s %s","new path"," ","*",$sTempNew))
    EndIf
 
-   FileWriteLine($ReportFilename,"-------------")
+   ;FileWriteLine($ReportFilename,"-------------")
    FileWriteLine($ReportFilename,"")
+
+   Return True
+EndFunc
+
+
+Func OutputLineOfQueryResultHeadline($iRuleNumber,$ReportFilename)
+
+   ;Print rule headline for reports
+   ;-------------------------------
+
+   FileWriteLine($ReportFilename,@crlf & "----------------------------------------------------------------------")
+   FileWriteLine($ReportFilename,"rule     : " & GetRulename($iRuleNumber))
+   FileWriteLine($ReportFilename,"----------------------------------------------------------------------" & @CRLF)
+
 
    Return True
 EndFunc
