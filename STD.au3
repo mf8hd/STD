@@ -137,6 +137,7 @@ Changelog
 3.6.0.0		DoReport(),OutputLineOfQueryResultHeadline(): beautify report again
 			DoReport(): create report for just one given scan aka dump all the data from the scan in a report
 			help extended
+3.6.1.0		DoReport(): fixed handling of special scan "none"
 
 #ce
 
@@ -1168,7 +1169,7 @@ Func DoReport($ReportFilename,$sScannameOld = "lastvalid",$sScannameNew = "last"
 			$sTempSQL = StringReplace($sTempSQL," and ();",";")
 			$sTempSQL = StringReplace($sTempSQL," or );",");")
 
-			if not $sScannameOld = "none" then
+			if $sScannameOld <> "none" then
 			   _SQLite_Query(-1, $sTempSQL,$hQuery)
 			   While _SQLite_FetchData($hQuery, $aQueryResult) = $SQLITE_OK
 				  ;OutputLineOfQueryResult($aQueryResult,$ReportFilename)
@@ -1195,7 +1196,7 @@ Func DoReport($ReportFilename,$sScannameOld = "lastvalid",$sScannameNew = "last"
 			WEnd
 			_SQLite_QueryFinalize($hQuery)
 
-			if not $sScannameOld = "none" then
+			if $sScannameOld <> "none" then
 			   ;return deleted files
 			   $aQueryResult = 0
 			   $hQuery = 0
@@ -1258,7 +1259,7 @@ Func DoReport($ReportFilename,$sScannameOld = "lastvalid",$sScannameNew = "last"
 			$sTempSQL = StringReplace($sTempSQL," and ();",";")
 			$sTempSQL = StringReplace($sTempSQL," or );",");")
 
-			if not $sScannameOld = "none" then
+			if $sScannameOld <> "none" then
 			   _SQLite_Query(-1, $sTempSQL,$hQuery)
 			   While _SQLite_FetchData($hQuery, $aQueryResult) = $SQLITE_OK
 				  if not $iHasRuleHeader then
@@ -1283,7 +1284,7 @@ Func DoReport($ReportFilename,$sScannameOld = "lastvalid",$sScannameNew = "last"
 			WEnd
 			_SQLite_QueryFinalize($hQuery)
 
-			if not $sScannameOld = "none" then
+			if $sScannameOld <> "none" then
 			   ;return deleted files
 			   $aQueryResult = 0
 			   $hQuery = 0
