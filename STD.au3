@@ -12,7 +12,8 @@
 ;
 ;Needs:
 ;	sqlite.dll
-;
+;	CRC32 and MD5 UDF form Dan Nagel https://dannagle.com/2012/10/autoit-md5-sha1-base64-crc32
+;	_SQL UDF for MS SQL form ChrisL https://www.autoitscript.com/forum/topic/51952-_sqlau3-adodbconnection/
 
 ;Changelog
 #cs
@@ -138,6 +139,10 @@ Changelog
 			DoReport(): create report for just one given scan aka dump all the data from the scan in a report
 			help extended
 3.6.1.0		DoReport(): fixed handling of special scan "none"
+3.7.0.0		OpenDB(),CloseDB(), GetRuleIDFromDB(), GetRuleSetFromDB(), GetFilenameIDFromDB(),
+			GetScanIDFromDB(), GetScannamesFromDB(),DoImportCfg(), DoExportCfg(),DoSecondProcess():
+			MS SQL support (/importcfg,/exportcfg,/scan). db-filename is ini-file with connection definition
+
 
 #ce
 
@@ -174,6 +179,8 @@ ToDo:
 	  - per default nothing is scanned into the database (CONFIG) or vice versa. but stick to it !
 	  - use RuleID for rule identification. Export RuleID with /exportcfg
 	  - is the csv format ok ? /doublicates /history ...
+	  - use _SQLite_Escape() not _StringToHex() for text in DB
+
 #ce
 
 
@@ -229,8 +236,12 @@ End
 #pragma compile(InternalName,"STD")
 
 
+;3rd party UDFs from Dan Nagel https://dannagle.com/2012/10/autoit-md5-sha1-base64-crc32
 #include <CRC32.au3>
 #include <MD5.au3>
+;3rd party UDF from ChrisL https://www.autoitscript.com/forum/topic/51952-_sqlau3-adodbconnection/
+#include <_SQL.au3>
+;AutiIt UDFs
 #include <array.au3>
 #include <File.au3>
 #include <String.au3>
@@ -251,11 +262,11 @@ global const $gcScannameLimit = 65535				;max number of scannames resturnd from 
 ;Debug
 global const $gcDEBUG = False						;master switch for debug output
 
-global $gcDEBUGOnlyShowScanBuffer = False		;show only "searching" and buffersize during scan !
+global $gcDEBUGOnlyShowScanBuffer = True		;show only "searching" and buffersize during scan !
 global $gcDEBUGShowVisitedDirectories = False	;show visited directories during scan !
 global $gcDEBUGDoNotStartSecondProcess = False	;run only the list process and do not start the scan process
 global $gcDEBUGRunWithoutCompilation = False		;force the program to run, without beeing compiled
-Global $gcDEBUGShowEmptyScanBuffer = True		;show "*** searching ***" if the scan process is waiting for the list process
+Global $gcDEBUGShowEmptyScanBuffer = False		;show "*** searching ***" if the scan process is waiting for the list process
 
 
 ;Profiler
@@ -358,6 +369,7 @@ global $gaFileInfo[22]		;array with informations about the file
 global $gsScantime = ""		;date and time of the scan
 global $giScanId	= 0		;scanid
 global $ghDBHandle = ""		;handle of db
+global $gbMSSQL = False		;True if DB is an INI-file with the connection parameter for an MSSQL-server !
 
 ;mailer setup
 Global $goMyRet[2]
@@ -694,9 +706,13 @@ Func DoImportCfg($ConfigFilename)
 
    ;recreate table config
    if FileExists($ConfigFilename) then
-	  _SQLite_Exec(-1,"DROP TABLE IF EXISTS config;")
-	  _SQLite_Exec(-1,"CREATE TABLE IF NOT EXISTS config (linenumber INTEGER PRIMARY KEY AUTOINCREMENT, line );")
-
+	  if $gbMSSQL Then
+		 _SQL_Execute(-1,"DROP TABLE config;")
+		 _SQL_Execute(-1,"CREATE TABLE [config] ([linenumber] INTEGER IDENTITY(1,1)  ,[line] NTEXT NULL  ,CONSTRAINT [config_PRIMARY]  PRIMARY KEY  NONCLUSTERED  ([linenumber])); ")
+	  Else
+		 _SQLite_Exec(-1,"DROP TABLE IF EXISTS config;")
+		 _SQLite_Exec(-1,"CREATE TABLE IF NOT EXISTS config (linenumber INTEGER PRIMARY KEY AUTOINCREMENT, line );")
+	  EndIf
 	  ;import $ConfigFilename into table config
 	  $iCfgLineNr = 1
 	  While True
@@ -706,7 +722,11 @@ Func DoImportCfg($ConfigFilename)
 		 if @error then
 			ExitLoop
 		 EndIf
-		 _SQLite_Exec(-1,"INSERT INTO config(line) values ('" & _StringToHex($sTempCfgLine) & "');")
+		 if $gbMSSQL Then
+			_SQL_Execute(-1,"INSERT INTO [config] ([line]) VALUES (N'" & _StringToHex($sTempCfgLine) & "');")
+		 Else
+			_SQLite_Exec(-1,"INSERT INTO config(line) values ('" & _StringToHex($sTempCfgLine) & "');")
+		 EndIf
 		 $iCfgLineNr += 1
 	  WEnd
    EndIf
@@ -726,12 +746,19 @@ Func DoExportCfg($ConfigFilename)
    ;export table config into $ConfigFilename
    $aQueryResult = 0
    $hQuery = 0
-   _SQLite_Query(-1, "SELECT line FROM config ORDER BY linenumber ASC;",$hQuery)
-   While _SQLite_FetchData($hQuery, $aQueryResult) = $SQLITE_OK
-	  FileWriteLine($ConfigFilename,_HexToString($aQueryResult[0]))
-   WEnd
-   _SQLite_QueryFinalize($hQuery)
+   if $gbMSSQL Then
+	  $hQuery = _SQL_Execute(-1, "SELECT line FROM config ORDER BY linenumber ASC;")
+	  While _SQL_FetchData($hQuery, $aQueryResult) = $SQL_OK
+		 FileWriteLine($ConfigFilename,_HexToString($aQueryResult[0]))
+	  WEnd
 
+   Else
+	  _SQLite_Query(-1, "SELECT line FROM config ORDER BY linenumber ASC;",$hQuery)
+	  While _SQLite_FetchData($hQuery, $aQueryResult) = $SQLITE_OK
+		 FileWriteLine($ConfigFilename,_HexToString($aQueryResult[0]))
+	  WEnd
+	  _SQLite_QueryFinalize($hQuery)
+   EndIf
 EndFunc
 
 
@@ -1722,8 +1749,11 @@ Func DoSecondProcess()
 			;DllCall('user32.dll','Int','OemToChar','str',$sTempText,'str','') ; translate from OEM to ANSI
 			if not $gcDEBUGOnlyShowScanBuffer then ConsoleWrite($sTempText & @CRLF)
 
-			_SQLite_Exec(-1,"INSERT INTO filedata (scanid,ruleid,filenameid,status,size,attributes,mtime,ctime,atime,version,crc32,md5,ptime,rattrib,aattrib,sattrib,hattrib,nattrib,dattrib,oattrib,cattrib,tattrib)  values ('" & $giScanId & "', '" & GetRuleIdFromRuleSet($iRuleCounter) & "', '" & GetFilenameIDFromDB(_StringToHex($gaFileInfo[0]),$gaFileInfo[8]) & "','" & $gaFileInfo[1] & "','" & $gaFileInfo[2] & "','" & $gaFileInfo[3] & "','" & $gaFileInfo[4] & "','" & $gaFileInfo[5] & "','" & $gaFileInfo[6] & "','" & $gaFileInfo[7] & "','" & $gaFileInfo[9] & "','" & $gaFileInfo[10] & "','" & $gaFileInfo[11] & "','" & $gaFileInfo[13] & "','" & $gaFileInfo[14] & "','" & $gaFileInfo[15] & "','" & $gaFileInfo[16] & "','" & $gaFileInfo[17] & "','" & $gaFileInfo[18] & "','" & $gaFileInfo[19] & "','" & $gaFileInfo[20] & "','" & $gaFileInfo[21] & "');")
-
+			if $gbMSSQL then
+			   _SQL_Execute(-1,"INSERT INTO [filedata] ([scanid],[ruleid],[filenameid],[status],[size],[attributes],[mtime],[ctime],[atime],[version],[crc32],[md5],[ptime],[rattrib],[aattrib],[sattrib],[hattrib],[nattrib],[dattrib],[oattrib],[cattrib],[tattrib])  values ('" & $giScanId & "','" & GetRuleIdFromRuleSet($iRuleCounter) & "','" & GetFilenameIDFromDB(_StringToHex($gaFileInfo[0]),$gaFileInfo[8]) & "','" & $gaFileInfo[1] & "','" & $gaFileInfo[2] & "','" & $gaFileInfo[3] & "','" & $gaFileInfo[4] & "','" & $gaFileInfo[5] & "','" & $gaFileInfo[6] & "','" & $gaFileInfo[7] & "','" & $gaFileInfo[9] & "','" & $gaFileInfo[10] & "','" & $gaFileInfo[11] & "','" & $gaFileInfo[13] & "','" & $gaFileInfo[14] & "','" & $gaFileInfo[15] & "','" & $gaFileInfo[16] & "','" & $gaFileInfo[17] & "','" & $gaFileInfo[18] & "','" & $gaFileInfo[19] & "','" & $gaFileInfo[20] & "','" & $gaFileInfo[21] & "');")
+			Else
+			   _SQLite_Exec(-1,"INSERT INTO filedata (scanid,ruleid,filenameid,status,size,attributes,mtime,ctime,atime,version,crc32,md5,ptime,rattrib,aattrib,sattrib,hattrib,nattrib,dattrib,oattrib,cattrib,tattrib)  values ('" & $giScanId & "', '" & GetRuleIdFromRuleSet($iRuleCounter) & "', '" & GetFilenameIDFromDB(_StringToHex($gaFileInfo[0]),$gaFileInfo[8]) & "','" & $gaFileInfo[1] & "','" & $gaFileInfo[2] & "','" & $gaFileInfo[3] & "','" & $gaFileInfo[4] & "','" & $gaFileInfo[5] & "','" & $gaFileInfo[6] & "','" & $gaFileInfo[7] & "','" & $gaFileInfo[9] & "','" & $gaFileInfo[10] & "','" & $gaFileInfo[11] & "','" & $gaFileInfo[13] & "','" & $gaFileInfo[14] & "','" & $gaFileInfo[15] & "','" & $gaFileInfo[16] & "','" & $gaFileInfo[17] & "','" & $gaFileInfo[18] & "','" & $gaFileInfo[19] & "','" & $gaFileInfo[20] & "','" & $gaFileInfo[21] & "');")
+			EndIf
 
 		 WEnd
 	  Else
@@ -2148,18 +2178,32 @@ Func GetRuleIDFromDB($sRulename)
 
    local $aRow = 0	;Returned data row
 
-
-   if _SQLite_QuerySingleRow(-1,'SELECT ruleid FROM rules where rulename="' & $sRulename & '"',$aRow) = $SQLITE_OK Then
-	  ;get ruleid
-	  return $aRow[0]
+   if $gbMSSQL Then
+	  if _SQL_QuerySingleRow(-1,"SELECT ruleid FROM rules where rulename='" & $sRulename & "'",$aRow) = $SQL_OK and $aRow[0]<>"" Then
+		 ;get ruleid
+		 return $aRow[0]
+	  Else
+		 ;Rule does not exist in DB so create it
+		 _SQL_Execute(-1,"INSERT INTO rules ([rulename]) VALUES('" & $sRulename & "')")
+		 ;_SQL_Execute(-1,"INSERT INTO rules (ruleid,rulename) VALUES(null,'TEST')")
+		 if _SQL_QuerySingleRow(-1,"SELECT ruleid FROM rules where rulename='" & $sRulename & "'",$aRow) = $SQL_OK and $aRow[0]<>"" Then
+			;get ruleid
+			return $aRow[0]
+		 EndIf
+	  EndIf
    Else
-	  ;Rule does not exist in DB so create it
-	  _SQLite_Exec(-1,'INSERT INTO rules VALUES(NULL,"' & $sRulename & '")')
 	  if _SQLite_QuerySingleRow(-1,'SELECT ruleid FROM rules where rulename="' & $sRulename & '"',$aRow) = $SQLITE_OK Then
 		 ;get ruleid
 		 return $aRow[0]
-	  EndIf
+	  Else
+		 ;Rule does not exist in DB so create it
+		 _SQLite_Exec(-1,'INSERT INTO rules VALUES(NULL,"' & $sRulename & '")')
+		 if _SQLite_QuerySingleRow(-1,'SELECT ruleid FROM rules where rulename="' & $sRulename & '"',$aRow) = $SQLITE_OK Then
+			;get ruleid
+			return $aRow[0]
+		 EndIf
 
+	  EndIf
    EndIf
 
    Return 0
@@ -2209,7 +2253,11 @@ Func GetRuleSetFromDB()
    $iLastRuleRead = False
    $aCfgQueryResult = 0
    $hCfgQuery = 0
-   _SQLite_Query(-1, "SELECT line FROM config ORDER BY linenumber ASC;",$hCfgQuery)
+   if $gbMSSQL then
+	  $hCfgQuery = _SQL_Execute(-1, "SELECT line FROM config ORDER BY linenumber ASC;")
+   Else
+	  _SQLite_Query(-1, "SELECT line FROM config ORDER BY linenumber ASC;",$hCfgQuery)
+   EndIf
    While True
 	  ;read one rule from table config
 	  ;dim $gaRuleSet[1][3]
@@ -2217,7 +2265,10 @@ Func GetRuleSetFromDB()
 
 		 ;read one line form table config
 		 $sTempCfgLine = ""
-		 if _SQLite_FetchData($hCfgQuery, $aCfgQueryResult) = $SQLITE_OK Then
+		 if $gbMSSQL and _SQL_FetchData($hCfgQuery, $aCfgQueryResult) = $SQL_OK Then
+			$sTempCfgLine = _HexToString($aCfgQueryResult[0])
+			;_ArrayDisplay($aQueryResult[0])
+		 Elseif not $gbMSSQL and _SQLite_FetchData($hCfgQuery, $aCfgQueryResult) = $SQLITE_OK Then
 			$sTempCfgLine = _HexToString($aCfgQueryResult[0])
 			;_ArrayDisplay($aQueryResult[0])
 		 Else
@@ -2393,7 +2444,7 @@ Func GetRuleSetFromDB()
    WEnd
    ;end read $ConfigFilename
 
-   _SQLite_QueryFinalize($hCfgQuery)
+   if not $gbMSSQL then _SQLite_QueryFinalize($hCfgQuery)
 
 EndFunc
 
@@ -2406,20 +2457,34 @@ Func GetFilenameIDFromDB($sPath,$sSPath)
 
    local $aRow = 0	;Returned data row
 
+   if $gbMSSQL then
+	  if _SQL_QuerySingleRow(-1,"SELECT filenameid FROM filenames where path='" & $sPath & "' and spath='" & $sSPath & "'",$aRow) = $SQL_OK and $aRow[0]<>"" Then
+		 ;get filenameid
+		 return $aRow[0]
+	  Else
+		 ;filename does not exist in DB so create it
+		 _SQL_Execute(-1,"INSERT INTO [filenames] ([path],[spath]) VALUES(N'" & $sPath & "',N'" & $sSPath & "')")
+		 if _SQL_QuerySingleRow(-1,"SELECT filenameid FROM filenames where path='" & $sPath & "' and spath='" & $sSPath & "'",$aRow) = $SQL_OK and $aRow[0]<>"" Then
+			;get filenameid
+			return $aRow[0]
+		 EndIf
 
-   if _SQLite_QuerySingleRow(-1,'SELECT filenameid FROM filenames where path="' & $sPath & '" and spath="' & $sSPath & '"',$aRow) = $SQLITE_OK Then
-	  ;get filenameid
-	  return $aRow[0]
+	  EndIf
+
    Else
-	  ;filename does not exist in DB so create it
-	  _SQLite_Exec(-1,'INSERT INTO filenames VALUES(NULL,"' & $sPath & '","' & $sSPath & '")')
 	  if _SQLite_QuerySingleRow(-1,'SELECT filenameid FROM filenames where path="' & $sPath & '" and spath="' & $sSPath & '"',$aRow) = $SQLITE_OK Then
 		 ;get filenameid
 		 return $aRow[0]
+	  Else
+		 ;filename does not exist in DB so create it
+		 _SQLite_Exec(-1,'INSERT INTO filenames VALUES(NULL,"' & $sPath & '","' & $sSPath & '")')
+		 if _SQLite_QuerySingleRow(-1,'SELECT filenameid FROM filenames where path="' & $sPath & '" and spath="' & $sSPath & '"',$aRow) = $SQLITE_OK Then
+			;get filenameid
+			return $aRow[0]
+		 EndIf
+
 	  EndIf
-
    EndIf
-
    Return 0
 EndFunc
 
@@ -2432,20 +2497,38 @@ Func GetScanIDFromDB($sScanname)
 
    local $aRow = 0	;Returned data row
 
+   if $gbMSSQL then
 
-   if _SQLite_QuerySingleRow(-1,'SELECT scanid FROM scans where scantime="' & $sScanname & '"',$aRow) = $SQLITE_OK Then
-	  ;get scanid
-	  ;_ArrayDisplay($aRow)
-	  return $aRow[0]
+	  if _SQL_QuerySingleRow(-1,"SELECT scanid FROM scans where scantime='" & $sScanname & "'",$aRow) = $SQL_OK and $aRow[0]<>"" Then
+		 ;get scanid
+		 ;_ArrayDisplay($aRow)
+		 return $aRow[0]
+	  Else
+		 ;scan does not exist in DB so create it
+		 _SQL_Execute(-1,"INSERT INTO [scans] ([scantime],[valid])  VALUES('" & $sScanname & "',0)")
+		 if _SQL_QuerySingleRow(-1,"SELECT scanid FROM scans where scantime='" & $sScanname & "'",$aRow) = $SQL_OK and $aRow[0]<>"" Then
+			;get scanid
+			;_ArrayDisplay($aRow)
+			return $aRow[0]
+		 EndIf
+
+	  EndIf
+
    Else
-	  ;scan does not exist in DB so create it
-	  _SQLite_Exec(-1,'INSERT INTO scans VALUES(NULL,"' & $sScanname & '",0)')
 	  if _SQLite_QuerySingleRow(-1,'SELECT scanid FROM scans where scantime="' & $sScanname & '"',$aRow) = $SQLITE_OK Then
 		 ;get scanid
 		 ;_ArrayDisplay($aRow)
 		 return $aRow[0]
-	  EndIf
+	  Else
+		 ;scan does not exist in DB so create it
+		 _SQLite_Exec(-1,'INSERT INTO scans VALUES(NULL,"' & $sScanname & '",0)')
+		 if _SQLite_QuerySingleRow(-1,'SELECT scanid FROM scans where scantime="' & $sScanname & '"',$aRow) = $SQLITE_OK Then
+			;get scanid
+			;_ArrayDisplay($aRow)
+			return $aRow[0]
+		 EndIf
 
+	  EndIf
    EndIf
 
    Return 0
@@ -2481,7 +2564,11 @@ Func GetScannamesFromDB($sScan,ByRef $aScans)
 		 $sSQL = "SELECT scantime from scans where scantime = '" & $sScan & "' group by scantime order by scantime desc limit 1;"
    EndSelect
 
-   _SQLite_GetTable(-1, $sSQL, $aScans, $iTempQueryRows, $iTempQueryColumns)
+   if $gbMSSQL then
+	  _SQL_GetTable(-1, $sSQL, $aScans, $iTempQueryRows, $iTempQueryColumns)
+   Else
+	  _SQLite_GetTable(-1, $sSQL, $aScans, $iTempQueryRows, $iTempQueryColumns)
+   EndIf
    if not @error Then
 	  if $iTempQueryRows >= 1 then
 		 ;MsgBox(0,"Test",$iQueryRows & @CRLF & $iQueryColumns)
@@ -2498,6 +2585,121 @@ EndFunc
 ;----- other DB functions
 
 Func OpenDB($sDBName)
+
+   ;open and initialize sqlite or mssql database if needed
+   ;---------------------------------------
+
+   if StringRight($sDBName,4) = ".INI" Then
+	  ;$sDBName is *.INI, so it´s MSSQL
+	  $gbMSSQL = True
+	  OpenDBMSSQL($sDBName)
+   Else
+	  ;$sDBName is not *.INI, so it´s SQLite
+	  $gbMSSQL = False
+	  OpenDBSQLite($sDBName)
+   EndIf
+
+
+   Return True
+EndFunc
+
+
+Func OpenDBMSSQL($sDBINIFilename)
+
+   ;open and initialize database if needed
+   ;---------------------------------------
+
+   local $aQueryResult = 0		;result of a query
+   local $bTableExists = False
+   local $sTablename = ""
+
+   If not $SQL_OK = _SQL_Startup() Then
+	   ConsoleWrite("MS SQL Error: " & _SQL_GetErrMsg())
+	   Exit -1
+   EndIf
+   ;ConsoleWrite("_SQLite_LibVersion=" & _SQLite_LibVersion() & @CRLF)
+
+   ;$ghDBHandle = _SQL_Open($sDBINIFilename)
+
+
+   ;If not $SQL_OK = _SQL_Connect(-1, "MAINFRAME\SQLEXPRESS", "STD", "sa", "Pa$$w0rd") Then
+   If not $SQL_OK = _SQL_Connect(-1, IniRead($sDBINIFilename,"MSSQL","server",""), IniRead($sDBINIFilename,"MSSQL","db",""), IniRead($sDBINIFilename,"MSSQL","user",""), IniRead($sDBINIFilename,"MSSQL","password","")) Then
+	   ConsoleWrite("MS SQL Error: " & _SQL_GetErrMsg())
+	   Exit -1
+   EndIf
+
+   ;read all tablenames form database
+   $aQueryResult = 0
+   $aQueryResult = _SQL_GetTableName(-1,"TABLE")
+
+   #cs
+	  FileGetAttrib()
+	  "R" = READONLY
+	  "A" = ARCHIVE
+	  "S" = SYSTEM
+	  "H" = HIDDEN
+	  "N" = NORMAL
+	  "D" = DIRECTORY
+	  "O" = OFFLINE
+	  "C" = COMPRESSED (NTFS compression, not ZIP compression)
+	  "T" = TEMPORARY
+   #ce
+
+
+
+   ;create new db structure if needed
+
+   $bTableExists = False
+   for $sTablename in $aQueryResult
+	  if $sTablename = "config" then
+		 $bTableExists = True
+		 ExitLoop
+	  EndIf
+   Next
+   if not $bTableExists then _SQL_Execute(-1,"CREATE TABLE [config] ([linenumber] INTEGER IDENTITY(1,1)  ,[line] VARCHAR NULL  ,CONSTRAINT [config_PRIMARY]  PRIMARY KEY  NONCLUSTERED  ([linenumber])); ")
+
+   $bTableExists = False
+   for $sTablename in $aQueryResult
+	  if $sTablename = "scans" then
+		 $bTableExists = True
+		 ExitLoop
+	  EndIf
+   Next
+   if not $bTableExists then _SQL_Execute(-1,"CREATE TABLE [scans] ([scanid] INTEGER IDENTITY(1,1)  ,[scantime] char(14) NULL  ,[valid] INTEGER NULL  DEFAULT 0 ,CONSTRAINT [scans_PRIMARY]  PRIMARY KEY  NONCLUSTERED  ([scanid]));")
+
+   $bTableExists = False
+   for $sTablename in $aQueryResult
+	  if $sTablename = "rules" then
+		 $bTableExists = True
+		 ExitLoop
+	  EndIf
+   Next
+   if not $bTableExists then _SQL_Execute(-1,"CREATE TABLE [rules] ([ruleid] INTEGER IDENTITY(1,1)  ,[rulename] varchar(255)  ,CONSTRAINT [rules_PRIMARY]  PRIMARY KEY  NONCLUSTERED  ([ruleid]));")
+
+   $bTableExists = False
+   for $sTablename in $aQueryResult
+	  if $sTablename = "filenames" then
+		 $bTableExists = True
+		 ExitLoop
+	  EndIf
+   Next
+   if not $bTableExists then _SQL_Execute(-1,"CREATE TABLE [filenames] ([filenameid] INTEGER IDENTITY(1,1)  ,[path] varchar(512) NULL  ,[spath] varchar(512) NULL  );")
+
+   $bTableExists = False
+   for $sTablename in $aQueryResult
+	  if $sTablename = "filedata" then
+		 $bTableExists = True
+		 ExitLoop
+	  EndIf
+   Next
+   if not $bTableExists then _SQL_Execute(-1,"CREATE TABLE [filedata] ([scanid] INTEGER NOT NULL  DEFAULT 0 ,[ruleid] INTEGER NOT NULL  DEFAULT 0 ,[filenameid] INTEGER NOT NULL  DEFAULT 0 ,[status] INTEGER NULL  DEFAULT 0 ,[size] INTEGER NULL  DEFAULT 0 ,[attributes] CHAR(1) NULL  ,[mtime] CHAR(14) NULL  ,[ctime] CHAR(14) NULL  ,[atime] CHAR(14) NULL  ,[version] VARCHAR(80) NULL  ,[crc32] char(35) NULL  ,[md5] char(35) NULL  ,[ptime] INTEGER NULL  ,[rattrib] INTEGER NULL  DEFAULT 0 ,[aattrib] INTEGER NULL  DEFAULT 0 ,[sattrib] INTEGER NULL  DEFAULT 0 ,[hattrib] INTEGER NULL  DEFAULT 0 ,[nattrib] INTEGER NULL  DEFAULT 0 ,[dattrib] INTEGER NULL  DEFAULT 0 ,[oattrib] INTEGER NULL  DEFAULT 0 ,[cattrib] INTEGER NULL  DEFAULT 0 ,[tattrib] INTEGER NULL  DEFAULT 0 ,CONSTRAINT [filedata_PRIMARY]  PRIMARY KEY  NONCLUSTERED  ([scanid],[ruleid],[filenameid]));")
+
+
+   Return True
+EndFunc
+
+
+Func OpenDBSQLite($sDBName)
 
    ;open and initialize database if needed
    ;---------------------------------------
@@ -2553,6 +2755,33 @@ EndFunc
 Func CloseDB()
 
    ;close database
+   ;--------------------
+
+   if $gbMSSQL Then
+	  CloseDBMSSQL()
+   Else
+	  CloseDBSQLite()
+   EndIf
+
+
+   Return True
+EndFunc
+
+
+Func CloseDBMSSQL()
+
+   ;close MSSQL database
+   ;--------------------
+
+   _SQL_Close()
+
+   Return True
+EndFunc
+
+
+Func CloseDBSQLite()
+
+   ;close SQLite database
    ;--------------------
 
    _SQLite_Close($ghDBHandle)
