@@ -139,9 +139,13 @@ Changelog
 			DoReport(): create report for just one given scan aka dump all the data from the scan in a report
 			help extended
 3.6.1.0		DoReport(): fixed handling of special scan "none"
-3.7.0.0		OpenDB(),CloseDB(), GetRuleIDFromDB(), GetRuleSetFromDB(), GetFilenameIDFromDB(),
-			GetScanIDFromDB(), GetScannamesFromDB(),DoImportCfg(), DoExportCfg(),DoSecondProcess():
-			MS SQL support (/importcfg,/exportcfg,/scan). db-filename is ini-file with connection definition
+3.7.0.0		support MS SQL as database. db-filename is ini-file with connection definition
+			DoDelete(): delete unused lines in table rules and filenames
+			DoReport(): simplify code with MakeReportSection1(),MakeReportSection2and3()
+
+
+
+
 
 
 #ce
@@ -154,7 +158,7 @@ FixMe:
 	  done - does /report "missing" realy work ???? GetAllRulenamesFromDB() must return ALL rulenames from scanold AND scannew
 ToDo:
 	  obsolete - change name of DB field "status" to "valid"
-	  - DoDeleteScan() sanitize DB tables rules and filenames !
+	  done - DoDeleteScan() sanitize DB tables rules and filenames !
 	  done - unused field "filedata.status" in DB
 	  - unused field "filedata.attributes" in DB
 	  - count directory entries and put the count in the DB
@@ -227,8 +231,8 @@ End
 #pragma compile(UPX, False)
 
 ;Set file infos
-#pragma compile(ProductVersion,"3.6.1.0")
-#pragma compile(FileVersion,"3.6.1.0")
+#pragma compile(ProductVersion,"3.7.0.0")
+#pragma compile(FileVersion,"3.7.0.0")
 ;Versioning: "Incompatible changes to DB"."new feature"."bug fix"."minor fix"
 
 #pragma compile(FileDescription,"Spot The Difference")
@@ -370,6 +374,7 @@ global $gsScantime = ""		;date and time of the scan
 global $giScanId	= 0		;scanid
 global $ghDBHandle = ""		;handle of db
 global $gbMSSQL = False		;True if DB is an INI-file with the connection parameter for an MSSQL-server !
+global $gsMSSQLDBName = ""	;MS SQL database name
 
 ;mailer setup
 Global $goMyRet[2]
@@ -797,14 +802,19 @@ Func DoDuplicates($sScanname)
 	  $sTempSQL &= "filedata.size <> '0' AND "
 	  $sTempSQL &= "filedata.crc32 <> '0' AND "
 	  $sTempSQL &= "filedata.md5 <> '0' "
-	  $sTempSQL &= "GROUP BY filedata.size,filedata.crc32,filedata.md5,filenames.path "
+	  $sTempSQL &= "GROUP BY scans.scantime,filedata.status,filedata.size,filedata.crc32,filedata.md5,filenames.path "
 	  $sTempSQL &= "ORDER BY filedata.size,filedata.crc32,filedata.md5,filenames.path ASC;"
 
 	  ConsoleWrite("scantime,size,crc32,md5,filename" & @CRLF)
 
 	  $aQueryResult = 0
-	  _SQLite_Query(-1, $sTempSQL,$hQuery)
-	  While _SQLite_FetchData($hQuery, $aQueryResult) = $SQLITE_OK
+
+	  if $gbMSSQL then
+		 $hQuery = _SQL_Execute(-1, $sTempSQL)
+	  Else
+		 _SQLite_Query(-1, $sTempSQL,$hQuery)
+	  EndIf
+	  While ($gbMSSQL and _SQL_FetchData($hQuery, $aQueryResult) = $SQL_OK) or (not $gbMSSQL and _SQLite_FetchData($hQuery, $aQueryResult) = $SQLITE_OK)
 		 if $aQueryResult[0] & "," & $aQueryResult[3] & "," & $aQueryResult[4] & "," & $aQueryResult[5] = $sLastCrit then
 			ConsoleWrite($sLastCrit & ",""" & $sLastFilename & """" & @CRLF)
 			$sLastFilename = _HexToString($aQueryResult[1])
@@ -816,7 +826,7 @@ Func DoDuplicates($sScanname)
 			$iLastLinePrinted = False
 		 EndIf
 	  WEnd
-	  _SQLite_QueryFinalize($hQuery)
+	  if not $gbMSSQL then _SQLite_QueryFinalize($hQuery)
 
 
    EndIf
@@ -879,8 +889,13 @@ Func DoHistory($sFilename)
    $sTempSQL &= "ORDER BY filenames.path ASC,scans.scantime ASC;"
 
    OutputLineOfFileHistory($aQueryResult,True)
-   _SQLite_Query(-1, $sTempSQL,$hQuery)
-   While _SQLite_FetchData($hQuery, $aQueryResult) = $SQLITE_OK
+   if $gbMSSQL then
+	  $hQuery = _SQL_Execute(-1, $sTempSQL)
+   Else
+	  _SQLite_Query(-1, $sTempSQL,$hQuery)
+   EndIf
+   While ($gbMSSQL and _SQL_FetchData($hQuery, $aQueryResult) = $SQL_OK) or (not $gbMSSQL and _SQLite_FetchData($hQuery, $aQueryResult) = $SQLITE_OK)
+
 	  ;_ArrayDisplay($aQueryResult)
 	  if $sLastFilename <> _HexToString($aQueryResult[1]) then
 		 if $sLastFilename <> "" then ConsoleWrite(@CRLF)
@@ -889,7 +904,7 @@ Func DoHistory($sFilename)
 	  EndIf
 	  OutputLineOfFileHistory($aQueryResult,False)
    WEnd
-   _SQLite_QueryFinalize($hQuery)
+   if not $gbMSSQL then _SQLite_QueryFinalize($hQuery)
 
 
 
@@ -904,21 +919,23 @@ Func DoDeleteScan($sScanname)
    if GetScannamesFromDB($sScanname,$aQueryResult) Then
 	  for $i = 2 to $aQueryResult[0]
 		 ;_ArrayDisplay($aQueryResult)
-		 ;$aQueryResult[$i]
-#cs
-   _SQLite_Exec(-1,"CREATE TABLE IF NOT EXISTS scans (scanid INTEGER PRIMARY KEY AUTOINCREMENT, scantime, valid );")
-   _SQLite_Exec(-1,"CREATE TABLE IF NOT EXISTS rules (ruleid INTEGER PRIMARY KEY AUTOINCREMENT, rulename );")
-   _SQLite_Exec(-1,"CREATE TABLE IF NOT EXISTS filenames (filenameid INTEGER PRIMARY KEY AUTOINCREMENT, path, spath );")
-   _SQLite_Exec(-1,"CREATE TABLE IF NOT EXISTS filedata (scanid not null,ruleid not null,filenameid not null, status,size,attributes,mtime,ctime,atime,version,crc32,md5,ptime, PRIMARY KEY(scanid,ruleid,filenameid) );")
-#ce
 
-		 _SQLite_Exec(-1,"delete from filedata where scanid = '" & GetScanIDFromDB($aQueryResult[$i]) & "';")
-		 _SQLite_Exec(-1,"delete from scans where scantime = '" & $aQueryResult[$i] & "';")
+		 if $gbMSSQL then
+			_SQL_Execute(-1,"delete from filedata where scanid = '" & GetScanIDFromDB($aQueryResult[$i]) & "';")
+			_SQL_Execute(-1,"delete from scans where scantime = '" & $aQueryResult[$i] & "';")
+			_SQL_Execute(-1,"delete " & $gsMSSQLDBName & ".dbo.filenames from  " & $gsMSSQLDBName & ".dbo.filenames LEFT JOIN  " & $gsMSSQLDBName & ".dbo.filedata ON filedata.filenameid = filenames.filenameid WHERE filedata.filenameid IS NULL;")
+			_SQL_Execute(-1,"delete " & $gsMSSQLDBName & ".dbo.rules from " & $gsMSSQLDBName & ".dbo.rules LEFT JOIN " & $gsMSSQLDBName & ".dbo.filedata ON filedata.ruleid = rules.ruleid WHERE filedata.ruleid IS NULL;")
+		 Else
+			_SQLite_Exec(-1,"delete from filedata where scanid = '" & GetScanIDFromDB($aQueryResult[$i]) & "';")
+			_SQLite_Exec(-1,"delete from scans where scantime = '" & $aQueryResult[$i] & "';")
+			_SQLite_Exec(-1,"delete from filenames where (select filenames.filenameid from filenames LEFT JOIN filedata ON filedata.filenameid = filenames.filenameid WHERE filedata.filenameid IS NULL);")
+			_SQLite_Exec(-1,"delete from rules where (select rules.ruleid from rules LEFT JOIN filedata ON filedata.ruleid = rules.ruleid WHERE filedata.ruleid IS NULL);")
+		 EndIf
 	  next
    EndIf
 
    ;shrink DB file
-   _SQLite_Exec(-1,"vacuum;")
+   if not $gbMSSQL then _SQLite_Exec(-1,"vacuum;")
 
 EndFunc
 
@@ -1049,10 +1066,19 @@ Func DoReport($ReportFilename,$sScannameOld = "lastvalid",$sScannameNew = "last"
 
 	  ConsoleWrite("report for old scan """ & $sScannameOld & """ and new scan """ & $sScannameNew & """")
 
-	  _SQLite_Exec(-1,"CREATE TEMPORARY TABLE scannew as " & $sTempSQL & " AND scans.scantime = '" & $sScannameNew & "';")
-	  _SQLite_Exec(-1,"CREATE TEMPORARY TABLE scanold as " & $sTempSQL & " AND scans.scantime = '" & $sScannameOld & "';")
+	  if $gbMSSQL then
+		 _SQL_Execute(-1,"IF OBJECT_ID ('scannew', 'V') IS NOT NULL DROP VIEW [scannew];")
+		 _SQL_Execute(-1,"IF OBJECT_ID ('scanold', 'V') IS NOT NULL DROP VIEW [scanold];")
+		 _SQL_Execute(-1,"CREATE VIEW  [scannew] as " & $sTempSQL & " AND scans.scantime = '" & $sScannameNew & "';")
+		 _SQL_Execute(-1,"CREATE VIEW  [scanold] as " & $sTempSQL & " AND scans.scantime = '" & $sScannameOld & "';")
+	  Else
+		 _SQLite_Exec(-1,"CREATE TEMPORARY TABLE scannew as " & $sTempSQL & " AND scans.scantime = '" & $sScannameNew & "';")
+		 _SQLite_Exec(-1,"CREATE TEMPORARY TABLE scanold as " & $sTempSQL & " AND scans.scantime = '" & $sScannameOld & "';")
 
-	  ;SELECT scantime,rulename FROM files where scantime = '20160514212002' group by rulename order by rulename asc;
+		 ;SELECT scantime,rulename FROM files where scantime = '20160514212002' group by rulename order by rulename asc;
+	  EndIf
+
+
 
 	  if GetNumberOfRulesFromRuleSet() > 0 Then
 
@@ -1108,42 +1134,21 @@ Func DoReport($ReportFilename,$sScannameOld = "lastvalid",$sScannameNew = "last"
 			;fix sql statement
 			$sTempSQL = StringReplace($sTempSQL," and ();",";")
 			$sTempSQL = StringReplace($sTempSQL," or );",");")
+			$sTempSQL = StringTrimRight($sTempSQL,1) & " GROUP BY scannew.rulename;"
 
-
-			_SQLite_Query(-1, $sTempSQL,$hQuery)
-			While _SQLite_FetchData($hQuery, $aQueryResult) = $SQLITE_OK
-			   ;_ArrayDisplay($aQueryResult)
-			   ;OutputLineOfQueryResultSummary($aQueryResult,$ReportFilename)
-			   $iTempCount = $aQueryResult[1]
-			WEnd
-			$sTempText &= StringFormat(" %7i",$iTempCount)
-			_SQLite_QueryFinalize($hQuery)
+			$sTempText &= StringFormat(" %7i",MakeReportSection1($sTempSQL))
 
 
 			;return new files
-			$aQueryResult = 0
-			$hQuery = 0
-			$iTempCount = 0
-			_SQLite_Query(-1,"SELECT scannew.rulename,count(scannew.rulename) FROM scannew LEFT JOIN scanold ON scannew.path = scanold.path and scannew.rulename = scanold.rulename WHERE scannew.rulename = '" & GetRulename($i) & "' and scanold.path IS NULL;" ,$hQuery)
-			While _SQLite_FetchData($hQuery, $aQueryResult) = $SQLITE_OK
-			   ;OutputLineOfQueryResultSummary($aQueryResult,$ReportFilename)
-			   $iTempCount = $aQueryResult[1]
-			WEnd
-			$sTempText &= StringFormat(" %7i",$iTempCount)
-			_SQLite_QueryFinalize($hQuery)
+			$sTempSQL = "SELECT scannew.rulename,count(scannew.rulename) FROM scannew LEFT JOIN scanold ON scannew.path = scanold.path and scannew.rulename = scanold.rulename WHERE scannew.rulename = '" & GetRulename($i) & "' and scanold.path IS NULL  GROUP BY scannew.rulename;"
+
+			$sTempText &= StringFormat(" %7i",MakeReportSection1($sTempSQL))
 
 
 			;return deleted files
-			$aQueryResult = 0
-			$hQuery = 0
-			$iTempCount = 0
-			_SQLite_Query(-1,"SELECT scanold.rulename,count(scanold.rulename) FROM scanold LEFT JOIN scannew ON scannew.path = scanold.path and scannew.rulename = scanold.rulename WHERE scanold.rulename = '" & GetRulename($i) & "' and scannew.path IS NULL;",$hQuery)
-			While _SQLite_FetchData($hQuery, $aQueryResult) = $SQLITE_OK
-			   ;OutputLineOfQueryResultSummary($aQueryResult,$ReportFilename)
-			   $iTempCount = $aQueryResult[1]
-			WEnd
-			$sTempText &= StringFormat(" %7i",$iTempCount)
-			_SQLite_QueryFinalize($hQuery)
+			$sTempSQL = "SELECT scanold.rulename,count(scanold.rulename) FROM scanold LEFT JOIN scannew ON scannew.path = scanold.path and scannew.rulename = scanold.rulename WHERE scanold.rulename = '" & GetRulename($i) & "' and scannew.path IS NULL GROUP BY scanold.rulename;"
+
+			$sTempText &= StringFormat(" %7i",MakeReportSection1($sTempSQL))
 
 
 			FileWriteLine($ReportFilename,$sTempText)
@@ -1195,48 +1200,21 @@ Func DoReport($ReportFilename,$sScannameOld = "lastvalid",$sScannameNew = "last"
 			;fix sql statement
 			$sTempSQL = StringReplace($sTempSQL," and ();",";")
 			$sTempSQL = StringReplace($sTempSQL," or );",");")
+			$sTempSQL = StringTrimRight($sTempSQL,1) & " ORDER BY scannew.path;"
 
 			if $sScannameOld <> "none" then
-			   _SQLite_Query(-1, $sTempSQL,$hQuery)
-			   While _SQLite_FetchData($hQuery, $aQueryResult) = $SQLITE_OK
-				  ;OutputLineOfQueryResult($aQueryResult,$ReportFilename)
-				  if not $iHasRuleHeader then
-					 OutputLineOfQueryResultHeadline($i,$ReportFilename)
-					 $iHasRuleHeader = True
-				  EndIf
-				  FileWriteLine($ReportFilename,StringFormat("%-8s : %s","changed",_HexToString($aQueryResult[0])))
-			   WEnd
-			   _SQLite_QueryFinalize($hQuery)
+			   MakeReportSection2and3($sTempSQL,$iHasRuleHeader,$ReportFilename,"changed",$i)
 			EndIf
 
 			;return new files
-			$aQueryResult = 0
-			$hQuery = 0
-			_SQLite_Query(-1,"SELECT scannew.path FROM scannew LEFT JOIN scanold ON scannew.path = scanold.path and scannew.rulename = scanold.rulename WHERE scannew.rulename = '" & GetRulename($i) & "' and scanold.path IS NULL;" ,$hQuery)
-			While _SQLite_FetchData($hQuery, $aQueryResult) = $SQLITE_OK
-			   ;OutputLineOfQueryResult($aQueryResult,$ReportFilename)
-			   if not $iHasRuleHeader then
-				  OutputLineOfQueryResultHeadline($i,$ReportFilename)
-				  $iHasRuleHeader = True
-			   EndIf
-			   FileWriteLine($ReportFilename,StringFormat("%-8s : %s","new",_HexToString($aQueryResult[0])))
-			WEnd
-			_SQLite_QueryFinalize($hQuery)
+			$sTempSQL = "SELECT scannew.path FROM scannew LEFT JOIN scanold ON scannew.path = scanold.path and scannew.rulename = scanold.rulename WHERE scannew.rulename = '" & GetRulename($i) & "' and scanold.path IS NULL ORDER BY scannew.path;"
+			MakeReportSection2and3($sTempSQL,$iHasRuleHeader,$ReportFilename,"new",$i)
+
 
 			if $sScannameOld <> "none" then
 			   ;return deleted files
-			   $aQueryResult = 0
-			   $hQuery = 0
-			   _SQLite_Query(-1,"SELECT scanold.path FROM scanold LEFT JOIN scannew ON scannew.path = scanold.path and scannew.rulename = scanold.rulename WHERE scanold.rulename = '" & GetRulename($i) & "' and scannew.path IS NULL;",$hQuery)
-			   While _SQLite_FetchData($hQuery, $aQueryResult) = $SQLITE_OK
-				  ;OutputLineOfQueryResult($aQueryResult,$ReportFilename)
-				  if not $iHasRuleHeader then
-					 OutputLineOfQueryResultHeadline($i,$ReportFilename)
-					 $iHasRuleHeader = True
-				  EndIf
-				  FileWriteLine($ReportFilename,StringFormat("%-8s : %s","missing",_HexToString($aQueryResult[0])))
-			   WEnd
-			   _SQLite_QueryFinalize($hQuery)
+			   $sTempSQL = "SELECT scanold.path FROM scanold LEFT JOIN scannew ON scannew.path = scanold.path and scannew.rulename = scanold.rulename WHERE scanold.rulename = '" & GetRulename($i) & "' and scannew.path IS NULL ORDER BY scanold.path;"
+			   MakeReportSection2and3($sTempSQL,$iHasRuleHeader,$ReportFilename,"missing",$i)
 			EndIf
 		 Next
 		 FileWriteLine($ReportFilename,@CRLF & "======================================================================" & @CRLF)
@@ -1287,43 +1265,20 @@ Func DoReport($ReportFilename,$sScannameOld = "lastvalid",$sScannameNew = "last"
 			$sTempSQL = StringReplace($sTempSQL," or );",");")
 
 			if $sScannameOld <> "none" then
-			   _SQLite_Query(-1, $sTempSQL,$hQuery)
-			   While _SQLite_FetchData($hQuery, $aQueryResult) = $SQLITE_OK
-				  if not $iHasRuleHeader then
-					 OutputLineOfQueryResultHeadline($i,$ReportFilename)
-					 $iHasRuleHeader = True
-				  EndIf
-				  OutputLineOfQueryResult($aQueryResult,$ReportFilename)
-			   WEnd
-			   _SQLite_QueryFinalize($hQuery)
+			   ;return changed files
+			   MakeReportSection2and3($sTempSQL,$iHasRuleHeader,$ReportFilename,"",$i)
 			EndIf
 
+
 			;return new files
-			$aQueryResult = 0
-			$hQuery = 0
-			_SQLite_Query(-1,"SELECT scanold.*,scannew.* FROM scannew LEFT JOIN scanold ON scannew.path = scanold.path and scannew.rulename = scanold.rulename WHERE scannew.rulename = '" & GetRulename($i) & "' and scanold.path IS NULL;" ,$hQuery)
-			While _SQLite_FetchData($hQuery, $aQueryResult) = $SQLITE_OK
-			   if not $iHasRuleHeader then
-				  OutputLineOfQueryResultHeadline($i,$ReportFilename)
-				  $iHasRuleHeader = True
-			   EndIf
-			   OutputLineOfQueryResult($aQueryResult,$ReportFilename)
-			WEnd
-			_SQLite_QueryFinalize($hQuery)
+			$sTempSQL = "SELECT scanold.*,scannew.* FROM scannew LEFT JOIN scanold ON scannew.path = scanold.path and scannew.rulename = scanold.rulename WHERE scannew.rulename = '" & GetRulename($i) & "' and scanold.path IS NULL;"
+			MakeReportSection2and3($sTempSQL,$iHasRuleHeader,$ReportFilename,"",$i)
+
 
 			if $sScannameOld <> "none" then
 			   ;return deleted files
-			   $aQueryResult = 0
-			   $hQuery = 0
-			   _SQLite_Query(-1,"SELECT scanold.*,scannew.* FROM scanold LEFT JOIN scannew ON scannew.path = scanold.path and scannew.rulename = scanold.rulename WHERE scanold.rulename = '" & GetRulename($i) & "' and scannew.path IS NULL;",$hQuery)
-			   While _SQLite_FetchData($hQuery, $aQueryResult) = $SQLITE_OK
-				  if not $iHasRuleHeader then
-					 OutputLineOfQueryResultHeadline($i,$ReportFilename)
-					 $iHasRuleHeader = True
-				  EndIf
-				  OutputLineOfQueryResult($aQueryResult,$ReportFilename)
-			   WEnd
-			   _SQLite_QueryFinalize($hQuery)
+			   $sTempSQL = "SELECT scanold.*,scannew.* FROM scanold LEFT JOIN scannew ON scannew.path = scanold.path and scannew.rulename = scanold.rulename WHERE scanold.rulename = '" & GetRulename($i) & "' and scannew.path IS NULL;"
+			   MakeReportSection2and3($sTempSQL,$iHasRuleHeader,$ReportFilename,"",$i)
 			EndIf
 		 Next
 
@@ -1404,7 +1359,11 @@ Func DoInvalidateScan($sScanname)
 	  for $i = 2 to $aQueryResult[0]
 		 ;_ArrayDisplay($aQueryResult)
 		 ;$aQueryResult[$i]
-		 _SQLite_Exec(-1,"update scans set valid = 0 where scantime = '" & $aQueryResult[$i] & "' and valid = 1;")
+		 if $gbMSSQL Then
+			_SQL_Execute(-1,"update scans set valid = 0 where scantime = '" & $aQueryResult[$i] & "' and valid = 1;")
+		 Else
+			_SQLite_Exec(-1,"update scans set valid = 0 where scantime = '" & $aQueryResult[$i] & "' and valid = 1;")
+		 EndIf
 	  next
    EndIf
 
@@ -1420,7 +1379,11 @@ Func DoValidateScan($sScanname)
 	  for $i = 2 to $aQueryResult[0]
 		 ;_ArrayDisplay($aQueryResult)
 		 ;$aQueryResult[$i]
-		 _SQLite_Exec(-1,"update scans set valid = 1 where scantime = '" & $aQueryResult[$i] & "' and valid = 0;")
+		 if $gbMSSQL Then
+			_SQL_Execute(-1,"update scans set valid = 1 where scantime = '" & $aQueryResult[$i] & "' and valid = 0;")
+		 Else
+			_SQLite_Exec(-1,"update scans set valid = 1 where scantime = '" & $aQueryResult[$i] & "' and valid = 0;")
+		 EndIf
 	  next
    EndIf
 
@@ -1442,14 +1405,18 @@ Func DoListScan()
    $sTempSQL &= "WHERE "
    $sTempSQL &= "filedata.scanid = scans.scanid AND "
    $sTempSQL &= "filedata.ruleid = rules.ruleid "
-   $sTempSQL &= "GROUP BY scans.scantime ORDER BY scans.scantime DESC;"
+   $sTempSQL &= "GROUP BY scans.scantime,scans.valid ORDER BY scans.scantime DESC;"
 
 
    ;get all scans in db
    $aQueryResult = 0
    ;_SQLite_GetTable2d(-1, "SELECT scantime,count(name),status from files group by scantime order by scantime desc;", $aQueryResult, $iQueryRows, $iQueryColumns)
-   _SQLite_GetTable2d(-1, $sTempSQL, $aQueryResult, $iQueryRows, $iQueryColumns)
-   if not @error Then
+   if $gbMSSQL then
+	  _SQL_GetTable2d(-1, $sTempSQL, $aQueryResult, $iQueryRows, $iQueryColumns)
+   Else
+	  _SQLite_GetTable2d(-1, $sTempSQL, $aQueryResult, $iQueryRows, $iQueryColumns)
+   EndIf
+   if ($gbMSSQL and $SQL_OK) or not @error Then
 	  ;_ArrayDisplay($aQueryResult)
 	  ConsoleWrite(StringFormat("%-5s %-14s %-10s %-8s %s","Valid","Scanname","Date","Time","Entries") & @CRLF)
 	  ConsoleWrite(StringFormat("%-5s %-14s %-10s %-8s %s","-----","--------------","----------","--------","--------------"))
@@ -1473,7 +1440,8 @@ Func DoExportScan($sScanname,$sCSVFilename)
    ;$sScanname = $CmdLine[3]
    ;$sCSVFilename = $CmdLine[4]
 
-   local $aCSVDesc[] = ["scantime","name","valid","size","attributes","mtime","ctime","atime","version","spath","crc32","md5","ptime","rulename"]
+   local $aCSVDesc[] = ["scantime","name","valid","size","mtime","ctime","atime","version","spath","crc32","md5","ptime","rulename","attributes"]
+   local $aAttribDesc[] = ["r","a","s","h","n","d","o","c","t"]
    local $sTempText = ''
    local $sTempSQL	= ''		;sql statement
    local $j = 0
@@ -1501,7 +1469,7 @@ Func DoExportScan($sScanname,$sCSVFilename)
    $sTempSQL &= "filenames.path,"
    $sTempSQL &= "scans.valid,"
    $sTempSQL &= "filedata.size,"
-   $sTempSQL &= "filedata.attributes,"
+;   $sTempSQL &= "filedata.attributes,"
    $sTempSQL &= "filedata.mtime,"
    $sTempSQL &= "filedata.ctime,"
    $sTempSQL &= "filedata.atime,"
@@ -1510,7 +1478,16 @@ Func DoExportScan($sScanname,$sCSVFilename)
    $sTempSQL &= "filedata.crc32,"
    $sTempSQL &= "filedata.md5,"
    $sTempSQL &= "filedata.ptime,"
-   $sTempSQL &= "rules.rulename "
+   $sTempSQL &= "rules.rulename, "
+   $sTempSQL &= "filedata.rattrib,"
+   $sTempSQL &= "filedata.aattrib,"
+   $sTempSQL &= "filedata.sattrib,"
+   $sTempSQL &= "filedata.hattrib,"
+   $sTempSQL &= "filedata.nattrib,"
+   $sTempSQL &= "filedata.dattrib,"
+   $sTempSQL &= "filedata.oattrib,"
+   $sTempSQL &= "filedata.cattrib,"
+   $sTempSQL &= "filedata.tattrib "
    $sTempSQL &= "FROM filedata,filenames,rules,scans "
    $sTempSQL &= "WHERE "
    $sTempSQL &= "filedata.filenameid = filenames.filenameid AND "
@@ -1548,26 +1525,35 @@ Func DoExportScan($sScanname,$sCSVFilename)
 		 $aCSVQueryResult = 0
 		 $hCSVQuery = 0
 
-		 ;_SQLite_Query(-1, "SELECT * FROM files WHERE scantime = '" & $aQueryResult[$i] & "';",$hCSVQuery)
-		 _SQLite_Query(-1, $sTempSQL & " AND scantime = '" & $aQueryResult[$i] & "';",$hCSVQuery)
+		 if $gbMSSQL then
+			$hCSVQuery = _SQL_Execute(-1, $sTempSQL & " AND scantime = '" & $aQueryResult[$i] & "';")
+		 Else
+			_SQLite_Query(-1, $sTempSQL & " AND scantime = '" & $aQueryResult[$i] & "';",$hCSVQuery)
+		 EndIf
 
-		 While _SQLite_FetchData($hCSVQuery, $aCSVQueryResult) = $SQLITE_OK
+;		 While _SQLite_FetchData($hCSVQuery, $aCSVQueryResult) = $SQLITE_OK
+		 While ($gbMSSQL and _SQL_FetchData($hCSVQuery, $aCSVQueryResult) = $SQL_OK) or (not $gbMSSQL and _SQLite_FetchData($hCSVQuery, $aCSVQueryResult) = $SQLITE_OK)
 			$sTempText = ''
-			for $j = 0 to 13
-			   ;if $j = 1 or $j = 9  or $j = 13 then
+			for $j = 0 to 21
 			   if $j = 0 then
 				  $sTempText &= '"' & $aCSVQueryResult[$j] & '"'
 			   Elseif $j = 1 then
 				  $sTempText &= ',"' & _HexToString($aCSVQueryResult[$j]) & '"'
+			   Elseif $j >= 13 and $j <= 21 then
+				  ;attributes
+				  if $j = 13 then $sTempText &= ',"'
+				  if $aCSVQueryResult[$j] = 1 then $sTempText &= StringUpper($aAttribDesc[$j-13])
+				  if $j = 21 then $sTempText &= '"'
 			   Else
 				  $sTempText &= ',"' & $aCSVQueryResult[$j] & '"'
 			   EndIf
 			Next
+
 			;$sTempText &= '"'
 			;ConsoleWrite($sTempText)
 			FileWriteLine($sCSVFilename,$sTempText)
 		 WEnd
-		 _SQLite_QueryFinalize($hCSVQuery)
+		 if not $gbMSSQL then _SQLite_QueryFinalize($hCSVQuery)
 	  next
    EndIf
 
@@ -2545,31 +2531,62 @@ Func GetScannamesFromDB($sScan,ByRef $aScans)
 
    local $iTempQueryRows = 0
    local $iTempQueryColumns = 0
-   Select
-	  Case $sScan = "all"
-		 $sSQL = "SELECT scantime from scans group by scantime order by scantime desc limit " & $gcScannameLimit & ";"
-	  Case $sScan = "last"
-		 $sSQL = "SELECT scantime from scans group by scantime order by scantime desc limit 1;"
-	  Case $sScan = "invalid"
-		 $sSQL = "SELECT scantime from scans where valid = 0 group by scantime order by scantime desc limit " & $gcScannameLimit & ";"
-	  Case $sScan = "valid"
-		 $sSQL = "SELECT scantime from scans where valid = 1 group by scantime order by scantime desc limit " & $gcScannameLimit & ";"
-	  Case $sScan = "lastinvalid"
-		 $sSQL = "SELECT scantime from scans where valid = 0 group by scantime order by scantime desc limit 1;"
-	  Case $sScan = "lastvalid"
-		 $sSQL = "SELECT scantime from scans where valid = 1 group by scantime order by scantime desc limit 1;"
-	  Case $sScan = "oldvalid"
-		 $sSQL = "SELECT scantime from scans where valid = 1 group by scantime order by scantime desc limit " & $gcScannameLimit & " offset 1;"
-	  case Else
-		 $sSQL = "SELECT scantime from scans where scantime = '" & $sScan & "' group by scantime order by scantime desc limit 1;"
-   EndSelect
 
    if $gbMSSQL then
+	  Select
+		 Case $sScan = "all"
+			$sSQL = "SELECT TOP " & $gcScannameLimit & " scantime from scans group by scantime order by scantime desc;"
+		 Case $sScan = "last"
+			$sSQL = "SELECT TOP 1 scantime from scans group by scantime order by scantime desc;"
+		 Case $sScan = "invalid"
+			$sSQL = "SELECT TOP " & $gcScannameLimit & " scantime from scans where valid = 0 group by scantime order by scantime desc;"
+		 Case $sScan = "valid"
+			$sSQL = "SELECT TOP " & $gcScannameLimit & " scantime from scans where valid = 1 group by scantime order by scantime desc;"
+		 Case $sScan = "lastinvalid"
+			$sSQL = "SELECT TOP 1 scantime from scans where valid = 0 group by scantime order by scantime desc;"
+		 Case $sScan = "lastvalid"
+			$sSQL = "SELECT TOP 1 scantime from scans where valid = 1 group by scantime order by scantime desc;"
+		 Case $sScan = "oldvalid"
+			;$sSQL = "SELECT TOP " & $gcScannameLimit & " offset 1 scantime from scans where valid = 1 group by scantime order by scantime desc;"
+
+			$sSQL  = "WITH ScansValid AS "
+			$sSQL &= "( "
+			$sSQL &= "  SELECT scantime, "
+			$sSQL &= "  ROW_NUMBER() OVER (ORDER BY scantime desc) AS RowNumber "
+			$sSQL &= "  FROM scans "
+			$sSQL &= ") "
+			$sSQL &= "SELECT scantime "
+			$sSQL &= "FROM ScansValid "
+			$sSQL &= "WHERE RowNumber BETWEEN 2 AND " & $gcScannameLimit & ";"
+
+		 case Else
+			$sSQL = "SELECT TOP 1 scantime from scans where scantime = '" & $sScan & "' group by scantime order by scantime desc;"
+	  EndSelect
+
 	  _SQL_GetTable(-1, $sSQL, $aScans, $iTempQueryRows, $iTempQueryColumns)
    Else
+	  Select
+		 Case $sScan = "all"
+			$sSQL = "SELECT scantime from scans group by scantime order by scantime desc limit " & $gcScannameLimit & ";"
+		 Case $sScan = "last"
+			$sSQL = "SELECT scantime from scans group by scantime order by scantime desc limit 1;"
+		 Case $sScan = "invalid"
+			$sSQL = "SELECT scantime from scans where valid = 0 group by scantime order by scantime desc limit " & $gcScannameLimit & ";"
+		 Case $sScan = "valid"
+			$sSQL = "SELECT scantime from scans where valid = 1 group by scantime order by scantime desc limit " & $gcScannameLimit & ";"
+		 Case $sScan = "lastinvalid"
+			$sSQL = "SELECT scantime from scans where valid = 0 group by scantime order by scantime desc limit 1;"
+		 Case $sScan = "lastvalid"
+			$sSQL = "SELECT scantime from scans where valid = 1 group by scantime order by scantime desc limit 1;"
+		 Case $sScan = "oldvalid"
+			$sSQL = "SELECT scantime from scans where valid = 1 group by scantime order by scantime desc limit " & $gcScannameLimit & " offset 1;"
+		 case Else
+			$sSQL = "SELECT scantime from scans where scantime = '" & $sScan & "' group by scantime order by scantime desc limit 1;"
+	  EndSelect
+
 	  _SQLite_GetTable(-1, $sSQL, $aScans, $iTempQueryRows, $iTempQueryColumns)
    EndIf
-   if not @error Then
+   if ($gbMSSQL and $SQL_OK) or not @error Then
 	  if $iTempQueryRows >= 1 then
 		 ;MsgBox(0,"Test",$iQueryRows & @CRLF & $iQueryColumns)
 		 ;_ArrayDisplay($aScans)
@@ -2609,28 +2626,26 @@ Func OpenDBMSSQL($sDBINIFilename)
    ;open and initialize database if needed
    ;---------------------------------------
 
-   local $aQueryResult = 0		;result of a query
-   local $bTableExists = False
-   local $sTablename = ""
+   ;local $aQueryResult = 0		;result of a query
+   ;local $bTableExists = False
+   ;local $sTablename = ""
 
    If not $SQL_OK = _SQL_Startup() Then
 	   ConsoleWrite("MS SQL Error: " & _SQL_GetErrMsg())
 	   Exit -1
    EndIf
-   ;ConsoleWrite("_SQLite_LibVersion=" & _SQLite_LibVersion() & @CRLF)
-
-   ;$ghDBHandle = _SQL_Open($sDBINIFilename)
 
 
-   ;If not $SQL_OK = _SQL_Connect(-1, "MAINFRAME\SQLEXPRESS", "STD", "sa", "Pa$$w0rd") Then
-   If not $SQL_OK = _SQL_Connect(-1, IniRead($sDBINIFilename,"MSSQL","server",""), IniRead($sDBINIFilename,"MSSQL","db",""), IniRead($sDBINIFilename,"MSSQL","user",""), IniRead($sDBINIFilename,"MSSQL","password","")) Then
+   $gsMSSQLDBName = IniRead($sDBINIFilename,"MSSQL","db","")
+
+   If not $SQL_OK = _SQL_Connect(-1, IniRead($sDBINIFilename,"MSSQL","server",""), $gsMSSQLDBName , IniRead($sDBINIFilename,"MSSQL","user",""), IniRead($sDBINIFilename,"MSSQL","password","")) Then
 	   ConsoleWrite("MS SQL Error: " & _SQL_GetErrMsg())
 	   Exit -1
    EndIf
 
    ;read all tablenames form database
-   $aQueryResult = 0
-   $aQueryResult = _SQL_GetTableName(-1,"TABLE")
+   ;$aQueryResult = 0
+   ;$aQueryResult = _SQL_GetTableName(-1,"TABLE")
 
    #cs
 	  FileGetAttrib()
@@ -2648,7 +2663,7 @@ Func OpenDBMSSQL($sDBINIFilename)
 
 
    ;create new db structure if needed
-
+   #cs
    $bTableExists = False
    for $sTablename in $aQueryResult
 	  if $sTablename = "config" then
@@ -2656,43 +2671,13 @@ Func OpenDBMSSQL($sDBINIFilename)
 		 ExitLoop
 	  EndIf
    Next
-   if not $bTableExists then _SQL_Execute(-1,"CREATE TABLE [config] ([linenumber] INTEGER IDENTITY(1,1)  ,[line] VARCHAR NULL  ,CONSTRAINT [config_PRIMARY]  PRIMARY KEY  NONCLUSTERED  ([linenumber])); ")
-
-   $bTableExists = False
-   for $sTablename in $aQueryResult
-	  if $sTablename = "scans" then
-		 $bTableExists = True
-		 ExitLoop
-	  EndIf
-   Next
-   if not $bTableExists then _SQL_Execute(-1,"CREATE TABLE [scans] ([scanid] INTEGER IDENTITY(1,1)  ,[scantime] char(14) NULL  ,[valid] INTEGER NULL  DEFAULT 0 ,CONSTRAINT [scans_PRIMARY]  PRIMARY KEY  NONCLUSTERED  ([scanid]));")
-
-   $bTableExists = False
-   for $sTablename in $aQueryResult
-	  if $sTablename = "rules" then
-		 $bTableExists = True
-		 ExitLoop
-	  EndIf
-   Next
-   if not $bTableExists then _SQL_Execute(-1,"CREATE TABLE [rules] ([ruleid] INTEGER IDENTITY(1,1)  ,[rulename] varchar(255)  ,CONSTRAINT [rules_PRIMARY]  PRIMARY KEY  NONCLUSTERED  ([ruleid]));")
-
-   $bTableExists = False
-   for $sTablename in $aQueryResult
-	  if $sTablename = "filenames" then
-		 $bTableExists = True
-		 ExitLoop
-	  EndIf
-   Next
-   if not $bTableExists then _SQL_Execute(-1,"CREATE TABLE [filenames] ([filenameid] INTEGER IDENTITY(1,1)  ,[path] varchar(512) NULL  ,[spath] varchar(512) NULL  );")
-
-   $bTableExists = False
-   for $sTablename in $aQueryResult
-	  if $sTablename = "filedata" then
-		 $bTableExists = True
-		 ExitLoop
-	  EndIf
-   Next
-   if not $bTableExists then _SQL_Execute(-1,"CREATE TABLE [filedata] ([scanid] INTEGER NOT NULL  DEFAULT 0 ,[ruleid] INTEGER NOT NULL  DEFAULT 0 ,[filenameid] INTEGER NOT NULL  DEFAULT 0 ,[status] INTEGER NULL  DEFAULT 0 ,[size] INTEGER NULL  DEFAULT 0 ,[attributes] CHAR(1) NULL  ,[mtime] CHAR(14) NULL  ,[ctime] CHAR(14) NULL  ,[atime] CHAR(14) NULL  ,[version] VARCHAR(80) NULL  ,[crc32] char(35) NULL  ,[md5] char(35) NULL  ,[ptime] INTEGER NULL  ,[rattrib] INTEGER NULL  DEFAULT 0 ,[aattrib] INTEGER NULL  DEFAULT 0 ,[sattrib] INTEGER NULL  DEFAULT 0 ,[hattrib] INTEGER NULL  DEFAULT 0 ,[nattrib] INTEGER NULL  DEFAULT 0 ,[dattrib] INTEGER NULL  DEFAULT 0 ,[oattrib] INTEGER NULL  DEFAULT 0 ,[cattrib] INTEGER NULL  DEFAULT 0 ,[tattrib] INTEGER NULL  DEFAULT 0 ,CONSTRAINT [filedata_PRIMARY]  PRIMARY KEY  NONCLUSTERED  ([scanid],[ruleid],[filenameid]));")
+   ;if not $bTableExists then _SQL_Execute(-1,"CREATE TABLE [config] ([linenumber] INTEGER IDENTITY(1,1)  ,[line] VARCHAR NULL  ,CONSTRAINT [config_PRIMARY]  PRIMARY KEY  NONCLUSTERED  ([linenumber])); ")
+   #ce
+   _SQL_Execute(-1,"IF OBJECT_ID ('config', 'Table') IS NULL CREATE TABLE [config] ([linenumber] INTEGER IDENTITY(1,1)  ,[line] VARCHAR NULL  ,CONSTRAINT [config_PRIMARY]  PRIMARY KEY  NONCLUSTERED  ([linenumber])); ")
+   _SQL_Execute(-1,"IF OBJECT_ID ('scans', 'Table') IS NULL CREATE TABLE [scans] ([scanid] INTEGER IDENTITY(1,1)  ,[scantime] char(14) NULL  ,[valid] INTEGER NULL  DEFAULT 0 ,CONSTRAINT [scans_PRIMARY]  PRIMARY KEY  NONCLUSTERED  ([scanid]));")
+   _SQL_Execute(-1,"IF OBJECT_ID ('rules', 'Table') IS NULL CREATE TABLE [rules] ([ruleid] INTEGER IDENTITY(1,1)  ,[rulename] varchar(255)  ,CONSTRAINT [rules_PRIMARY]  PRIMARY KEY  NONCLUSTERED  ([ruleid]));")
+   _SQL_Execute(-1,"IF OBJECT_ID ('filenames', 'Table') IS NULL CREATE TABLE [filenames] ([filenameid] INTEGER IDENTITY(1,1)  ,[path] varchar(512) NULL  ,[spath] varchar(512) NULL  );")
+   _SQL_Execute(-1,"IF OBJECT_ID ('filedata', 'Table') IS NULL CREATE TABLE [filedata] ([scanid] INTEGER NOT NULL  DEFAULT 0 ,[ruleid] INTEGER NOT NULL  DEFAULT 0 ,[filenameid] INTEGER NOT NULL  DEFAULT 0 ,[status] INTEGER NULL  DEFAULT 0 ,[size] INTEGER NULL  DEFAULT 0 ,[attributes] CHAR(1) NULL  ,[mtime] CHAR(14) NULL  ,[ctime] CHAR(14) NULL  ,[atime] CHAR(14) NULL  ,[version] VARCHAR(80) NULL  ,[crc32] char(35) NULL  ,[md5] char(35) NULL  ,[ptime] INTEGER NULL  ,[rattrib] INTEGER NULL  DEFAULT 0 ,[aattrib] INTEGER NULL  DEFAULT 0 ,[sattrib] INTEGER NULL  DEFAULT 0 ,[hattrib] INTEGER NULL  DEFAULT 0 ,[nattrib] INTEGER NULL  DEFAULT 0 ,[dattrib] INTEGER NULL  DEFAULT 0 ,[oattrib] INTEGER NULL  DEFAULT 0 ,[cattrib] INTEGER NULL  DEFAULT 0 ,[tattrib] INTEGER NULL  DEFAULT 0 ,CONSTRAINT [filedata_PRIMARY]  PRIMARY KEY  NONCLUSTERED  ([scanid],[ruleid],[filenameid]));")
 
 
    Return True
@@ -3717,6 +3702,49 @@ Func GetFileInfo( ByRef $gaFileInfo, $sFilename, $iHashes )
    if $gcDEBUGTimeGetFileInfo = True then $giDEBUGTimerGetFileInfo += $gaFileInfo[11]
 
    return 0
+EndFunc
+
+
+Func MakeReportSection1($sTempSQL)
+   local $aQueryResult = 0
+   local $hQuery = 0
+   local $iTempCount = 0
+   ;$sTempSQL = "SELECT scanold.*,scannew.* FROM scanold LEFT JOIN scannew ON scannew.path = scanold.path and scannew.rulename = scanold.rulename WHERE scanold.rulename = '" & GetRulename($i) & "' and scannew.path IS NULL;"
+   if $gbMSSQL then
+	  $hQuery = _SQL_Execute(-1, $sTempSQL)
+   Else
+	  _SQLite_Query(-1, $sTempSQL,$hQuery)
+   EndIf
+   While ($gbMSSQL and _SQL_FetchData($hQuery, $aQueryResult) = $SQL_OK) or (not $gbMSSQL and _SQLite_FetchData($hQuery, $aQueryResult) = $SQLITE_OK)
+	  $iTempCount = $aQueryResult[1]
+   WEnd
+   if not $gbMSSQL then _SQLite_QueryFinalize($hQuery)
+
+   Return $iTempCount
+EndFunc
+
+
+Func MakeReportSection2and3($sTempSQL,ByRef $iHasRuleHeader,$sReportFilename,$sRemark,$iRuleNumber)
+   local $aQueryResult = 0
+   local $hQuery = 0
+   ;$sTempSQL = "SELECT scanold.*,scannew.* FROM scanold LEFT JOIN scannew ON scannew.path = scanold.path and scannew.rulename = scanold.rulename WHERE scanold.rulename = '" & GetRulename($i) & "' and scannew.path IS NULL;"
+   if $gbMSSQL then
+	  $hQuery = _SQL_Execute(-1, $sTempSQL)
+   Else
+	  _SQLite_Query(-1, $sTempSQL,$hQuery)
+   EndIf
+   While ($gbMSSQL and _SQL_FetchData($hQuery, $aQueryResult) = $SQL_OK) or (not $gbMSSQL and _SQLite_FetchData($hQuery, $aQueryResult) = $SQLITE_OK)
+	  if not $iHasRuleHeader then
+		 OutputLineOfQueryResultHeadline($iRuleNumber,$sReportFilename)
+		 $iHasRuleHeader = True
+	  EndIf
+	  if $sRemark = "" then
+		 OutputLineOfQueryResult($aQueryResult,$sReportFilename)
+	  Else
+		 FileWriteLine($sReportFilename,StringFormat("%-8s : %s",$sRemark,_HexToString($aQueryResult[0])))
+	  EndIf
+   WEnd
+   if not $gbMSSQL then _SQLite_QueryFinalize($hQuery)
 EndFunc
 
 
