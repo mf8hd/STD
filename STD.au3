@@ -142,6 +142,7 @@ Changelog
 3.7.0.0		support MS SQL as database. db-filename is ini-file with connection definition
 			DoDelete(): delete unused lines in table rules and filenames
 			DoReport(): simplify code with MakeReportSection1(),MakeReportSection2and3()
+3.8.0.0		DoReport(): add short medium and large report, large is the standard report
 
 
 
@@ -184,6 +185,8 @@ ToDo:
 	  - use RuleID for rule identification. Export RuleID with /exportcfg
 	  - is the csv format ok ? /doublicates /history ...
 	  - use _SQLite_Escape() not _StringToHex() for text in DB
+	  - write README.TXT
+	  - put changelog in Change.Log
 
 #ce
 
@@ -231,8 +234,8 @@ End
 #pragma compile(UPX, False)
 
 ;Set file infos
-#pragma compile(ProductVersion,"3.7.0.0")
-#pragma compile(FileVersion,"3.7.0.0")
+#pragma compile(ProductVersion,"3.8.0.0")
+#pragma compile(FileVersion,"3.8.0.0")
 ;Versioning: "Incompatible changes to DB"."new feature"."bug fix"."minor fix"
 
 #pragma compile(FileDescription,"Spot The Difference")
@@ -384,6 +387,7 @@ Global $goMyError = ObjEvent("AutoIt.Error", "MyErrFunc")
 global $giIsExecutableLastResult = False	;result of last call to IsExecutable()
 global $gsIsExecutableLastFilename = ""		;filname used for last call to IsExecutable()
 
+Local  $sReportMode = ""	; what report to create (small, medium, large)
 #cs
 db stucture
    scantime			time the scan took place
@@ -626,7 +630,19 @@ select
 		 ConsoleWriteError("For the " & $CmdLine[1] & " command to work " & @ScriptName & " must be compiled !")
 	  EndIf
 
-   Case $CmdLine[1] = "/report"
+   Case $CmdLine[1] = "/report" or $CmdLine[1] = "/reports" or $CmdLine[1] = "/reportm" or $CmdLine[1] = "/reportl"
+
+	  Select
+		 Case $CmdLine[1] = "/reports"
+			$sReportMode = "S"
+		 Case $CmdLine[1] = "/reportm"
+			$sReportMode = "M"
+		 Case $CmdLine[1] = "/reportl"
+			$sReportMode = "L"
+		 case Else
+			$sReportMode = "L"
+	  EndSelect
+
 
 	  if $CmdLine[0] = 3 then
 		 ;@ScriptName /report DB report.txt
@@ -634,7 +650,7 @@ select
 		 if FileExists($CmdLine[2]) then
 			OpenDB($CmdLine[2])
 
-			DoReport($CmdLine[3])
+			DoReport($sReportMode,$CmdLine[3])
 
 			CloseDB()
 		 Else
@@ -647,7 +663,7 @@ select
 		 if FileExists($CmdLine[2]) then
 			OpenDB($CmdLine[2])
 
-			DoReport($CmdLine[4],"none",$CmdLine[3])
+			DoReport($sReportMode,$CmdLine[4],"none",$CmdLine[3])
 
 			CloseDB()
 		 Else
@@ -661,7 +677,7 @@ select
 		 if FileExists($CmdLine[2]) then
 			OpenDB($CmdLine[2])
 
-			DoReport($CmdLine[5],$CmdLine[3],$CmdLine[4])
+			DoReport($sReportMode,$CmdLine[5],$CmdLine[3],$CmdLine[4])
 
 			CloseDB()
 		 Else
@@ -940,7 +956,7 @@ Func DoDeleteScan($sScanname)
 EndFunc
 
 
-Func DoReport($ReportFilename,$sScannameOld = "lastvalid",$sScannameNew = "last")
+Func DoReport($sReportMode,$ReportFilename,$sScannameOld = "lastvalid",$sScannameNew = "last")
    local $rc = 0				;mailer return code
    local $iEmailReport = False	;send report per email (smtp)
    local $sEMailBody = ""		;bodytext of email
@@ -1157,131 +1173,134 @@ Func DoReport($ReportFilename,$sScannameOld = "lastvalid",$sScannameNew = "last"
 
 
 		 ;list per rule
-		 for $i = 1 to GetNumberOfRulesFromRuleSet()
+		 if $sReportMode = "M" or $sReportMode = "L" then
+			for $i = 1 to GetNumberOfRulesFromRuleSet()
 
-			$iHasRuleHeader = False
-			;FileWriteLine($ReportFilename,@crlf & "----------------------------------------------------------------------")
-			;FileWriteLine($ReportFilename,"rule     : " & GetRulename($i))
-			;FileWriteLine($ReportFilename,"----------------------------------------------------------------------" & @CRLF)
+			   $iHasRuleHeader = False
+			   ;FileWriteLine($ReportFilename,@crlf & "----------------------------------------------------------------------")
+			   ;FileWriteLine($ReportFilename,"rule     : " & GetRulename($i))
+			   ;FileWriteLine($ReportFilename,"----------------------------------------------------------------------" & @CRLF)
 
-			;return scan differences
-			$aQueryResult = 0
-			$hQuery = 0
+			   ;return scan differences
+			   $aQueryResult = 0
+			   $hQuery = 0
 
-			$sTempSQL =  "SELECT "
-			$sTempSQL &= "scannew.path "
-			$sTempSQL &= "FROM scannew,scanold "
-			$sTempSQL &= "WHERE "
-			$sTempSQL &= "scannew.path = scanold.path and "
-			$sTempSQL &= "scannew.rulename = scanold.rulename and "
-			$sTempSQL &= "scannew.rulename = '" & GetRulename($i) & "' and "
-			$sTempSQL &= "("
-			if not IsFilepropertyIgnoredByRule("status",$i)       then $sTempSQL &= "scannew.status <> scanold.status or "
-			if not IsFilepropertyIgnoredByRule("size",$i)         then $sTempSQL &= "scannew.size <> scanold.size or "
-			;$sTempSQL &= "scannew.attributes <> scanold.attributes or "
-			if not IsFilepropertyIgnoredByRule("atime",$i)        then $sTempSQL &= "scannew.atime <> scanold.atime or "
-			if not IsFilepropertyIgnoredByRule("mtime",$i)        then $sTempSQL &= "scannew.mtime <> scanold.mtime or "
-			if not IsFilepropertyIgnoredByRule("ctime",$i)        then $sTempSQL &= "scannew.ctime <> scanold.ctime or "
-			if not IsFilepropertyIgnoredByRule("version",$i)      then $sTempSQL &= "scannew.version <> scanold.version or "
-			if not IsFilepropertyIgnoredByRule("spath",$i)        then $sTempSQL &= "scannew.spath <> scanold.spath or "
-			if not IsFilepropertyIgnoredByRule("crc32",$i)        then $sTempSQL &= "scannew.crc32 <> scanold.crc32 or "
-			if not IsFilepropertyIgnoredByRule("md5",$i)          then $sTempSQL &= "scannew.md5 <> scanold.md5 or "
-			if not IsFilepropertyIgnoredByRule("rattrib",$i)      then $sTempSQL &= "scannew.rattrib <> scanold.rattrib or "
-			if not IsFilepropertyIgnoredByRule("aattrib",$i)      then $sTempSQL &= "scannew.aattrib <> scanold.aattrib or "
-			if not IsFilepropertyIgnoredByRule("sattrib",$i)      then $sTempSQL &= "scannew.sattrib <> scanold.sattrib or "
-			if not IsFilepropertyIgnoredByRule("hattrib",$i)      then $sTempSQL &= "scannew.hattrib <> scanold.hattrib or "
-			if not IsFilepropertyIgnoredByRule("nattrib",$i)      then $sTempSQL &= "scannew.nattrib <> scanold.nattrib or "
-			if not IsFilepropertyIgnoredByRule("dattrib",$i)      then $sTempSQL &= "scannew.dattrib <> scanold.dattrib or "
-			if not IsFilepropertyIgnoredByRule("oattrib",$i)      then $sTempSQL &= "scannew.oattrib <> scanold.oattrib or "
-			if not IsFilepropertyIgnoredByRule("cattrib",$i)      then $sTempSQL &= "scannew.cattrib <> scanold.cattrib or "
-			if not IsFilepropertyIgnoredByRule("tattrib",$i)      then $sTempSQL &= "scannew.tattrib <> scanold.tattrib or "
-			$sTempSQL &= ");"
+			   $sTempSQL =  "SELECT "
+			   $sTempSQL &= "scannew.path "
+			   $sTempSQL &= "FROM scannew,scanold "
+			   $sTempSQL &= "WHERE "
+			   $sTempSQL &= "scannew.path = scanold.path and "
+			   $sTempSQL &= "scannew.rulename = scanold.rulename and "
+			   $sTempSQL &= "scannew.rulename = '" & GetRulename($i) & "' and "
+			   $sTempSQL &= "("
+			   if not IsFilepropertyIgnoredByRule("status",$i)       then $sTempSQL &= "scannew.status <> scanold.status or "
+			   if not IsFilepropertyIgnoredByRule("size",$i)         then $sTempSQL &= "scannew.size <> scanold.size or "
+			   ;$sTempSQL &= "scannew.attributes <> scanold.attributes or "
+			   if not IsFilepropertyIgnoredByRule("atime",$i)        then $sTempSQL &= "scannew.atime <> scanold.atime or "
+			   if not IsFilepropertyIgnoredByRule("mtime",$i)        then $sTempSQL &= "scannew.mtime <> scanold.mtime or "
+			   if not IsFilepropertyIgnoredByRule("ctime",$i)        then $sTempSQL &= "scannew.ctime <> scanold.ctime or "
+			   if not IsFilepropertyIgnoredByRule("version",$i)      then $sTempSQL &= "scannew.version <> scanold.version or "
+			   if not IsFilepropertyIgnoredByRule("spath",$i)        then $sTempSQL &= "scannew.spath <> scanold.spath or "
+			   if not IsFilepropertyIgnoredByRule("crc32",$i)        then $sTempSQL &= "scannew.crc32 <> scanold.crc32 or "
+			   if not IsFilepropertyIgnoredByRule("md5",$i)          then $sTempSQL &= "scannew.md5 <> scanold.md5 or "
+			   if not IsFilepropertyIgnoredByRule("rattrib",$i)      then $sTempSQL &= "scannew.rattrib <> scanold.rattrib or "
+			   if not IsFilepropertyIgnoredByRule("aattrib",$i)      then $sTempSQL &= "scannew.aattrib <> scanold.aattrib or "
+			   if not IsFilepropertyIgnoredByRule("sattrib",$i)      then $sTempSQL &= "scannew.sattrib <> scanold.sattrib or "
+			   if not IsFilepropertyIgnoredByRule("hattrib",$i)      then $sTempSQL &= "scannew.hattrib <> scanold.hattrib or "
+			   if not IsFilepropertyIgnoredByRule("nattrib",$i)      then $sTempSQL &= "scannew.nattrib <> scanold.nattrib or "
+			   if not IsFilepropertyIgnoredByRule("dattrib",$i)      then $sTempSQL &= "scannew.dattrib <> scanold.dattrib or "
+			   if not IsFilepropertyIgnoredByRule("oattrib",$i)      then $sTempSQL &= "scannew.oattrib <> scanold.oattrib or "
+			   if not IsFilepropertyIgnoredByRule("cattrib",$i)      then $sTempSQL &= "scannew.cattrib <> scanold.cattrib or "
+			   if not IsFilepropertyIgnoredByRule("tattrib",$i)      then $sTempSQL &= "scannew.tattrib <> scanold.tattrib or "
+			   $sTempSQL &= ");"
 
-			;fix sql statement
-			$sTempSQL = StringReplace($sTempSQL," and ();",";")
-			$sTempSQL = StringReplace($sTempSQL," or );",");")
-			$sTempSQL = StringTrimRight($sTempSQL,1) & " ORDER BY scannew.path;"
+			   ;fix sql statement
+			   $sTempSQL = StringReplace($sTempSQL," and ();",";")
+			   $sTempSQL = StringReplace($sTempSQL," or );",");")
+			   $sTempSQL = StringTrimRight($sTempSQL,1) & " ORDER BY scannew.path;"
 
-			if $sScannameOld <> "none" then
-			   MakeReportSection2and3($sTempSQL,$iHasRuleHeader,$ReportFilename,"changed",$i)
-			EndIf
+			   if $sScannameOld <> "none" then
+				  MakeReportSection2and3($sTempSQL,$iHasRuleHeader,$ReportFilename,"changed",$i)
+			   EndIf
 
-			;return new files
-			$sTempSQL = "SELECT scannew.path FROM scannew LEFT JOIN scanold ON scannew.path = scanold.path and scannew.rulename = scanold.rulename WHERE scannew.rulename = '" & GetRulename($i) & "' and scanold.path IS NULL ORDER BY scannew.path;"
-			MakeReportSection2and3($sTempSQL,$iHasRuleHeader,$ReportFilename,"new",$i)
+			   ;return new files
+			   $sTempSQL = "SELECT scannew.path FROM scannew LEFT JOIN scanold ON scannew.path = scanold.path and scannew.rulename = scanold.rulename WHERE scannew.rulename = '" & GetRulename($i) & "' and scanold.path IS NULL ORDER BY scannew.path;"
+			   MakeReportSection2and3($sTempSQL,$iHasRuleHeader,$ReportFilename,"new",$i)
 
 
-			if $sScannameOld <> "none" then
-			   ;return deleted files
-			   $sTempSQL = "SELECT scanold.path FROM scanold LEFT JOIN scannew ON scannew.path = scanold.path and scannew.rulename = scanold.rulename WHERE scanold.rulename = '" & GetRulename($i) & "' and scannew.path IS NULL ORDER BY scanold.path;"
-			   MakeReportSection2and3($sTempSQL,$iHasRuleHeader,$ReportFilename,"missing",$i)
-			EndIf
-		 Next
-		 FileWriteLine($ReportFilename,@CRLF & "======================================================================" & @CRLF)
+			   if $sScannameOld <> "none" then
+				  ;return deleted files
+				  $sTempSQL = "SELECT scanold.path FROM scanold LEFT JOIN scannew ON scannew.path = scanold.path and scannew.rulename = scanold.rulename WHERE scanold.rulename = '" & GetRulename($i) & "' and scannew.path IS NULL ORDER BY scanold.path;"
+				  MakeReportSection2and3($sTempSQL,$iHasRuleHeader,$ReportFilename,"missing",$i)
+			   EndIf
+			Next
+			FileWriteLine($ReportFilename,@CRLF & "======================================================================" & @CRLF)
+		 EndIf
 
 		 ;details per rule
-		 for $i = 1 to GetNumberOfRulesFromRuleSet()
+		 if $sReportMode = "L" then
+			for $i = 1 to GetNumberOfRulesFromRuleSet()
 
-			$iHasRuleHeader = False
-			;FileWriteLine($ReportFilename,@crlf & "----------------------------------------------------------------------")
-			;FileWriteLine($ReportFilename,"rule     : " & GetRulename($i))
-			;FileWriteLine($ReportFilename,"----------------------------------------------------------------------" & @CRLF)
+			   $iHasRuleHeader = False
+			   ;FileWriteLine($ReportFilename,@crlf & "----------------------------------------------------------------------")
+			   ;FileWriteLine($ReportFilename,"rule     : " & GetRulename($i))
+			   ;FileWriteLine($ReportFilename,"----------------------------------------------------------------------" & @CRLF)
 
-			;return scan differences
-			$aQueryResult = 0
-			$hQuery = 0
+			   ;return scan differences
+			   $aQueryResult = 0
+			   $hQuery = 0
 
-			$sTempSQL =  "SELECT "
-			$sTempSQL &= "scanold.*,scannew.* "
-			$sTempSQL &= "FROM scannew,scanold "
-			$sTempSQL &= "WHERE "
-			$sTempSQL &= "scannew.path = scanold.path and "
-			$sTempSQL &= "scannew.rulename = scanold.rulename and "
-			$sTempSQL &= "scannew.rulename = '" & GetRulename($i) & "' and "
-			$sTempSQL &= "("
-			if not IsFilepropertyIgnoredByRule("status",$i)       then $sTempSQL &= "scannew.status <> scanold.status or "
-			if not IsFilepropertyIgnoredByRule("size",$i)         then $sTempSQL &= "scannew.size <> scanold.size or "
-			;$sTempSQL &= "scannew.attributes <> scanold.attributes or "
-			if not IsFilepropertyIgnoredByRule("atime",$i)        then $sTempSQL &= "scannew.atime <> scanold.atime or "
-			if not IsFilepropertyIgnoredByRule("mtime",$i)        then $sTempSQL &= "scannew.mtime <> scanold.mtime or "
-			if not IsFilepropertyIgnoredByRule("ctime",$i)        then $sTempSQL &= "scannew.ctime <> scanold.ctime or "
-			if not IsFilepropertyIgnoredByRule("version",$i)      then $sTempSQL &= "scannew.version <> scanold.version or "
-			if not IsFilepropertyIgnoredByRule("spath",$i)        then $sTempSQL &= "scannew.spath <> scanold.spath or "
-			if not IsFilepropertyIgnoredByRule("crc32",$i)        then $sTempSQL &= "scannew.crc32 <> scanold.crc32 or "
-			if not IsFilepropertyIgnoredByRule("md5",$i)          then $sTempSQL &= "scannew.md5 <> scanold.md5 or "
-			if not IsFilepropertyIgnoredByRule("rattrib",$i)      then $sTempSQL &= "scannew.rattrib <> scanold.rattrib or "
-			if not IsFilepropertyIgnoredByRule("aattrib",$i)      then $sTempSQL &= "scannew.aattrib <> scanold.aattrib or "
-			if not IsFilepropertyIgnoredByRule("sattrib",$i)      then $sTempSQL &= "scannew.sattrib <> scanold.sattrib or "
-			if not IsFilepropertyIgnoredByRule("hattrib",$i)      then $sTempSQL &= "scannew.hattrib <> scanold.hattrib or "
-			if not IsFilepropertyIgnoredByRule("nattrib",$i)      then $sTempSQL &= "scannew.nattrib <> scanold.nattrib or "
-			if not IsFilepropertyIgnoredByRule("dattrib",$i)      then $sTempSQL &= "scannew.dattrib <> scanold.dattrib or "
-			if not IsFilepropertyIgnoredByRule("oattrib",$i)      then $sTempSQL &= "scannew.oattrib <> scanold.oattrib or "
-			if not IsFilepropertyIgnoredByRule("cattrib",$i)      then $sTempSQL &= "scannew.cattrib <> scanold.cattrib or "
-			if not IsFilepropertyIgnoredByRule("tattrib",$i)      then $sTempSQL &= "scannew.tattrib <> scanold.tattrib or "
-			$sTempSQL &= ");"
+			   $sTempSQL =  "SELECT "
+			   $sTempSQL &= "scanold.*,scannew.* "
+			   $sTempSQL &= "FROM scannew,scanold "
+			   $sTempSQL &= "WHERE "
+			   $sTempSQL &= "scannew.path = scanold.path and "
+			   $sTempSQL &= "scannew.rulename = scanold.rulename and "
+			   $sTempSQL &= "scannew.rulename = '" & GetRulename($i) & "' and "
+			   $sTempSQL &= "("
+			   if not IsFilepropertyIgnoredByRule("status",$i)       then $sTempSQL &= "scannew.status <> scanold.status or "
+			   if not IsFilepropertyIgnoredByRule("size",$i)         then $sTempSQL &= "scannew.size <> scanold.size or "
+			   ;$sTempSQL &= "scannew.attributes <> scanold.attributes or "
+			   if not IsFilepropertyIgnoredByRule("atime",$i)        then $sTempSQL &= "scannew.atime <> scanold.atime or "
+			   if not IsFilepropertyIgnoredByRule("mtime",$i)        then $sTempSQL &= "scannew.mtime <> scanold.mtime or "
+			   if not IsFilepropertyIgnoredByRule("ctime",$i)        then $sTempSQL &= "scannew.ctime <> scanold.ctime or "
+			   if not IsFilepropertyIgnoredByRule("version",$i)      then $sTempSQL &= "scannew.version <> scanold.version or "
+			   if not IsFilepropertyIgnoredByRule("spath",$i)        then $sTempSQL &= "scannew.spath <> scanold.spath or "
+			   if not IsFilepropertyIgnoredByRule("crc32",$i)        then $sTempSQL &= "scannew.crc32 <> scanold.crc32 or "
+			   if not IsFilepropertyIgnoredByRule("md5",$i)          then $sTempSQL &= "scannew.md5 <> scanold.md5 or "
+			   if not IsFilepropertyIgnoredByRule("rattrib",$i)      then $sTempSQL &= "scannew.rattrib <> scanold.rattrib or "
+			   if not IsFilepropertyIgnoredByRule("aattrib",$i)      then $sTempSQL &= "scannew.aattrib <> scanold.aattrib or "
+			   if not IsFilepropertyIgnoredByRule("sattrib",$i)      then $sTempSQL &= "scannew.sattrib <> scanold.sattrib or "
+			   if not IsFilepropertyIgnoredByRule("hattrib",$i)      then $sTempSQL &= "scannew.hattrib <> scanold.hattrib or "
+			   if not IsFilepropertyIgnoredByRule("nattrib",$i)      then $sTempSQL &= "scannew.nattrib <> scanold.nattrib or "
+			   if not IsFilepropertyIgnoredByRule("dattrib",$i)      then $sTempSQL &= "scannew.dattrib <> scanold.dattrib or "
+			   if not IsFilepropertyIgnoredByRule("oattrib",$i)      then $sTempSQL &= "scannew.oattrib <> scanold.oattrib or "
+			   if not IsFilepropertyIgnoredByRule("cattrib",$i)      then $sTempSQL &= "scannew.cattrib <> scanold.cattrib or "
+			   if not IsFilepropertyIgnoredByRule("tattrib",$i)      then $sTempSQL &= "scannew.tattrib <> scanold.tattrib or "
+			   $sTempSQL &= ");"
 
-			;fix sql statement
-			$sTempSQL = StringReplace($sTempSQL," and ();",";")
-			$sTempSQL = StringReplace($sTempSQL," or );",");")
+			   ;fix sql statement
+			   $sTempSQL = StringReplace($sTempSQL," and ();",";")
+			   $sTempSQL = StringReplace($sTempSQL," or );",");")
 
-			if $sScannameOld <> "none" then
-			   ;return changed files
+			   if $sScannameOld <> "none" then
+				  ;return changed files
+				  MakeReportSection2and3($sTempSQL,$iHasRuleHeader,$ReportFilename,"",$i)
+			   EndIf
+
+
+			   ;return new files
+			   $sTempSQL = "SELECT scanold.*,scannew.* FROM scannew LEFT JOIN scanold ON scannew.path = scanold.path and scannew.rulename = scanold.rulename WHERE scannew.rulename = '" & GetRulename($i) & "' and scanold.path IS NULL;"
 			   MakeReportSection2and3($sTempSQL,$iHasRuleHeader,$ReportFilename,"",$i)
-			EndIf
 
 
-			;return new files
-			$sTempSQL = "SELECT scanold.*,scannew.* FROM scannew LEFT JOIN scanold ON scannew.path = scanold.path and scannew.rulename = scanold.rulename WHERE scannew.rulename = '" & GetRulename($i) & "' and scanold.path IS NULL;"
-			MakeReportSection2and3($sTempSQL,$iHasRuleHeader,$ReportFilename,"",$i)
-
-
-			if $sScannameOld <> "none" then
-			   ;return deleted files
-			   $sTempSQL = "SELECT scanold.*,scannew.* FROM scanold LEFT JOIN scannew ON scannew.path = scanold.path and scannew.rulename = scanold.rulename WHERE scanold.rulename = '" & GetRulename($i) & "' and scannew.path IS NULL;"
-			   MakeReportSection2and3($sTempSQL,$iHasRuleHeader,$ReportFilename,"",$i)
-			EndIf
-		 Next
-
+			   if $sScannameOld <> "none" then
+				  ;return deleted files
+				  $sTempSQL = "SELECT scanold.*,scannew.* FROM scanold LEFT JOIN scannew ON scannew.path = scanold.path and scannew.rulename = scanold.rulename WHERE scanold.rulename = '" & GetRulename($i) & "' and scannew.path IS NULL;"
+				  MakeReportSection2and3($sTempSQL,$iHasRuleHeader,$ReportFilename,"",$i)
+			   EndIf
+			Next
+		 EndIf
 	  EndIf
 
 	  ;drop old views
@@ -1801,16 +1820,16 @@ Func DoShowHelp()
    $sText &= "and insert directory and/or file information into DB" & @CRLF
 
    $sText &= @CRLF
-   $sText &= @ScriptName & " /report DB [[OLDSCANNAME] NEWSCANNAME] REPORTFILE" & @CRLF
-   $sText &= @ScriptName & " /report c:\test.sqlite c:\report.txt" & @CRLF
-   $sText &= @ScriptName & " /report c:\test.sqlite 20160514131610 c:\report.txt" & @CRLF
+   $sText &= @ScriptName & " /report[s|m|l] DB [[OLDSCANNAME] NEWSCANNAME] REPORTFILE" & @CRLF
+   $sText &= @ScriptName & " /reports c:\test.sqlite c:\report.txt" & @CRLF
+   $sText &= @ScriptName & " /reportm c:\test.sqlite 20160514131610 c:\report.txt" & @CRLF
    $sText &= @ScriptName & " /report c:\test.sqlite 20160514131610 last c:\report.txt" & @CRLF
    $sText &= "Write the differences between NEWSCANNAME and OLDSCANNAME to REPORTFILE." & @CRLF
    $sText &= "If NEWSCANNAME and OLDSCANNAME are omitted then NEWSCANNAME defaults to last" & @CRLF
    $sText &= "and OLDSCANNAME to lastvalid." & @CRLF
    $sText &= "If only NEWSCANNAME is given then all the information from NEWSCANNAME" & @CRLF
    $sText &= "is written to REPORTFILE. This is useful if you like to know what is in a scan." & @CRLF
-
+   $sText &= "There are three levels of detail in a report: small (/reports), medium (/reportm) and large (/report or /reportl)" & @CRLF
    $sText &= "REPORTFILE is either a regular filename or a SPECIAL_REPORTNAME." & @CRLF
    $sText &= "OLDSCANNAME and NEWSCANNAME are either existing scans" & @CRLF
    $sText &= "or SPECIAL_SCANNAMEs." & @CRLF
@@ -2114,9 +2133,9 @@ Func DoShowUsage()
    $sText &= @ScriptName & " /scan DB" & @CRLF
    $sText &= "Scan directories" & @CRLF
    $sText &= @CRLF
-   $sText &= @ScriptName & " /report DB REPORTFILE" & @CRLF
-   $sText &= @ScriptName & " /report DB [[OLDSCANNAME] NEWSCANNAME] REPORTFILE" & @CRLF
-   $sText &= "Write the differences between last and last validated scan to REPORTFILE" & @CRLF
+   $sText &= @ScriptName & " /report[s|m|l] DB REPORTFILE" & @CRLF
+   $sText &= @ScriptName & " /report[s|m|l] DB [[OLDSCANNAME] NEWSCANNAME] REPORTFILE" & @CRLF
+   $sText &= "Write the differences between two scans to REPORTFILE" & @CRLF
    $sText &= @CRLF
    $sText &= @ScriptName & " /list DB" & @CRLF
    $sText &= "List all scans in DB" & @CRLF
@@ -2676,8 +2695,8 @@ Func OpenDBMSSQL($sDBINIFilename)
    _SQL_Execute(-1,"IF OBJECT_ID ('config', 'Table') IS NULL CREATE TABLE [config] ([linenumber] INTEGER IDENTITY(1,1)  ,[line] VARCHAR NULL  ,CONSTRAINT [config_PRIMARY]  PRIMARY KEY  NONCLUSTERED  ([linenumber])); ")
    _SQL_Execute(-1,"IF OBJECT_ID ('scans', 'Table') IS NULL CREATE TABLE [scans] ([scanid] INTEGER IDENTITY(1,1)  ,[scantime] char(14) NULL  ,[valid] INTEGER NULL  DEFAULT 0 ,CONSTRAINT [scans_PRIMARY]  PRIMARY KEY  NONCLUSTERED  ([scanid]));")
    _SQL_Execute(-1,"IF OBJECT_ID ('rules', 'Table') IS NULL CREATE TABLE [rules] ([ruleid] INTEGER IDENTITY(1,1)  ,[rulename] varchar(255)  ,CONSTRAINT [rules_PRIMARY]  PRIMARY KEY  NONCLUSTERED  ([ruleid]));")
-   _SQL_Execute(-1,"IF OBJECT_ID ('filenames', 'Table') IS NULL CREATE TABLE [filenames] ([filenameid] INTEGER IDENTITY(1,1)  ,[path] varchar(512) NULL  ,[spath] varchar(512) NULL  );")
-   _SQL_Execute(-1,"IF OBJECT_ID ('filedata', 'Table') IS NULL CREATE TABLE [filedata] ([scanid] INTEGER NOT NULL  DEFAULT 0 ,[ruleid] INTEGER NOT NULL  DEFAULT 0 ,[filenameid] INTEGER NOT NULL  DEFAULT 0 ,[status] INTEGER NULL  DEFAULT 0 ,[size] INTEGER NULL  DEFAULT 0 ,[attributes] CHAR(1) NULL  ,[mtime] CHAR(14) NULL  ,[ctime] CHAR(14) NULL  ,[atime] CHAR(14) NULL  ,[version] VARCHAR(80) NULL  ,[crc32] char(35) NULL  ,[md5] char(35) NULL  ,[ptime] INTEGER NULL  ,[rattrib] INTEGER NULL  DEFAULT 0 ,[aattrib] INTEGER NULL  DEFAULT 0 ,[sattrib] INTEGER NULL  DEFAULT 0 ,[hattrib] INTEGER NULL  DEFAULT 0 ,[nattrib] INTEGER NULL  DEFAULT 0 ,[dattrib] INTEGER NULL  DEFAULT 0 ,[oattrib] INTEGER NULL  DEFAULT 0 ,[cattrib] INTEGER NULL  DEFAULT 0 ,[tattrib] INTEGER NULL  DEFAULT 0 ,CONSTRAINT [filedata_PRIMARY]  PRIMARY KEY  NONCLUSTERED  ([scanid],[ruleid],[filenameid]));")
+   _SQL_Execute(-1,"IF OBJECT_ID ('filenames', 'Table') IS NULL CREATE TABLE [filenames] ([filenameid] INTEGER IDENTITY(1,1)  ,[path] varchar(1024) NULL  ,[spath] varchar(512) NULL  );")
+   _SQL_Execute(-1,"IF OBJECT_ID ('filedata', 'Table') IS NULL CREATE TABLE [filedata] ([scanid] INTEGER NOT NULL  DEFAULT 0 ,[ruleid] INTEGER NOT NULL  DEFAULT 0 ,[filenameid] INTEGER NOT NULL  DEFAULT 0 ,[status] INTEGER NULL  DEFAULT 0 ,[size] INTEGER NULL  DEFAULT 0 ,[attributes] CHAR(1) NULL  ,[mtime] CHAR(14) NULL  ,[ctime] CHAR(14) NULL  ,[atime] CHAR(14) NULL  ,[version] VARCHAR(80) NULL  ,[crc32] varchar(35) NULL  ,[md5] varchar(35) NULL  ,[ptime] INTEGER NULL  ,[rattrib] INTEGER NULL  DEFAULT 0 ,[aattrib] INTEGER NULL  DEFAULT 0 ,[sattrib] INTEGER NULL  DEFAULT 0 ,[hattrib] INTEGER NULL  DEFAULT 0 ,[nattrib] INTEGER NULL  DEFAULT 0 ,[dattrib] INTEGER NULL  DEFAULT 0 ,[oattrib] INTEGER NULL  DEFAULT 0 ,[cattrib] INTEGER NULL  DEFAULT 0 ,[tattrib] INTEGER NULL  DEFAULT 0 ,CONSTRAINT [filedata_PRIMARY]  PRIMARY KEY  NONCLUSTERED  ([scanid],[ruleid],[filenameid]));")
 
 
    Return True
@@ -3210,7 +3229,7 @@ Func OutputLineOfFileHistory(ByRef $aQueryResult, $iPrintHeadline)
 EndFunc
 
 
-Func OutputLineOfQueryResult(ByRef $aQueryResult,$ReportFilename)
+Func OutputLineOfQueryResult(ByRef $aQueryResult,$sReportFilename)
 
    ;Simple report writer
    ;----------------------
@@ -3230,35 +3249,14 @@ Func OutputLineOfQueryResult(ByRef $aQueryResult,$ReportFilename)
    local $sTempNew = ""
    local $iIsNewOrMissing = False
 
-   ;FileWriteLine($ReportFilename,". . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . " )
-   ;FileWriteLine($ReportFilename, "......................................................................" )
-   ;FileWriteLine($ReportFilename, "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -" )
-   ;FileWriteLine($ReportFilename, "-- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --" )
-   FileWriteLine($ReportFilename, "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" )
-   if $aQueryResult[1] = "" Then FileWriteLine($ReportFilename, "new          : "  & _HexToString($aQueryResult[24]) )
+   FileWriteLine($sReportFilename, "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" )
+   if $aQueryResult[1] = "" Then FileWriteLine($sReportFilename, "new          : "  & _HexToString($aQueryResult[24]) )
 
-   if $aQueryResult[24] = "" Then FileWriteLine($ReportFilename,"missing      : "  & _HexToString($aQueryResult[1]) )
+   if $aQueryResult[24] = "" Then FileWriteLine($sReportFilename,"missing      : "  & _HexToString($aQueryResult[1]) )
 
-   if $aQueryResult[1] = $aQueryResult[24] Then FileWriteLine($ReportFilename,"changed      : "  & _HexToString($aQueryResult[1]) )
-   ;FileWriteLine($ReportFilename,". . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . " & @CRLF)
-   FileWriteLine($ReportFilename,"-  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -" & @CRLF)
+   if $aQueryResult[1] = $aQueryResult[24] Then FileWriteLine($sReportFilename,"changed      : "  & _HexToString($aQueryResult[1]) )
+   FileWriteLine($sReportFilename,"-  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -" & @CRLF)
 
-#cs
-   $sTempOld = ""
-   $sTempNew = ""
-   $sTempOld = $aQueryResult[0]
-   $sTempNew = $aQueryResult[0 + 23]
-   if $sTempOld = "" then
-	  $sTempOld = "-"
-	  $iIsNewOrMissing = True
-   EndIf
-   if $sTempNew = "" then
-	  $sTempNew = "-"
-	  $iIsNewOrMissing = True
-   EndIf
-   FileWriteLine($ReportFilename,StringFormat("%-10s %1s %1s %35s %-35s","","","","expected","observed"))
-   FileWriteLine($ReportFilename,StringFormat("%-10s %1s %1s %35s %-35s",$aDesc[$i]," "," ",$sTempOld,$sTempNew))
-#ce
 
    for $i = 0 to 13
 	  $sTempOld = ""
@@ -3275,8 +3273,8 @@ Func OutputLineOfQueryResult(ByRef $aQueryResult,$ReportFilename)
 		 if $sTempOld <> "-" then $sTempOld = StringFormat("%4s.%2s.%2s %2s:%2s:%2s",StringMid($sTempOld,1,4),StringMid($sTempOld,5,2),StringMid($sTempOld,7,2),StringMid($sTempOld,9,2),StringMid($sTempOld,11,2),StringMid($sTempOld,13,2))
 		 if $sTempNew <> "-" then $sTempNew = StringFormat("%4s.%2s.%2s %2s:%2s:%2s",StringMid($sTempNew,1,4),StringMid($sTempNew,5,2),StringMid($sTempNew,7,2),StringMid($sTempNew,9,2),StringMid($sTempNew,11,2),StringMid($sTempNew,13,2))
 
-		 FileWriteLine($ReportFilename,StringFormat("%-10s %1s %1s %35s %-35s","","","","expected","observed"))
-		 FileWriteLine($ReportFilename,StringFormat("%-10s %1s %1s %35s %-35s",$aDesc[$i]," "," ",$sTempOld,$sTempNew))
+		 FileWriteLine($sReportFilename,StringFormat("%-10s %1s %1s %35s %-35s","","","","expected","observed"))
+		 FileWriteLine($sReportFilename,StringFormat("%-10s %1s %1s %35s %-35s",$aDesc[$i]," "," ",$sTempOld,$sTempNew))
 
 	  ElseIf $i = 1 Then
 	  ElseIf $i = 4 Then
@@ -3285,18 +3283,18 @@ Func OutputLineOfQueryResult(ByRef $aQueryResult,$ReportFilename)
 		 if $sTempNew <> "-" then $sTempNew = StringFormat("%4s.%2s.%2s %2s:%2s:%2s",StringMid($sTempNew,1,4),StringMid($sTempNew,5,2),StringMid($sTempNew,7,2),StringMid($sTempNew,9,2),StringMid($sTempNew,11,2),StringMid($sTempNew,13,2))
 
 		 if $sTempOld = $sTempNew or $iIsNewOrMissing then
-			FileWriteLine($ReportFilename,StringFormat("%-10s %1s %1s %35s %-35s",$aDesc[$i]," "," ",$sTempOld,$sTempNew))
+			FileWriteLine($sReportFilename,StringFormat("%-10s %1s %1s %35s %-35s",$aDesc[$i]," "," ",$sTempOld,$sTempNew))
 		 Else
-			FileWriteLine($ReportFilename,StringFormat("%-10s %1s %1s %35s %-35s",$aDesc[$i]," ","*",$sTempOld,$sTempNew))
+			FileWriteLine($sReportFilename,StringFormat("%-10s %1s %1s %35s %-35s",$aDesc[$i]," ","*",$sTempOld,$sTempNew))
 		 EndIf
 
 	  ElseIf $i = 9 Then
 	  ElseIf $i = 13 Then
 	  else
 		 if $sTempOld = $sTempNew or $iIsNewOrMissing or $i = 12  then
-			FileWriteLine($ReportFilename,StringFormat("%-10s %1s %1s %35s %-35s",$aDesc[$i]," "," ",$sTempOld,$sTempNew))
+			FileWriteLine($sReportFilename,StringFormat("%-10s %1s %1s %35s %-35s",$aDesc[$i]," "," ",$sTempOld,$sTempNew))
 		 Else
-			FileWriteLine($ReportFilename,StringFormat("%-10s %1s %1s %35s %-35s",$aDesc[$i]," ","*",$sTempOld,$sTempNew))
+			FileWriteLine($sReportFilename,StringFormat("%-10s %1s %1s %35s %-35s",$aDesc[$i]," ","*",$sTempOld,$sTempNew))
 		 EndIf
 	  EndIf
 
@@ -3314,9 +3312,9 @@ Func OutputLineOfQueryResult(ByRef $aQueryResult,$ReportFilename)
    if $sTempNew = "" then $sTempNew = "-"
 
    if $sTempOld = $sTempNew or $iIsNewOrMissing Then
-	  FileWriteLine($ReportFilename,StringFormat("%-10s %1s %1s %35s %-35s","attributes"," "," ",$sTempOld,$sTempNew))
+	  FileWriteLine($sReportFilename,StringFormat("%-10s %1s %1s %35s %-35s","attributes"," "," ",$sTempOld,$sTempNew))
    Else
-	  FileWriteLine($ReportFilename,StringFormat("%-10s %1s %1s %35s %-35s","attributes"," ","*",$sTempOld,$sTempNew))
+	  FileWriteLine($sReportFilename,StringFormat("%-10s %1s %1s %35s %-35s","attributes"," ","*",$sTempOld,$sTempNew))
    EndIf
 
 
@@ -3326,17 +3324,17 @@ Func OutputLineOfQueryResult(ByRef $aQueryResult,$ReportFilename)
    $sTempNew = $aQueryResult[9 + 23]
    if $sTempOld = "" then $sTempOld = "-"
    if $sTempNew = "" then $sTempNew = "-"
-   FileWriteLine($ReportFilename,"")
-   FileWriteLine($ReportFilename,StringFormat("%-10s %1s %1s %s","old path"," "," ",$sTempOld))
-   ;FileWriteLine($ReportFilename,StringFormat("%-15s %1s %s","new path:"," ",$sTempNew))
+   FileWriteLine($sReportFilename,"")
+   FileWriteLine($sReportFilename,StringFormat("%-10s %1s %1s %s","old path"," "," ",$sTempOld))
+   ;FileWriteLine($sReportFilename,StringFormat("%-15s %1s %s","new path:"," ",$sTempNew))
    if $sTempOld = $sTempNew or $iIsNewOrMissing then
-	  FileWriteLine($ReportFilename,StringFormat("%-10s %1s %1s %s","new path"," "," ",$sTempNew))
+	  FileWriteLine($sReportFilename,StringFormat("%-10s %1s %1s %s","new path"," "," ",$sTempNew))
    Else
-	  FileWriteLine($ReportFilename,StringFormat("%-10s %1s %1s %s","new path"," ","*",$sTempNew))
+	  FileWriteLine($sReportFilename,StringFormat("%-10s %1s %1s %s","new path"," ","*",$sTempNew))
    EndIf
 
-   ;FileWriteLine($ReportFilename,"-------------")
-   FileWriteLine($ReportFilename,"")
+   ;FileWriteLine($sReportFilename,"-------------")
+   FileWriteLine($sReportFilename,"")
 
    Return True
 EndFunc
