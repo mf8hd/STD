@@ -143,6 +143,9 @@ Changelog
 			DoDelete(): delete unused lines in table rules and filenames
 			DoReport(): simplify code with MakeReportSection1(),MakeReportSection2and3()
 3.8.0.0		DoReport(): add short medium and large report, large is the standard report
+3.8.0.1		include UDFs from @ScriptDir
+
+
 
 
 
@@ -187,7 +190,7 @@ ToDo:
 	  - use _SQLite_Escape() not _StringToHex() for text in DB
 	  - write README.TXT
 	  - put changelog in Change.Log
-
+	  - DoImportCfg(): Insert "RuleId" statement into config with unique ruleid, if a rule has none. If the rule has a "RuleId:" statement then check if the ruleid is "sane" (a number within range) and update rulename if necessary
 #ce
 
 
@@ -234,8 +237,8 @@ End
 #pragma compile(UPX, False)
 
 ;Set file infos
-#pragma compile(ProductVersion,"3.8.0.0")
-#pragma compile(FileVersion,"3.8.0.0")
+#pragma compile(ProductVersion,"3.8.0.1")
+#pragma compile(FileVersion,"3.8.0.1")
 ;Versioning: "Incompatible changes to DB"."new feature"."bug fix"."minor fix"
 
 #pragma compile(FileDescription,"Spot The Difference")
@@ -244,10 +247,10 @@ End
 
 
 ;3rd party UDFs from Dan Nagel https://dannagle.com/2012/10/autoit-md5-sha1-base64-crc32
-#include <CRC32.au3>
-#include <MD5.au3>
+#include "CRC32.au3"
+#include "MD5.au3"
 ;3rd party UDF from ChrisL https://www.autoitscript.com/forum/topic/51952-_sqlau3-adodbconnection/
-#include <_SQL.au3>
+#include "_SQL.au3"
 ;AutiIt UDFs
 #include <array.au3>
 #include <File.au3>
