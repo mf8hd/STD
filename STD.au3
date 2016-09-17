@@ -144,6 +144,7 @@ Changelog
 			DoReport(): simplify code with MakeReportSection1(),MakeReportSection2and3()
 3.8.0.0		DoReport(): add short medium and large report, large is the standard report
 3.8.0.1		include UDFs from @ScriptDir
+3.8.0.2		TreeClimberSecondProcess(),IsIncludedByRule(): Skip processing of "IncDir:","IncDirRec:","ExcDir:","ExcDirRec:" if we already know that from $aRelevantRules[] (performance !!)
 
 
 
@@ -237,8 +238,8 @@ End
 #pragma compile(UPX, False)
 
 ;Set file infos
-#pragma compile(ProductVersion,"3.8.0.1")
-#pragma compile(FileVersion,"3.8.0.1")
+#pragma compile(ProductVersion,"3.8.0.2")
+#pragma compile(FileVersion,"3.8.0.2")
 ;Versioning: "Incompatible changes to DB"."new feature"."bug fix"."minor fix"
 
 #pragma compile(FileDescription,"Spot The Difference")
@@ -2917,7 +2918,7 @@ Func IsFilepropertyIgnoredByRule($sFileproperty,$iRuleNumber)
 EndFunc
 
 
-Func IsIncludedByRule($PathOrFile,$iRuleNumber)
+Func IsIncludedByRule($PathOrFile,$iRuleNumber,$iCheckDirs = True)
 
    ;determin if $PathOrFile satisfy the current rule
    ;--------------------------------------------------
@@ -2958,57 +2959,66 @@ Func IsIncludedByRule($PathOrFile,$iRuleNumber)
    if StringRight($PathOrFile,1) <> "\" then $iIsFile = True
 
    ;include directory command
+   ;-------------------------
 
-   for $i = $gaRuleStart[$iRuleNumber] to $iMax
-	  if $gaRuleSet[$i][2] <> $iRuleNumber then ExitLoop
-	  ;$gaRuleSet[$i][0]
-	  ;$gaRuleSet[$i][1]
-	  ;msgbox(0,"Cmd","#" & $gaRuleSet[$i][0] & "#" & @CRLF & "#" & $gaRuleSet[$i][1] & "#" & @CRLF & "#" & $PathOrFile & "#" & @CRLF & "#" & StringLeft($PathOrFile,stringlen($gaRuleSet[$i][1] & "\")) & "#" & @CRLF & "#" & $gaRuleSet[$i][1] & "\")
-	  Select
-		 case $gaRuleSet[$i][0] = "IncDirRec:"
-		 	if StringLeft($PathOrFile,$gaRuleSetLineDirStringLenPlusOne[$i]) = $gaRuleSet[$i][1] & "\" then
-			   $iIsIncluded = True
-			   ExitLoop
-			EndIf
-		 case $gaRuleSet[$i][0] = "IncDir:"
-			if StringLeft($PathOrFile,$gaRuleSetLineDirStringLenPlusOne[$i]) = $gaRuleSet[$i][1] & "\" And $giCurrentDirBackslashCount = $gaRuleSetLineBackslashCount[$i] then
-			   $iIsIncluded = True
-			   ExitLoop
-			EndIf
-		 case Else
-	  EndSelect
+   ;Do we already know that this directory is relevant for this rule ?
+   if $iCheckDirs Then
+	  for $i = $gaRuleStart[$iRuleNumber] to $iMax
+		 if $gaRuleSet[$i][2] <> $iRuleNumber then ExitLoop
+		 ;$gaRuleSet[$i][0]
+		 ;$gaRuleSet[$i][1]
+		 ;msgbox(0,"Cmd","#" & $gaRuleSet[$i][0] & "#" & @CRLF & "#" & $gaRuleSet[$i][1] & "#" & @CRLF & "#" & $PathOrFile & "#" & @CRLF & "#" & StringLeft($PathOrFile,stringlen($gaRuleSet[$i][1] & "\")) & "#" & @CRLF & "#" & $gaRuleSet[$i][1] & "\")
+		 Select
+			case $gaRuleSet[$i][0] = "IncDirRec:"
+			   if StringLeft($PathOrFile,$gaRuleSetLineDirStringLenPlusOne[$i]) = $gaRuleSet[$i][1] & "\" then
+				  $iIsIncluded = True
+				  ExitLoop
+			   EndIf
+			case $gaRuleSet[$i][0] = "IncDir:"
+			   if StringLeft($PathOrFile,$gaRuleSetLineDirStringLenPlusOne[$i]) = $gaRuleSet[$i][1] & "\" And $giCurrentDirBackslashCount = $gaRuleSetLineBackslashCount[$i] then
+				  $iIsIncluded = True
+				  ExitLoop
+			   EndIf
+			case Else
+		 EndSelect
 
-   Next
-
+	  Next
+   Else
+	  $iIsIncluded = True
+   EndIf
    ;ConsoleWrite("...ID..." & $iIsIncluded & " " & $PathOrFile & @crlf)
 
    ;exclude directory command
+   ;-------------------------
    if $iIsIncluded then
 	  if not $iIsFile and $gaRuleData[$iRuleNumber][$gcExcDirs] then
 		 ;"ExcDirs"
 		 $iIsIncluded = False
 	  Else
-		 if $gaRuleData[$iRuleNumber][$gcHasExcDir] Then
-			;there are "ExcDirRec:" or "ExcDir:" statements in this rule
-			for $i = $gaRuleStart[$iRuleNumber] to $iMax
-			   if $gaRuleSet[$i][2] <> $iRuleNumber then ExitLoop
-			   ;$gaRuleSet[$i][0]
-			   ;$gaRuleSet[$i][0]
-			   ;$gaRuleSet[$i][1]
-			   Select
-				  case $gaRuleSet[$i][0] = "ExcDirRec:"
-					 if StringLeft($PathOrFile,$gaRuleSetLineDirStringLenPlusOne[$i]) = $gaRuleSet[$i][1] & "\" then
-						$iIsIncluded = False
-						ExitLoop
-					 EndIf
-				  case $gaRuleSet[$i][0] = "ExcDir:"
-					 if StringLeft($PathOrFile,$gaRuleSetLineDirStringLenPlusOne[$i]) = $gaRuleSet[$i][1] & "\" And $giCurrentDirBackslashCount = $gaRuleSetLineBackslashCount[$i] then
-						$iIsIncluded = False
-						ExitLoop
-					 EndIf
-				  case Else
-			   EndSelect
-			Next
+		 ; Do we already know that this directory is relevant for this rule ?
+		 if $iCheckDirs Then
+			if $gaRuleData[$iRuleNumber][$gcHasExcDir] Then
+			   ;there are "ExcDirRec:" or "ExcDir:" statements in this rule
+			   for $i = $gaRuleStart[$iRuleNumber] to $iMax
+				  if $gaRuleSet[$i][2] <> $iRuleNumber then ExitLoop
+				  ;$gaRuleSet[$i][0]
+				  ;$gaRuleSet[$i][0]
+				  ;$gaRuleSet[$i][1]
+				  Select
+					 case $gaRuleSet[$i][0] = "ExcDirRec:"
+						if StringLeft($PathOrFile,$gaRuleSetLineDirStringLenPlusOne[$i]) = $gaRuleSet[$i][1] & "\" then
+						   $iIsIncluded = False
+						   ExitLoop
+						EndIf
+					 case $gaRuleSet[$i][0] = "ExcDir:"
+						if StringLeft($PathOrFile,$gaRuleSetLineDirStringLenPlusOne[$i]) = $gaRuleSet[$i][1] & "\" And $giCurrentDirBackslashCount = $gaRuleSetLineBackslashCount[$i] then
+						   $iIsIncluded = False
+						   ExitLoop
+						EndIf
+					 case Else
+				  EndSelect
+			   Next
+			EndIf
 		 EndIf
 	  EndIf
 	  ;ConsoleWrite("...ED..." & $iIsIncluded & " " & $PathOrFile & @crlf)
@@ -3442,7 +3452,7 @@ Func TreeClimberSecondProcess($sStartPath,$iPID,$aRelevantRules)
 		 ;check if current directory entry should be scanned according to the current rule
 		 if $iIsDirectory Then
 			;it is a directory
-			if IsIncludedByRule($sFullPath & "\",$iRuleCounter) then
+			if IsIncludedByRule($sFullPath & "\",$iRuleCounter,False) then
 			   ;$iScanFile = True
 			   ;ExitLoop
 			   StdinWrite($iPID,StringFormat("%5i%s",$iRuleCounter,$sFullPath & "\") & @CRLF)
@@ -3450,7 +3460,7 @@ Func TreeClimberSecondProcess($sStartPath,$iPID,$aRelevantRules)
 			EndIf
 		 Else
 			;it is a file
-			if IsIncludedByRule($sFullPath,$iRuleCounter) then
+			if IsIncludedByRule($sFullPath,$iRuleCounter,False) then
 			   ;$iScanFile = True
 			   ;ExitLoop
 			   StdinWrite($iPID,StringFormat("%5i%s",$iRuleCounter,$sFullPath) & @CRLF)
