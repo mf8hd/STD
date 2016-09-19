@@ -145,7 +145,7 @@ Changelog
 3.8.0.0		DoReport(): add short medium and large report, large is the standard report
 3.8.0.1		include UDFs from @ScriptDir
 3.8.0.2		TreeClimberSecondProcess(),IsIncludedByRule(): Skip processing of "IncDir:","IncDirRec:","ExcDir:","ExcDirRec:" if we already know that from $aRelevantRules[] (performance !!)
-
+3.8.1.0		TreeClimberSecondProcess(): set $aRelevantRulesForClimbTarget[$iRuleCounter] = False
 
 
 
@@ -238,8 +238,8 @@ End
 #pragma compile(UPX, False)
 
 ;Set file infos
-#pragma compile(ProductVersion,"3.8.0.2")
-#pragma compile(FileVersion,"3.8.0.2")
+#pragma compile(ProductVersion,"3.8.1.0")
+#pragma compile(FileVersion,"3.8.1.0")
 ;Versioning: "Incompatible changes to DB"."new feature"."bug fix"."minor fix"
 
 #pragma compile(FileDescription,"Spot The Difference")
@@ -3430,6 +3430,8 @@ Func TreeClimberSecondProcess($sStartPath,$iPID,$aRelevantRules)
 			if IsClimbTargetByRule($sFullPath & "\",$iRuleCounter) then
 			   $aRelevantRulesForClimbTarget[$iRuleCounter] = True
 			   $iIsClimbTarget = True
+			else
+			   $aRelevantRulesForClimbTarget[$iRuleCounter] = False
 			EndIf
 		 Next
 
