@@ -146,6 +146,10 @@ Changelog
 3.8.0.1		include UDFs from @ScriptDir
 3.8.0.2		TreeClimberSecondProcess(),IsIncludedByRule(): Skip processing of "IncDir:","IncDirRec:","ExcDir:","ExcDirRec:" if we already know that from $aRelevantRules[] (performance !!)
 3.8.1.0		TreeClimberSecondProcess(): set $aRelevantRulesForClimbTarget[$iRuleCounter] = False
+3.9.0.0		new statement "IncDirs" in CONFIGFILE. "ExcDirs" is removed. So by default no file or directory or alternate datastream is scanned by default.
+			use precalculated values ($giCurrentDirBackslashCount, $gaRuleSetLineBackslashCount[]) in IsClimbTargetByRule() like its already done in IsIncludedByRule() (performance !! - well, just a little)
+			GetFileInfo(): _WinAPI_GetFileInformationByHandle() does not work with directories, use standard autoit functions instead.
+
 
 
 
@@ -185,13 +189,21 @@ ToDo:
 	  done - /duplicates : show duplicate files in DB based on status = 0, size, crc32 and md5
 	  - redesign DB : there is a row of data in table 'filedata' for every rule ! (redundant !)
 	  done - rename global variables
-	  - per default nothing is scanned into the database (CONFIG) or vice versa. but stick to it !
+	  done - per default nothing is scanned into the database (CONFIG) or vice versa. but stick to it !
 	  - use RuleID for rule identification. Export RuleID with /exportcfg
 	  - is the csv format ok ? /doublicates /history ...
-	  - use _SQLite_Escape() not _StringToHex() for text in DB
+	  no - use _SQLite_Escape() not _StringToHex() for text in DB
 	  - write README.TXT
 	  - put changelog in Change.Log
 	  - DoImportCfg(): Insert "RuleId" statement into config with unique ruleid, if a rule has none. If the rule has a "RuleId:" statement then check if the ruleid is "sane" (a number within range) and update rulename if necessary
+	  - enumerate alternate datastreams and put them with FileInfo[] in the db
+	  - put the file id form _WinAPI_GetFileInformationByHandle in db
+	  done - use:
+					 if StringLeft($PathOrFile,$gaRuleSetLineDirStringLenPlusOne[$i]) = $gaRuleSet[$i][1] & "\" And $giCurrentDirBackslashCount = $gaRuleSetLineBackslashCount[$i] then
+			  in IsClimbTargetByRule() like its done in IsIncludedByRule()
+	  - DoListScan() doesn't show scans with zero entries
+	  - path may be 32,767 Byte long in DB
+
 #ce
 
 
@@ -238,8 +250,8 @@ End
 #pragma compile(UPX, False)
 
 ;Set file infos
-#pragma compile(ProductVersion,"3.8.1.0")
-#pragma compile(FileVersion,"3.8.1.0")
+#pragma compile(ProductVersion,"3.9.0.0")
+#pragma compile(FileVersion,"3.9.0.0")
 ;Versioning: "Incompatible changes to DB"."new feature"."bug fix"."minor fix"
 
 #pragma compile(FileDescription,"Spot The Difference")
@@ -334,20 +346,20 @@ global $gaRuleSet[1][3]	;all rules form config db table
 global $gaRuleStart[1]   	    ;Index of start of all rules in $gaRuleSet[]
 global const $gcIncExt = 0 	    ;column index for IncExt parameters in $gaRuleData[]
 global const $gcExcExt = 1	    ;column index for ExcExt parameters in $gaRuleData[]
-global const $gcIncExe = 2	    ;column index for IncExe parameters in $gaRuleData[]
-global const $gcExcExe = 3	    ;column index for ExcExe parameters in $gaRuleData[]
-global const $gcIncAll = 4	    ;column index for IncAll parameters in $gaRuleData[]
-global const $gcExcAll = 5	    ;column index for ExcAll parameters in $gaRuleData[]
-global const $gcNoHashes  = 6	;column index for NoHashes parameters in $gaRuleData[]
-global const $gcExcDirs   = 7	;column index for ExcDirs parameters in $gaRuleData[]
+global const $gcIncExe = 2	    ;column index for IncExe statement in $gaRuleData[]
+global const $gcExcExe = 3	    ;column index for ExcExe statement in $gaRuleData[]
+global const $gcIncAll = 4	    ;column index for IncAll statement in $gaRuleData[]
+global const $gcExcAll = 5	    ;column index for ExcAll statement in $gaRuleData[]
+global const $gcNoHashes  = 6	;column index for NoHashes statement in $gaRuleData[]
+global const $gcIncDirs   = 7	;column index for IncDirs statement in $gaRuleData[]
 global const $gcHasExcDir = 8   ;column index for the existence of "ExcDir:" or "ExcDirRec:" parameters in $gaRuleData[]
 global $gaRuleData[1][9]	;all infos of extension statements of a rule
 		;........................................................................................................................................
-		;IncExt           | ExcExt           | IncExe    | ExcExe    | IncAll    | ExcAll    | NoHashes    | ExcDirs    | are there "ExcDir:" or "ExcDirRec:"
+		;IncExt           | ExcExt           | IncExe    | ExcExe    | IncAll    | ExcAll    | NoHashes    | IncDirs    | are there "ExcDir:" or "ExcDirRec:"
 		;                 |                  |           |           |           |           |             |            | statements in the rule ?
-		;$gcIncExt        | $gcExcExt        | $gcIncExe | $gcExcExe | $gcIncAll | $gcExcAll | $gcNoHashes | $gcExcDirs | $gcHasExcDir
+		;$gcIncExt        | $gcExcExt        | $gcIncExe | $gcExcExe | $gcIncAll | $gcExcAll | $gcNoHashes | $gcIncDirs | $gcHasExcDir
 		;----------------------------------------------------------------------------------------------------------------------------------------
-		;".txt.dll.docx." | ".txt.dll.xlsx." | True      | False     | True      | False     | True        | True
+		;".txt.dll.docx." | ".txt.dll.xlsx." | True      | False     | True      | False     | True        | True       | True
 		;........................................................................................................................................
 global $gaRuleSetLineDirStringLenPlusOne[1]		;stringlen($gaRuleSet[$i][1] & "\") for every "IncDir:","ExcDir:","IncDirRec:","ExcDirRec:" line in $gaRuleSet[]
 global $gaRuleSetLineBackslashCount[1] 			;number of backslashes for every "IncDir:" and "ExcDir:" line in $gaRuleSet[]
@@ -1955,8 +1967,8 @@ Func DoShowHelp()
    $sText &= "IncAll                 all files, no matter what the extention is aka *.*" & @CRLF
    $sText &= "ExcAll                 no files, no matter what the extention is aka *.*," & @CRLF
    $sText &= "                       only directories" & @CRLF
-   $sText &= "ExcDirs                no directory information, only file information." & @CRLF
-   $sText &= "                       The default is to gather information on all scaned directories." & @CRLF
+   $sText &= "IncDirs                include information on directories." & @CRLF
+   $sText &= "                       By default no information on directories is included." & @CRLF
    $sText &= "NoHashes				 no CRC32 and MD5 hashes are calculated. This is faster," & @CRLF
    $sText &= "                       but changes in a file can not be detected." & @CRLF
    $sText &= "Ign:FILEPROPERTIY      ignore changes to this file property." & @CRLF
@@ -2350,7 +2362,7 @@ Func GetRuleSetFromDB()
 			   $gaRuleData[$iRuleCount][$gcIncAll] = False
 			   $gaRuleData[$iRuleCount][$gcExcAll] = False
 			   $gaRuleData[$iRuleCount][$gcNoHashes] = False
-			   $gaRuleData[$iRuleCount][$gcExcDirs] = False
+			   $gaRuleData[$iRuleCount][$gcIncDirs] = False
 			   $gaRuleData[$iRuleCount][$gcHasExcDir] = False
 
 			   InsertStatementInRuleSet(1,"Rule:",$sTempCfgLine,$iRuleCurrent)
@@ -2417,8 +2429,8 @@ Func GetRuleSetFromDB()
 			   $gaRuleData[$iRuleCurrent][$gcIncAll]=True
 			Case StringStripWS($sTempCfgLine,$STR_STRIPALL ) = "ExcAll"
 			   $gaRuleData[$iRuleCurrent][$gcExcAll]=True
-			Case StringStripWS($sTempCfgLine,$STR_STRIPALL ) = "ExcDirs"
-			   $gaRuleData[$iRuleCurrent][$gcExcDirs]=True
+			Case StringStripWS($sTempCfgLine,$STR_STRIPALL ) = "IncDirs"
+			   $gaRuleData[$iRuleCurrent][$gcIncDirs]=True
 
 			Case StringStripWS($sTempCfgLine,$STR_STRIPALL ) = "NoHashes"
 			   $gaRuleData[$iRuleCurrent][$gcNoHashes]=True
@@ -2940,7 +2952,7 @@ Func IsIncludedByRule($PathOrFile,$iRuleNumber,$iCheckDirs = True)
 	  IncAll					;all files, no matter what the extention is aka *.*
 	  ExcExe					;no executable files, no matter what the extention is
 	  ExcAll					;no files, no matter what the extention is aka *.*, only directories
-	  ExcDirs
+	  IncDirs
 	  End
    #ce
 
@@ -2988,11 +3000,11 @@ Func IsIncludedByRule($PathOrFile,$iRuleNumber,$iCheckDirs = True)
    EndIf
    ;ConsoleWrite("...ID..." & $iIsIncluded & " " & $PathOrFile & @crlf)
 
-   ;exclude directory command
-   ;-------------------------
+   ;exclude directory command + "IncDirs"
+   ;-------------------------------------
    if $iIsIncluded then
-	  if not $iIsFile and $gaRuleData[$iRuleNumber][$gcExcDirs] then
-		 ;"ExcDirs"
+	  if not $iIsFile and not $gaRuleData[$iRuleNumber][$gcIncDirs] then
+		 ;"IncDirs"
 		 $iIsIncluded = False
 	  Else
 		 ; Do we already know that this directory is relevant for this rule ?
@@ -3121,17 +3133,17 @@ Func IsClimbTargetByRule($sPath,$iRuleNumber)
 	  if $gaRuleSet[$i][2] <> $iRuleNumber then ExitLoop
 	  Select
 		 case $gaRuleSet[$i][0] = "IncDirRec:"
-			if StringLeft($sPath,stringlen($gaRuleSet[$i][1] & "\")) = $gaRuleSet[$i][1] & "\" then
+			if StringLeft($sPath,$gaRuleSetLineDirStringLenPlusOne[$i]) = $gaRuleSet[$i][1] & "\" then
 			   $iIsClimbTarget = True
 			   ExitLoop
 			EndIf
 		 case $gaRuleSet[$i][0] = "IncDir:"
-			if StringLeft($sPath,stringlen($gaRuleSet[$i][1] & "\")) = $gaRuleSet[$i][1] & "\" And Not StringInStr(StringReplace(StringLower($sPath),StringLower($gaRuleSet[$i][1] & "\"),""),"\") then
+			if StringLeft($sPath,$gaRuleSetLineDirStringLenPlusOne[$i]) = $gaRuleSet[$i][1] & "\" And $giCurrentDirBackslashCount = $gaRuleSetLineBackslashCount[$i] then
 			   $iIsClimbTarget = True
 			   ExitLoop
 			EndIf
 		 case Else
-	  EndSelect
+	 EndSelect
    Next
 
    if $gaRuleData[$iRuleNumber][$gcHasExcDir] Then
@@ -3144,12 +3156,12 @@ Func IsClimbTargetByRule($sPath,$iRuleNumber)
 		 ;$gaRuleSet[$i][1]
 		 Select
 			case $gaRuleSet[$i][0] = "ExcDirRec:"
-			   if StringLeft($sPath,stringlen($gaRuleSet[$i][1] & "\")) = $gaRuleSet[$i][1] & "\" then
+			   if StringLeft($sPath,$gaRuleSetLineDirStringLenPlusOne[$i]) = $gaRuleSet[$i][1] & "\" then
 				  $iIsClimbTarget = False
 				  ExitLoop
 			   EndIf
 			case $gaRuleSet[$i][0] = "ExcDir:"
-			   if StringLeft($sPath,stringlen($gaRuleSet[$i][1] & "\")) = $gaRuleSet[$i][1] & "\" And not StringInStr(StringReplace(StringLower($sPath),StringLower($gaRuleSet[$i][1] & "\"),""),"\") then
+			   if StringLeft($sPath,$gaRuleSetLineDirStringLenPlusOne[$i]) = $gaRuleSet[$i][1] & "\" And $giCurrentDirBackslashCount = $gaRuleSetLineBackslashCount[$i] then
 				  $iIsClimbTarget = False
 				  ExitLoop
 			   EndIf
@@ -3586,7 +3598,8 @@ Func GetFileInfo( ByRef $gaFileInfo, $sFilename, $iHashes )
    local $iCRC32 = 0		;CRC32 value of file
    local $iMD5CTX = 0		;MD5 interim value
    local $iTimer = 0		;Timer
-
+   local $sDirName = ""		;Directory name without trailing "\"
+   local $sTempAttribs = ""	;Buffer for directory attributes
 
    $gaFileInfo[0]  = $sFilename	;name
    $gaFileInfo[1]  = 0			;file could not be read 1 else 0
@@ -3614,7 +3627,7 @@ Func GetFileInfo( ByRef $gaFileInfo, $sFilename, $iHashes )
 
    $iTimer = TimerInit()
 
-
+   ;this does not work for directories
    Local $hFile = _WinAPI_CreateFile($sFilename, 2, 2, 2)
    Local $aInfo = _WinAPI_GetFileInformationByHandle($hFile)
    If IsArray($aInfo) Then
@@ -3661,6 +3674,34 @@ Func GetFileInfo( ByRef $gaFileInfo, $sFilename, $iHashes )
    Else
 	  ;unable to read file
 	  $gaFileInfo[1] = 1
+
+	  ;process directories with standard autoit functions
+	  if StringRight($sFilename,1) = "\" then
+		 ;remove the trailing "\" in directories
+		 $sDirName = StringTrimRight($sFilename,1)
+
+		 $sTempAttribs = FileGetAttrib($sDirName)
+		 if not @error Then
+			;we can read directory attributes with autoit functions
+			$gaFileInfo[1] = 0
+
+			;Manage file attributes
+			If StringInStr($sTempAttribs,"R") > 0 Then $gaFileInfo[13] = 1
+			If StringInStr($sTempAttribs,"A") > 0 Then $gaFileInfo[14] = 1
+			If StringInStr($sTempAttribs,"S") > 0 Then $gaFileInfo[15] = 1
+			If StringInStr($sTempAttribs,"H") > 0 Then $gaFileInfo[16] = 1
+			If StringInStr($sTempAttribs,"N") > 0 Then $gaFileInfo[17] = 1
+			If StringInStr($sTempAttribs,"D") > 0 Then $gaFileInfo[18] = 1
+			If StringInStr($sTempAttribs,"O") > 0 Then $gaFileInfo[19] = 1
+			If StringInStr($sTempAttribs,"C") > 0 Then $gaFileInfo[20] = 1
+			If StringInStr($sTempAttribs,"T") > 0 Then $gaFileInfo[21] = 1
+
+			;manage timestamps
+			$gaFileInfo[4]  = FileGetTime($sDirName,0,1)			;file modification timestamp
+			$gaFileInfo[5]  = FileGetTime($sDirName,1,1)			;file creation timestamp
+			$gaFileInfo[6]  = FileGetTime($sDirName,2,1)			;file accessed timestamp
+		 EndIf
+	  EndIf
    EndIf
    _WinAPI_CloseHandle($hFile)
 
@@ -3898,3 +3939,67 @@ EndFunc
 
 
 
+;----- Scrapbook -----
+#cs
+;----- alternate data streams -----
+; Enumerate all existing streams in the file and read text data from each stream
+$pData = _WinAPI_CreateBuffer(1024)
+
+Local $tFSD = DllStructCreate($tagWIN32_FIND_STREAM_DATA)
+Local $pFSD = DllStructGetPtr($tFSD)
+
+Local $hSearch = _WinAPI_FindFirstStream($sFile, $pFSD)
+Local $iSize
+While Not @error
+    $sName = DllStructGetData($tFSD, 'StreamName')
+    $iSize = DllStructGetData($tFSD, 'StreamSize')
+    $hFile = _WinAPI_CreateFile($sFile & $sName, 2, 2, 6)
+    _WinAPI_ReadFile($hFile, $pData, $iSize, $Bytes)
+    _WinAPI_CloseHandle($hFile)
+    ConsoleWrite(StringFormat('%10s (%s bytes) - %s', $sName, $iSize, _WinAPI_GetString($pData)) & @CRLF)
+    _WinAPI_FindNextStream($hSearch, $pFSD)
+WEnd
+
+Switch @extended
+    Case 38 ; ERROR_HANDLE_EOF
+
+    Case Else
+        MsgBox(BitOR($MB_ICONERROR, $MB_SYSTEMMODAL), @extended, _WinAPI_GetErrorMessage(@extended))
+EndSwitch
+
+_WinAPI_FindClose($hSearch)
+
+_WinAPI_FreeMemory($pData)
+#ce
+
+#cs
+Func GetAlternateDataStreams($sFile)
+   ; Enumerate all existing streams in the file and read text data from each stream
+   ;$pData = _WinAPI_CreateBuffer(1024)
+
+   Local $tFSD = DllStructCreate($tagWIN32_FIND_STREAM_DATA)
+   Local $pFSD = DllStructGetPtr($tFSD)
+
+   Local $hSearch = _WinAPI_FindFirstStream($sFile, $pFSD)
+   Local $iSize
+   While Not @error
+	   $sName = DllStructGetData($tFSD, 'StreamName')
+	   $iSize = DllStructGetData($tFSD, 'StreamSize')
+
+
+	   ConsoleWrite(StringFormat('%10s (%s bytes)', $sName, $iSize) & @CRLF)
+	   _WinAPI_FindNextStream($hSearch, $pFSD)
+   WEnd
+
+   Switch @extended
+	   Case 38 ; ERROR_HANDLE_EOF
+
+	   Case Else
+		   MsgBox(BitOR($MB_ICONERROR, $MB_SYSTEMMODAL), @extended, _WinAPI_GetErrorMessage(@extended))
+   EndSwitch
+
+   _WinAPI_FindClose($hSearch)
+
+   ;_WinAPI_FreeMemory($pData)
+EndFunc
+#ce
