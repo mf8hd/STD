@@ -149,7 +149,7 @@ Changelog
 3.9.0.0		new statement "IncDirs" in CONFIGFILE. "ExcDirs" is removed. So by default no file or directory or alternate datastream is scanned by default.
 			use precalculated values ($giCurrentDirBackslashCount, $gaRuleSetLineBackslashCount[]) in IsClimbTargetByRule() like its already done in IsIncludedByRule() (performance !! - well, just a little)
 			GetFileInfo(): _WinAPI_GetFileInformationByHandle() does not work with directories, use standard autoit functions instead.
-
+3.9.0.1		DoListScan(); display scans with no entries
 
 
 
@@ -201,8 +201,10 @@ ToDo:
 	  done - use:
 					 if StringLeft($PathOrFile,$gaRuleSetLineDirStringLenPlusOne[$i]) = $gaRuleSet[$i][1] & "\" And $giCurrentDirBackslashCount = $gaRuleSetLineBackslashCount[$i] then
 			  in IsClimbTargetByRule() like its done in IsIncludedByRule()
-	  - DoListScan() doesn't show scans with zero entries
+	  done - DoListScan() doesn't show scans with zero entries
 	  - path may be 32,767 Byte long in DB
+	  - DirGetSize() for directory data
+	  - does "ExcDir:" work correctly in conjunction with "IncDirRec:" and IsClimbTarget() ??? probably remove statement "ExcDir:"
 
 #ce
 
@@ -250,8 +252,8 @@ End
 #pragma compile(UPX, False)
 
 ;Set file infos
-#pragma compile(ProductVersion,"3.9.0.0")
-#pragma compile(FileVersion,"3.9.0.0")
+#pragma compile(ProductVersion,"3.9.0.1")
+#pragma compile(FileVersion,"3.9.0.1")
 ;Versioning: "Incompatible changes to DB"."new feature"."bug fix"."minor fix"
 
 #pragma compile(FileDescription,"Spot The Difference")
@@ -1432,6 +1434,15 @@ Func DoListScan()
    local $sTempValid = ""	;"X" if scan is validated "-" if not yet validated
    local $sTempSQL	= ''		;sql statement
 
+
+   $sTempSQL =  "SELECT "
+   $sTempSQL &= "scans.scantime,"
+   $sTempSQL &= "count(filedata.filenameid),"
+   $sTempSQL &= "scans.valid "
+   $sTempSQL &= "FROM scans LEFT JOIN filedata ON scans.scanid = filedata.scanid "
+   $sTempSQL &= "GROUP BY scans.scantime,scans.valid "
+   $sTempSQL &= "ORDER BY scans.scantime DESC;"
+#cs
    $sTempSQL =  "SELECT "
    $sTempSQL &= "scans.scantime,"
    $sTempSQL &= "count(filedata.filenameid),"
@@ -1441,7 +1452,7 @@ Func DoListScan()
    $sTempSQL &= "filedata.scanid = scans.scanid AND "
    $sTempSQL &= "filedata.ruleid = rules.ruleid "
    $sTempSQL &= "GROUP BY scans.scantime,scans.valid ORDER BY scans.scantime DESC;"
-
+#ce
 
    ;get all scans in db
    $aQueryResult = 0
