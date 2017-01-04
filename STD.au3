@@ -149,8 +149,13 @@ Changelog
 3.9.0.0		new statement "IncDirs" in CONFIGFILE. "ExcDirs" is removed. So by default no file or directory or alternate datastream is scanned by default.
 			use precalculated values ($giCurrentDirBackslashCount, $gaRuleSetLineBackslashCount[]) in IsClimbTargetByRule() like its already done in IsIncludedByRule() (performance !! - well, just a little)
 			GetFileInfo(): _WinAPI_GetFileInformationByHandle() does not work with directories, use standard autoit functions instead.
-3.9.0.1		DoListScan(); display scans with no entries
-
+3.9.0.1		DoListScan(): display scans with no entries
+4.0.0.0		DoImportCfg(): Generate a unique "RuleID:" statement for every rule
+						   Update Rulename in Table rule in DoImportCfg()
+			DoScanWithSecondProcess(): display total scan time
+			removed GetRuleIDFromDB(): the "RuleID:" is in the config
+			rules.rulename: is now a hexstring
+			filenames.spath: is now a hexstring
 
 
 
@@ -190,12 +195,12 @@ ToDo:
 	  - redesign DB : there is a row of data in table 'filedata' for every rule ! (redundant !)
 	  done - rename global variables
 	  done - per default nothing is scanned into the database (CONFIG) or vice versa. but stick to it !
-	  - use RuleID for rule identification. Export RuleID with /exportcfg
+	  done - use RuleID for rule identification. Export RuleID with /exportcfg
 	  - is the csv format ok ? /doublicates /history ...
 	  no - use _SQLite_Escape() not _StringToHex() for text in DB
 	  - write README.TXT
 	  - put changelog in Change.Log
-	  - DoImportCfg(): Insert "RuleId" statement into config with unique ruleid, if a rule has none. If the rule has a "RuleId:" statement then check if the ruleid is "sane" (a number within range) and update rulename if necessary
+	  - DoImportCfg(): Insert "RuleId" statement into config with unique ruleid, if a rule has none. If the rule has a "RuleID:" statement then check if the ruleid is "sane" (a number within range) and update rulename if necessary
 	  - enumerate alternate datastreams and put them with FileInfo[] in the db
 	  - put the file id form _WinAPI_GetFileInformationByHandle in db
 	  done - use:
@@ -205,6 +210,9 @@ ToDo:
 	  - path may be 32,767 Byte long in DB
 	  - DirGetSize() for directory data
 	  - does "ExcDir:" work correctly in conjunction with "IncDirRec:" and IsClimbTarget() ??? probably remove statement "ExcDir:"
+	  - ignore daylight saving time in timestamps in DB and report
+	  - option for /delete to thin out DB and leaf only one scan per year, month, week, day. Like backups.
+	  - after "/delete * all" there are no more rules in the rules table ! rules table is filled during DoImportCfg(), is this wrong ?? Should it be done at /scan ?
 
 #ce
 
@@ -252,8 +260,8 @@ End
 #pragma compile(UPX, False)
 
 ;Set file infos
-#pragma compile(ProductVersion,"3.9.0.1")
-#pragma compile(FileVersion,"3.9.0.1")
+#pragma compile(ProductVersion,"4.0.0.0")
+#pragma compile(FileVersion,"4.0.0.0")
 ;Versioning: "Incompatible changes to DB"."new feature"."bug fix"."minor fix"
 
 #pragma compile(FileDescription,"Spot The Difference")
@@ -740,20 +748,28 @@ Exit(0)
 
 Func DoImportCfg($ConfigFilename)
 
-   local $iCfgLineNr = 0
-   local $sTempCfgLine = ""
+   local $iCfgLineNr = 0		;current line number in $ConfigFilename
+   local $sTempCfgLine = "" 	;content of current line in $ConfigFilename
+   local $iRuleCounter = 0
+   local $iCounter = 0
 
-   ;recreate table config
+   local $iMaxRuleID = 0		;biggest rule id in $ConfigFilename
+
+   local $aRuleIds[1][3] ;
+		;.....................................................
+		; RuleName    | RuleID     | RuleID must be generated
+		; "Rule:"     | "RuleID:"  |
+		;-----------------------------------------------------
+		; "some rule" | 42         | True
+		;.....................................................
+
+
+   ;read $ConfigFilename
    if FileExists($ConfigFilename) then
-	  if $gbMSSQL Then
-		 _SQL_Execute(-1,"DROP TABLE config;")
-		 _SQL_Execute(-1,"CREATE TABLE [config] ([linenumber] INTEGER IDENTITY(1,1)  ,[line] NTEXT NULL  ,CONSTRAINT [config_PRIMARY]  PRIMARY KEY  NONCLUSTERED  ([linenumber])); ")
-	  Else
-		 _SQLite_Exec(-1,"DROP TABLE IF EXISTS config;")
-		 _SQLite_Exec(-1,"CREATE TABLE IF NOT EXISTS config (linenumber INTEGER PRIMARY KEY AUTOINCREMENT, line );")
-	  EndIf
-	  ;import $ConfigFilename into table config
+
+	  ;read rulenames and ruleids from $ConfigFilename into $aRuleIds[]
 	  $iCfgLineNr = 1
+	  $iRuleCounter = 0
 	  While True
 
 		 $sTempCfgLine = ""
@@ -761,11 +777,129 @@ Func DoImportCfg($ConfigFilename)
 		 if @error then
 			ExitLoop
 		 EndIf
-		 if $gbMSSQL Then
-			_SQL_Execute(-1,"INSERT INTO [config] ([line]) VALUES (N'" & _StringToHex($sTempCfgLine) & "');")
-		 Else
-			_SQLite_Exec(-1,"INSERT INTO config(line) values ('" & _StringToHex($sTempCfgLine) & "');")
+
+		 ;strip whitespaces at begin and end of line
+		 $sTempCfgLine = StringStripWS($sTempCfgLine,$STR_STRIPLEADING + $STR_STRIPTRAILING)
+
+		 ;find "Rule:" and "RuleID:" statements in $ConfigFilename
+		 Select
+			case stringleft($sTempCfgLine,stringlen("Rule:")) = "Rule:"
+			   ReDim $aRuleIds[UBound($aRuleIds,1)+1][3]
+			   $iRuleCounter += 1
+			   $aRuleIds[$iRuleCounter][0] = StringTrimLeft($sTempCfgLine,stringlen("Rule:"))
+			   $aRuleIds[$iRuleCounter][1] = 0
+			   $aRuleIds[$iRuleCounter][2] = True
+			case stringleft($sTempCfgLine,stringlen("RuleID:")) = "RuleID:"
+
+			   ;Is this a valid integer "RuleID:" ?
+			   if StringIsInt(StringTrimLeft($sTempCfgLine,stringlen("RuleID:"))) Then
+				  $aRuleIds[$iRuleCounter][1] = StringTrimLeft($sTempCfgLine,stringlen("RuleID:"))
+				  $aRuleIds[$iRuleCounter][2] = False
+
+				  ;is this a unique "RuleID:" ?
+				  For $iCounter = 1 to $iRuleCounter-1
+					 if $aRuleIds[$iRuleCounter][1] = $aRuleIds[$iCounter][1] and $aRuleIds[$iCounter][1] > 0 then
+						;this is not a unique rule id !
+						$aRuleIds[$iRuleCounter][1] = 0
+						$aRuleIds[$iRuleCounter][2] = True
+						ExitLoop
+					 EndIf
+				  Next
+
+				  ;is this the biggest rule id ?
+				  if $aRuleIds[$iRuleCounter][1] > $iMaxRuleID then $iMaxRuleID = $aRuleIds[$iRuleCounter][1]
+
+			   EndIf
+			case Else
+		 EndSelect
+
+		 $iCfgLineNr += 1
+	  WEnd
+
+
+	  ;rebuild table config in DB
+	  if $gbMSSQL Then
+		 _SQL_Execute(-1,"DROP TABLE config;")
+		 _SQL_Execute(-1,"CREATE TABLE [config] ([linenumber] INTEGER IDENTITY(1,1)  ,[line] NTEXT NULL  ,CONSTRAINT [config_PRIMARY]  PRIMARY KEY  NONCLUSTERED  ([linenumber])); ")
+	  Else
+		 _SQLite_Exec(-1,"DROP TABLE IF EXISTS config;")
+		 _SQLite_Exec(-1,"CREATE TABLE IF NOT EXISTS config (linenumber INTEGER PRIMARY KEY AUTOINCREMENT, line );")
+	  EndIf
+
+
+
+	  ;import $ConfigFilename into table config
+	  $iCfgLineNr = 1
+	  $iRuleCounter = 0
+	  While True
+
+		 $sTempCfgLine = ""
+		 $sTempCfgLine = FileReadLine($ConfigFilename,$iCfgLineNr)
+		 if @error then
+			ExitLoop
 		 EndIf
+
+
+		 ;find "Rule:" statements in $ConfigFilename
+		 Select
+			case stringleft(StringStripWS($sTempCfgLine,$STR_STRIPLEADING + $STR_STRIPTRAILING),stringlen("Rule:")) = "Rule:"
+			   $iRuleCounter += 1
+
+			   if $gbMSSQL Then
+				  _SQL_Execute(-1,"INSERT INTO [config] ([line]) VALUES (N'" & _StringToHex($sTempCfgLine) & "');")
+			   Else
+				  _SQLite_Exec(-1,"INSERT INTO config(line) values ('" & _StringToHex($sTempCfgLine) & "');")
+			   EndIf
+
+
+			   if $aRuleIds[$iRuleCounter][2] = True then
+				  ;let's generate a new unique "RuleID:" and put it in the DB
+				  $iMaxRuleID += 1
+				  $aRuleIds[$iRuleCounter][1] = $iMaxRuleID
+
+				  if $gbMSSQL Then
+					 _SQL_Execute(-1,"INSERT INTO [config] ([line]) VALUES (N'" & _StringToHex("# DO NOT CHANGE THE NEXT LINE ! - GENERATED BY " & @ScriptName) & "');")
+					 ;_SQL_Execute(-1,"INSERT INTO [config] ([line]) VALUES (N'" & _StringToHex("RuleID:" & $iMaxRuleID) & "');")
+					 _SQL_Execute(-1,"INSERT INTO [config] ([line]) VALUES (N'" & _StringToHex("RuleID:" & GetNewRuleIDFromDB($aRuleIds[$iRuleCounter][0])) & "');")
+				  Else
+					 _SQLite_Exec(-1,"INSERT INTO config(line) values ('" & _StringToHex("# DO NOT CHANGE THE NEXT LINE ! - GENERATED BY " & @ScriptName) & "');")
+					 ;_SQLite_Exec(-1,"INSERT INTO config(line) values ('" & _StringToHex("RuleID:" & $iMaxRuleID) & "');")
+					 _SQLite_Exec(-1,"INSERT INTO config(line) values ('" & _StringToHex("RuleID:" & GetNewRuleIDFromDB($aRuleIds[$iRuleCounter][0])) & "');")
+				  EndIf
+
+			   EndIf
+			case stringleft(StringStripWS($sTempCfgLine,$STR_STRIPLEADING + $STR_STRIPTRAILING),stringlen("# DO NOT CHANGE THE NEXT LINE ! - GENERATED BY " & @ScriptName)) = "# DO NOT CHANGE THE NEXT LINE ! - GENERATED BY " & @ScriptName
+			   if $aRuleIds[$iRuleCounter][2] = False then
+				  if $gbMSSQL Then
+					 _SQL_Execute(-1,"INSERT INTO [config] ([line]) VALUES (N'" & _StringToHex($sTempCfgLine) & "');")
+				  Else
+					 _SQLite_Exec(-1,"INSERT INTO config(line) values ('" & _StringToHex($sTempCfgLine) & "');")
+				  EndIf
+			   EndIf
+			case stringleft(StringStripWS($sTempCfgLine,$STR_STRIPLEADING + $STR_STRIPTRAILING),stringlen("RuleID:")) = "RuleID:"
+			   if $aRuleIds[$iRuleCounter][2] = False then
+				  if $gbMSSQL Then
+					 ;Update rulename for the given "RuleID:"
+
+					 _SQL_Execute(-1,"UPDATE [rules] SET [rulename]='" & _StringToHex($aRuleIds[$iRuleCounter][0]) & "' WHERE [ruleid] = " & $aRuleIds[$iRuleCounter][1] & ";")
+
+					 _SQL_Execute(-1,"INSERT INTO [config] ([line]) VALUES (N'" & _StringToHex($sTempCfgLine) & "');")
+				  Else
+					 ;Update rulename for the given "RuleID:"
+					 _SQLite_Exec(-1,"UPDATE rules SET rulename='" & _StringToHex($aRuleIds[$iRuleCounter][0]) & "' WHERE ruleid = " & $aRuleIds[$iRuleCounter][1] & ";")
+
+					 _SQLite_Exec(-1,"INSERT INTO config(line) values ('" & _StringToHex($sTempCfgLine) & "');")
+				  EndIf
+			   EndIf
+			case Else
+			   if $gbMSSQL Then
+				  _SQL_Execute(-1,"INSERT INTO [config] ([line]) VALUES (N'" & _StringToHex($sTempCfgLine) & "');")
+			   Else
+				  _SQLite_Exec(-1,"INSERT INTO config(line) values ('" & _StringToHex($sTempCfgLine) & "');")
+			   EndIf
+
+		 EndSelect
+
 		 $iCfgLineNr += 1
 	  WEnd
    EndIf
@@ -1174,13 +1308,13 @@ Func DoReport($sReportMode,$ReportFilename,$sScannameOld = "lastvalid",$sScannam
 
 
 			;return new files
-			$sTempSQL = "SELECT scannew.rulename,count(scannew.rulename) FROM scannew LEFT JOIN scanold ON scannew.path = scanold.path and scannew.rulename = scanold.rulename WHERE scannew.rulename = '" & GetRulename($i) & "' and scanold.path IS NULL  GROUP BY scannew.rulename;"
+			$sTempSQL = "SELECT scannew.rulename,count(scannew.rulename) FROM scannew LEFT JOIN scanold ON scannew.path = scanold.path and scannew.rulename = scanold.rulename WHERE scannew.rulename = '" & _StringToHex(GetRulename($i)) & "' and scanold.path IS NULL  GROUP BY scannew.rulename;"
 
 			$sTempText &= StringFormat(" %7i",MakeReportSection1($sTempSQL))
 
 
 			;return deleted files
-			$sTempSQL = "SELECT scanold.rulename,count(scanold.rulename) FROM scanold LEFT JOIN scannew ON scannew.path = scanold.path and scannew.rulename = scanold.rulename WHERE scanold.rulename = '" & GetRulename($i) & "' and scannew.path IS NULL GROUP BY scanold.rulename;"
+			$sTempSQL = "SELECT scanold.rulename,count(scanold.rulename) FROM scanold LEFT JOIN scannew ON scannew.path = scanold.path and scannew.rulename = scanold.rulename WHERE scanold.rulename = '" & _StringToHex(GetRulename($i)) & "' and scannew.path IS NULL GROUP BY scanold.rulename;"
 
 			$sTempText &= StringFormat(" %7i",MakeReportSection1($sTempSQL))
 
@@ -1209,7 +1343,7 @@ Func DoReport($sReportMode,$ReportFilename,$sScannameOld = "lastvalid",$sScannam
 			   $sTempSQL &= "WHERE "
 			   $sTempSQL &= "scannew.path = scanold.path and "
 			   $sTempSQL &= "scannew.rulename = scanold.rulename and "
-			   $sTempSQL &= "scannew.rulename = '" & GetRulename($i) & "' and "
+			   $sTempSQL &= "scannew.rulename = '" & _StringToHex(GetRulename($i)) & "' and "
 			   $sTempSQL &= "("
 			   if not IsFilepropertyIgnoredByRule("status",$i)       then $sTempSQL &= "scannew.status <> scanold.status or "
 			   if not IsFilepropertyIgnoredByRule("size",$i)         then $sTempSQL &= "scannew.size <> scanold.size or "
@@ -1242,13 +1376,13 @@ Func DoReport($sReportMode,$ReportFilename,$sScannameOld = "lastvalid",$sScannam
 			   EndIf
 
 			   ;return new files
-			   $sTempSQL = "SELECT scannew.path FROM scannew LEFT JOIN scanold ON scannew.path = scanold.path and scannew.rulename = scanold.rulename WHERE scannew.rulename = '" & GetRulename($i) & "' and scanold.path IS NULL ORDER BY scannew.path;"
+			   $sTempSQL = "SELECT scannew.path FROM scannew LEFT JOIN scanold ON scannew.path = scanold.path and scannew.rulename = scanold.rulename WHERE scannew.rulename = '" & _StringToHex(GetRulename($i)) & "' and scanold.path IS NULL ORDER BY scannew.path;"
 			   MakeReportSection2and3($sTempSQL,$iHasRuleHeader,$ReportFilename,"new",$i)
 
 
 			   if $sScannameOld <> "none" then
 				  ;return deleted files
-				  $sTempSQL = "SELECT scanold.path FROM scanold LEFT JOIN scannew ON scannew.path = scanold.path and scannew.rulename = scanold.rulename WHERE scanold.rulename = '" & GetRulename($i) & "' and scannew.path IS NULL ORDER BY scanold.path;"
+				  $sTempSQL = "SELECT scanold.path FROM scanold LEFT JOIN scannew ON scannew.path = scanold.path and scannew.rulename = scanold.rulename WHERE scanold.rulename = '" & _StringToHex(GetRulename($i)) & "' and scannew.path IS NULL ORDER BY scanold.path;"
 				  MakeReportSection2and3($sTempSQL,$iHasRuleHeader,$ReportFilename,"missing",$i)
 			   EndIf
 			Next
@@ -1274,7 +1408,7 @@ Func DoReport($sReportMode,$ReportFilename,$sScannameOld = "lastvalid",$sScannam
 			   $sTempSQL &= "WHERE "
 			   $sTempSQL &= "scannew.path = scanold.path and "
 			   $sTempSQL &= "scannew.rulename = scanold.rulename and "
-			   $sTempSQL &= "scannew.rulename = '" & GetRulename($i) & "' and "
+			   $sTempSQL &= "scannew.rulename = '" & _StringToHex(GetRulename($i)) & "' and "
 			   $sTempSQL &= "("
 			   if not IsFilepropertyIgnoredByRule("status",$i)       then $sTempSQL &= "scannew.status <> scanold.status or "
 			   if not IsFilepropertyIgnoredByRule("size",$i)         then $sTempSQL &= "scannew.size <> scanold.size or "
@@ -1308,13 +1442,13 @@ Func DoReport($sReportMode,$ReportFilename,$sScannameOld = "lastvalid",$sScannam
 
 
 			   ;return new files
-			   $sTempSQL = "SELECT scanold.*,scannew.* FROM scannew LEFT JOIN scanold ON scannew.path = scanold.path and scannew.rulename = scanold.rulename WHERE scannew.rulename = '" & GetRulename($i) & "' and scanold.path IS NULL;"
+			   $sTempSQL = "SELECT scanold.*,scannew.* FROM scannew LEFT JOIN scanold ON scannew.path = scanold.path and scannew.rulename = scanold.rulename WHERE scannew.rulename = '" & _StringToHex(GetRulename($i)) & "' and scanold.path IS NULL;"
 			   MakeReportSection2and3($sTempSQL,$iHasRuleHeader,$ReportFilename,"",$i)
 
 
 			   if $sScannameOld <> "none" then
 				  ;return deleted files
-				  $sTempSQL = "SELECT scanold.*,scannew.* FROM scanold LEFT JOIN scannew ON scannew.path = scanold.path and scannew.rulename = scanold.rulename WHERE scanold.rulename = '" & GetRulename($i) & "' and scannew.path IS NULL;"
+				  $sTempSQL = "SELECT scanold.*,scannew.* FROM scanold LEFT JOIN scannew ON scannew.path = scanold.path and scannew.rulename = scanold.rulename WHERE scanold.rulename = '" & _StringToHex(GetRulename($i)) & "' and scannew.path IS NULL;"
 				  MakeReportSection2and3($sTempSQL,$iHasRuleHeader,$ReportFilename,"",$i)
 			   EndIf
 			Next
@@ -1337,7 +1471,7 @@ Func DoReport($sReportMode,$ReportFilename,$sScannameOld = "lastvalid",$sScannam
 
 	  for $i = $iCountMin to $iCountMax
 		 if $gaRuleSet[$i][2] = $iRuleNumber then
-;			if $gaRuleSet[$i][0] = "RuleId:" then $sRuleId = $gaRuleSet[$i][1]
+;			if $gaRuleSet[$i][0] = "RuleID:" then $sRuleId = $gaRuleSet[$i][1]
 			Select
 			   Case $gaRuleSet[$i][0] = "EmailFrom:"
 				  $aEMail[0] = $gaRuleSet[$i][1]
@@ -1583,7 +1717,7 @@ Func DoExportScan($sScanname,$sCSVFilename)
 			for $j = 0 to 21
 			   if $j = 0 then
 				  $sTempText &= '"' & $aCSVQueryResult[$j] & '"'
-			   Elseif $j = 1 then
+			   Elseif $j = 1 or $j = 8 or $j = 12 then
 				  $sTempText &= ',"' & _HexToString($aCSVQueryResult[$j]) & '"'
 			   Elseif $j >= 13 and $j <= 21 then
 				  ;attributes
@@ -1709,7 +1843,7 @@ Func DoScanWithSecondProcess($sDBName)
 	  ;wait for "second process" to end
 	  ProcessWaitClose($iPID)
    EndIf
-   ConsoleWrite("List: " & $ScanTimer & @CRLF)
+   ConsoleWrite("List:  " & $ScanTimer & @CRLF)
 
    if $gcDEBUGTimeGetFileInfo = True 			then ConsoleWrite("List-GetFileInfo:         " & Round($giDEBUGTimerGetFileInfo) & @CRLF)
    if $gcDEBUGTimeGetRuleFromRuleSet = True 	then ConsoleWrite("List-GetRuleFromRuleSet:  " & Round($giDEBUGTimerGetRuleFromRuleSet) & @CRLF)
@@ -1782,9 +1916,9 @@ Func DoSecondProcess()
 			if not $gcDEBUGOnlyShowScanBuffer then ConsoleWrite($sTempText & @CRLF)
 
 			if $gbMSSQL then
-			   _SQL_Execute(-1,"INSERT INTO [filedata] ([scanid],[ruleid],[filenameid],[status],[size],[attributes],[mtime],[ctime],[atime],[version],[crc32],[md5],[ptime],[rattrib],[aattrib],[sattrib],[hattrib],[nattrib],[dattrib],[oattrib],[cattrib],[tattrib])  values ('" & $giScanId & "','" & GetRuleIdFromRuleSet($iRuleCounter) & "','" & GetFilenameIDFromDB(_StringToHex($gaFileInfo[0]),$gaFileInfo[8]) & "','" & $gaFileInfo[1] & "','" & $gaFileInfo[2] & "','" & $gaFileInfo[3] & "','" & $gaFileInfo[4] & "','" & $gaFileInfo[5] & "','" & $gaFileInfo[6] & "','" & $gaFileInfo[7] & "','" & $gaFileInfo[9] & "','" & $gaFileInfo[10] & "','" & $gaFileInfo[11] & "','" & $gaFileInfo[13] & "','" & $gaFileInfo[14] & "','" & $gaFileInfo[15] & "','" & $gaFileInfo[16] & "','" & $gaFileInfo[17] & "','" & $gaFileInfo[18] & "','" & $gaFileInfo[19] & "','" & $gaFileInfo[20] & "','" & $gaFileInfo[21] & "');")
+			   _SQL_Execute(-1,"INSERT INTO [filedata] ([scanid],[ruleid],[filenameid],[status],[size],[attributes],[mtime],[ctime],[atime],[version],[crc32],[md5],[ptime],[rattrib],[aattrib],[sattrib],[hattrib],[nattrib],[dattrib],[oattrib],[cattrib],[tattrib])  values ('" & $giScanId & "','" & GetRuleIdFromRuleSet($iRuleCounter) & "','" & GetFilenameIDFromDB(_StringToHex($gaFileInfo[0]),_StringToHex($gaFileInfo[8])) & "','" & $gaFileInfo[1] & "','" & $gaFileInfo[2] & "','" & $gaFileInfo[3] & "','" & $gaFileInfo[4] & "','" & $gaFileInfo[5] & "','" & $gaFileInfo[6] & "','" & $gaFileInfo[7] & "','" & $gaFileInfo[9] & "','" & $gaFileInfo[10] & "','" & $gaFileInfo[11] & "','" & $gaFileInfo[13] & "','" & $gaFileInfo[14] & "','" & $gaFileInfo[15] & "','" & $gaFileInfo[16] & "','" & $gaFileInfo[17] & "','" & $gaFileInfo[18] & "','" & $gaFileInfo[19] & "','" & $gaFileInfo[20] & "','" & $gaFileInfo[21] & "');")
 			Else
-			   _SQLite_Exec(-1,"INSERT INTO filedata (scanid,ruleid,filenameid,status,size,attributes,mtime,ctime,atime,version,crc32,md5,ptime,rattrib,aattrib,sattrib,hattrib,nattrib,dattrib,oattrib,cattrib,tattrib)  values ('" & $giScanId & "', '" & GetRuleIdFromRuleSet($iRuleCounter) & "', '" & GetFilenameIDFromDB(_StringToHex($gaFileInfo[0]),$gaFileInfo[8]) & "','" & $gaFileInfo[1] & "','" & $gaFileInfo[2] & "','" & $gaFileInfo[3] & "','" & $gaFileInfo[4] & "','" & $gaFileInfo[5] & "','" & $gaFileInfo[6] & "','" & $gaFileInfo[7] & "','" & $gaFileInfo[9] & "','" & $gaFileInfo[10] & "','" & $gaFileInfo[11] & "','" & $gaFileInfo[13] & "','" & $gaFileInfo[14] & "','" & $gaFileInfo[15] & "','" & $gaFileInfo[16] & "','" & $gaFileInfo[17] & "','" & $gaFileInfo[18] & "','" & $gaFileInfo[19] & "','" & $gaFileInfo[20] & "','" & $gaFileInfo[21] & "');")
+			   _SQLite_Exec(-1,"INSERT INTO filedata (scanid,ruleid,filenameid,status,size,attributes,mtime,ctime,atime,version,crc32,md5,ptime,rattrib,aattrib,sattrib,hattrib,nattrib,dattrib,oattrib,cattrib,tattrib)  values ('" & $giScanId & "', '" & GetRuleIdFromRuleSet($iRuleCounter) & "', '" & GetFilenameIDFromDB(_StringToHex($gaFileInfo[0]),_StringToHex($gaFileInfo[8])) & "','" & $gaFileInfo[1] & "','" & $gaFileInfo[2] & "','" & $gaFileInfo[3] & "','" & $gaFileInfo[4] & "','" & $gaFileInfo[5] & "','" & $gaFileInfo[6] & "','" & $gaFileInfo[7] & "','" & $gaFileInfo[9] & "','" & $gaFileInfo[10] & "','" & $gaFileInfo[11] & "','" & $gaFileInfo[13] & "','" & $gaFileInfo[14] & "','" & $gaFileInfo[15] & "','" & $gaFileInfo[16] & "','" & $gaFileInfo[17] & "','" & $gaFileInfo[18] & "','" & $gaFileInfo[19] & "','" & $gaFileInfo[20] & "','" & $gaFileInfo[21] & "');")
 			EndIf
 
 		 WEnd
@@ -1796,7 +1930,8 @@ Func DoSecondProcess()
 	  EndIf
    WEnd
 
-   ConsoleWrite("Scan: " & Round(TimerDiff($ScanTimer) - $iIdleCounter*1000) & @CRLF)
+   ConsoleWrite("Scan:  " & Round(TimerDiff($ScanTimer) - $iIdleCounter*1000) & @CRLF)
+   ConsoleWrite("Total: " & Round(TimerDiff($ScanTimer)) & @CRLF)
 
    if $gcDEBUGTimeGetFileInfo = True 			then ConsoleWrite("Scan-GetFileInfo:         " & Round($giDEBUGTimerGetFileInfo) & @CRLF)
    if $gcDEBUGTimeGetRuleFromRuleSet = True 	then ConsoleWrite("Scan-GetRuleFromRuleSet:  " & Round($giDEBUGTimerGetRuleFromRuleSet) & @CRLF)
@@ -2202,41 +2337,38 @@ EndFunc
 
 ;----- get stuff from DB functions -----
 
-Func GetRuleIDFromDB($sRulename)
 
-   ;get ruleid from DB for $sRulename And
+Func GetNewRuleIDFromDB($sRulename)
+
+   ;get a new ruleid from DB and
    ;insert new rule in DB table "rules" if not exists
    ;------------------------------------------------
 
    local $aRow = 0	;Returned data row
 
-   if $gbMSSQL Then
-	  if _SQL_QuerySingleRow(-1,"SELECT ruleid FROM rules where rulename='" & $sRulename & "'",$aRow) = $SQL_OK and $aRow[0]<>"" Then
-		 ;get ruleid
-		 return $aRow[0]
-	  Else
-		 ;Rule does not exist in DB so create it
-		 _SQL_Execute(-1,"INSERT INTO rules ([rulename]) VALUES('" & $sRulename & "')")
-		 ;_SQL_Execute(-1,"INSERT INTO rules (ruleid,rulename) VALUES(null,'TEST')")
-		 if _SQL_QuerySingleRow(-1,"SELECT ruleid FROM rules where rulename='" & $sRulename & "'",$aRow) = $SQL_OK and $aRow[0]<>"" Then
-			;get ruleid
-			return $aRow[0]
-		 EndIf
-	  EndIf
-   Else
-	  if _SQLite_QuerySingleRow(-1,'SELECT ruleid FROM rules where rulename="' & $sRulename & '"',$aRow) = $SQLITE_OK Then
-		 ;get ruleid
-		 return $aRow[0]
-	  Else
-		 ;Rule does not exist in DB so create it
-		 _SQLite_Exec(-1,'INSERT INTO rules VALUES(NULL,"' & $sRulename & '")')
-		 if _SQLite_QuerySingleRow(-1,'SELECT ruleid FROM rules where rulename="' & $sRulename & '"',$aRow) = $SQLITE_OK Then
-			;get ruleid
-			return $aRow[0]
-		 EndIf
+   ;ConsoleWrite( "START:" & $sRulename & @CRLF)
 
+   if $gbMSSQL Then
+
+	  ;Rule does not exist in DB so create it
+	  _SQL_Execute(-1,"INSERT INTO rules ([rulename]) VALUES('" & _StringToHex($sRulename) & "')")
+	  ;_SQL_Execute(-1,"INSERT INTO rules (ruleid,rulename) VALUES(null,'TEST')")
+	  if _SQL_QuerySingleRow(-1,"SELECT ruleid FROM rules where rulename='" & _StringToHex($sRulename) & "'",$aRow) = $SQL_OK and $aRow[0]<>"" Then
+		 ;get ruleid
+		 return $aRow[0]
 	  EndIf
+
+   Else
+	  ;Rule does not exist in DB so create it
+	  _SQLite_Exec(-1,'INSERT INTO rules VALUES(NULL,"' & _StringToHex($sRulename) & '")')
+	  if _SQLite_QuerySingleRow(-1,'SELECT ruleid FROM rules where rulename="' & _StringToHex($sRulename) & '"',$aRow) = $SQLITE_OK Then
+		 ;get ruleid
+		 return $aRow[0]
+	  EndIf
+
    EndIf
+
+   ;ConsoleWrite( "STOP:" & $sRulename & @CRLF)
 
    Return 0
 EndFunc
@@ -2336,8 +2468,8 @@ Func GetRuleSetFromDB()
 
 
 
-		 ;strip whitespaces at begin of line
-		 $sTempCfgLine = StringStripWS($sTempCfgLine,$STR_STRIPLEADING )
+		 ;strip whitespaces at begin and end of line
+		 $sTempCfgLine = StringStripWS($sTempCfgLine,$STR_STRIPLEADING + $STR_STRIPTRAILING)
 
 		 ;tranfer rule lines to $gaRuleSet
 		 ;strip leading and trailing " from directories
@@ -2377,14 +2509,14 @@ Func GetRuleSetFromDB()
 			   $gaRuleData[$iRuleCount][$gcHasExcDir] = False
 
 			   InsertStatementInRuleSet(1,"Rule:",$sTempCfgLine,$iRuleCurrent)
-
+#cs
 			   redim $gaRuleSet[UBound($gaRuleSet,1)+1][3]
-			   $gaRuleSet[UBound($gaRuleSet,1)-1][0] = "RuleId:"
+			   $gaRuleSet[UBound($gaRuleSet,1)-1][0] = "RuleID:"
 			   $gaRuleSet[UBound($gaRuleSet,1)-1][1] = GetRuleIDFromDB($gaRuleSet[UBound($gaRuleSet,1)-2][1])
 			   $gaRuleSet[UBound($gaRuleSet,1)-1][2] = $iRuleCurrent
-
-			   ;_ArrayDisplay($gaRuleStart)
-			   ;_ArrayDisplay($gaRuleSet)
+#ce
+			Case stringleft($sTempCfgLine,stringlen("RuleID:")) = "RuleID:"
+			   InsertStatementInRuleSet(1,"RuleID:",$sTempCfgLine,$iRuleCurrent)
 
 
 			;----- scan statements -----
@@ -2868,7 +3000,7 @@ Func GetRuleIdFromRuleSet($iRuleNumber)
 
    for $i = $iCountMin to $iCountMax
 	  if $gaRuleSet[$i][2] = $iRuleNumber then
-		 if $gaRuleSet[$i][0] = "RuleId:" then $sRuleId = $gaRuleSet[$i][1]
+		 if $gaRuleSet[$i][0] = "RuleID:" then $sRuleId = $gaRuleSet[$i][1]
 	  Else
 		 ExitLoop
 	  EndIf
@@ -3358,8 +3490,16 @@ Func OutputLineOfQueryResult(ByRef $aQueryResult,$sReportFilename)
    $sTempNew = ""
    $sTempOld = $aQueryResult[9]
    $sTempNew = $aQueryResult[9 + 23]
-   if $sTempOld = "" then $sTempOld = "-"
-   if $sTempNew = "" then $sTempNew = "-"
+   if $sTempOld = "" then
+	  $sTempOld = "-"
+   Else
+	  $sTempOld = _HexToString($sTempOld)
+   EndIf
+   if $sTempNew = "" then
+	  $sTempNew = "-"
+   Else
+	  $sTempNew = _HexToString($sTempNew)
+   EndIf
    FileWriteLine($sReportFilename,"")
    FileWriteLine($sReportFilename,StringFormat("%-10s %1s %1s %s","old path"," "," ",$sTempOld))
    ;FileWriteLine($sReportFilename,StringFormat("%-15s %1s %s","new path:"," ",$sTempNew))
@@ -3685,6 +3825,8 @@ Func GetFileInfo( ByRef $gaFileInfo, $sFilename, $iHashes )
    Else
 	  ;unable to read file
 	  $gaFileInfo[1] = 1
+	  ;_WinAPI_GetLastError()
+	  ;_WinAPI_GetLastErrorMessage ( )
 
 	  ;process directories with standard autoit functions
 	  if StringRight($sFilename,1) = "\" then
