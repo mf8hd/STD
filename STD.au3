@@ -156,7 +156,7 @@ Changelog
 			removed GetRuleIDFromDB(): the "RuleID:" is in the config
 			rules.rulename: is now a hexstring
 			filenames.spath: is now a hexstring
-
+4.0.1.0		GetFileInfo(): mtime,ctime,atime are now UTC
 
 
 
@@ -260,8 +260,8 @@ End
 #pragma compile(UPX, False)
 
 ;Set file infos
-#pragma compile(ProductVersion,"4.0.0.0")
-#pragma compile(FileVersion,"4.0.0.0")
+#pragma compile(ProductVersion,"4.0.1.0")
+#pragma compile(FileVersion,"4.0.1.0")
 ;Versioning: "Incompatible changes to DB"."new feature"."bug fix"."minor fix"
 
 #pragma compile(FileDescription,"Spot The Difference")
@@ -3798,9 +3798,16 @@ Func GetFileInfo( ByRef $gaFileInfo, $sFilename, $iHashes )
 	  ;Manage file times
 	  For $i = 1 To 3
 		 If IsDllStruct($aInfo[$i]) Then
+#cs
+			;respect daylight saveng time
 			Local $tFILETIME = _Date_Time_FileTimeToLocalFileTime(DllStructGetPtr($aInfo[$i]))
 			$aInfo[$i] = _Date_Time_FileTimeToSystemTime(DllStructGetPtr($tFILETIME))
 			$aInfo[$i] = _Date_Time_SystemTimeToDateTimeStr($aInfo[$i],1)
+#ce
+			;use UTC
+			$aInfo[$i] = _Date_Time_FileTimeToSystemTime(DllStructGetPtr($aInfo[$i]))
+			$aInfo[$i] = _Date_Time_SystemTimeToDateTimeStr($aInfo[$i],1)
+
 			$aInfo[$i] = StringReplace($aInfo[$i],"/","")
 			$aInfo[$i] = StringReplace($aInfo[$i]," ","")
 			$aInfo[$i] = StringReplace($aInfo[$i],":","")
