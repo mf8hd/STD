@@ -157,6 +157,7 @@ Changelog
 			rules.rulename: is now a hexstring
 			filenames.spath: is now a hexstring
 4.0.1.0		GetFileInfo(): mtime,ctime,atime are now UTC
+4.0.1.1		readme.md for github
 
 
 
@@ -260,8 +261,8 @@ End
 #pragma compile(UPX, False)
 
 ;Set file infos
-#pragma compile(ProductVersion,"4.0.1.0")
-#pragma compile(FileVersion,"4.0.1.0")
+#pragma compile(ProductVersion,"4.0.1.1")
+#pragma compile(FileVersion,"4.0.1.1")
 ;Versioning: "Incompatible changes to DB"."new feature"."bug fix"."minor fix"
 
 #pragma compile(FileDescription,"Spot The Difference")
