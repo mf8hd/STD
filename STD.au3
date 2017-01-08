@@ -158,6 +158,11 @@ Changelog
 			filenames.spath: is now a hexstring
 4.0.1.0		GetFileInfo(): mtime,ctime,atime are now UTC
 4.0.1.1		readme.md for github
+4.0.2.0		DoSecondProcess(),DoScanWithSecondProcess():convert scan, list and total time from milliseconds to second
+			readme.md for github is now indeed markdown and no longer the output form /help
+			DoScanWithSecondProcess(): fixed makeing a unique list ($aAllIncDirs) of only the top most dirs from the "IncDirRec:" and "IncDir:" statements in the ruleset
+			DoReport(): fixed : changed file does not show up in /reports ! (Because rulename has to be a hexstring !)
+
 
 
 
@@ -211,9 +216,10 @@ ToDo:
 	  - path may be 32,767 Byte long in DB
 	  - DirGetSize() for directory data
 	  - does "ExcDir:" work correctly in conjunction with "IncDirRec:" and IsClimbTarget() ??? probably remove statement "ExcDir:"
-	  - ignore daylight saving time in timestamps in DB and report
+	  done - ignore daylight saving time in timestamps in DB and report
 	  - option for /delete to thin out DB and leaf only one scan per year, month, week, day. Like backups.
 	  - after "/delete * all" there are no more rules in the rules table ! rules table is filled during DoImportCfg(), is this wrong ?? Should it be done at /scan ?
+	  done - a changed file does not show up in /reports !
 
 #ce
 
@@ -261,8 +267,8 @@ End
 #pragma compile(UPX, False)
 
 ;Set file infos
-#pragma compile(ProductVersion,"4.0.1.1")
-#pragma compile(FileVersion,"4.0.1.1")
+#pragma compile(ProductVersion,"4.0.2.0")
+#pragma compile(FileVersion,"4.0.2.0")
 ;Versioning: "Incompatible changes to DB"."new feature"."bug fix"."minor fix"
 
 #pragma compile(FileDescription,"Spot The Difference")
@@ -1277,7 +1283,7 @@ Func DoReport($sReportMode,$ReportFilename,$sScannameOld = "lastvalid",$sScannam
 			$sTempSQL &= "WHERE "
 			$sTempSQL &= "scannew.path = scanold.path and "
 			$sTempSQL &= "scannew.rulename = scanold.rulename and "
-			$sTempSQL &= "scannew.rulename = '" & GetRulename($i) & "' and "
+			$sTempSQL &= "scannew.rulename = '" & _StringToHex(GetRulename($i)) & "' and "
 			$sTempSQL &= "("
 			if not IsFilepropertyIgnoredByRule("status",$i)       then $sTempSQL &= "scannew.status <> scanold.status or "
 			if not IsFilepropertyIgnoredByRule("size",$i)         then $sTempSQL &= "scannew.size <> scanold.size or "
@@ -1305,8 +1311,12 @@ Func DoReport($sReportMode,$ReportFilename,$sScannameOld = "lastvalid",$sScannam
 			$sTempSQL = StringReplace($sTempSQL," or );",");")
 			$sTempSQL = StringTrimRight($sTempSQL,1) & " GROUP BY scannew.rulename;"
 
+			;ClipPut($sTempSQL)
+			;MsgBox(1,"SQL after Fix",$sTempSQL)
+
 			$sTempText &= StringFormat(" %7i",MakeReportSection1($sTempSQL))
 
+			;MsgBox(1,"Text",$sTempText)
 
 			;return new files
 			$sTempSQL = "SELECT scannew.rulename,count(scannew.rulename) FROM scannew LEFT JOIN scanold ON scannew.path = scanold.path and scannew.rulename = scanold.rulename WHERE scannew.rulename = '" & _StringToHex(GetRulename($i)) & "' and scanold.path IS NULL  GROUP BY scannew.rulename;"
@@ -1744,10 +1754,11 @@ EndFunc
 
 Func DoScanWithSecondProcess($sDBName)
 
-   ;generate a list with all the files and directories
-   ;we need to scan and sends them to the "Second Process"
-   ;that retrieves the file information and writes them
-   ;into database
+   ;list all the files and directories we need to scan
+   ;on stdout.
+   ;start a "Second Process" that reads this list from stdin
+   ;and retrieves the file information and writes them
+   ;into the database
    ;------------------------------------------------
 
    local $iRuleNr = 0					;rule number
@@ -1774,12 +1785,12 @@ Func DoScanWithSecondProcess($sDBName)
 
 		 for $j=1 To UBound($aAllIncDirs,1)-1
 			;ConsoleWrite(StringLeft($aAllIncDirs[$j],StringLen($gaRuleSet[$i][1])) & @crlf & StringLeft($gaRuleSet[$i][1],StringLen($gaRuleSet[$i][1])) & @CRLF)
-			if StringLen($aAllIncDirs[$j]) >= StringLen($gaRuleSet[$i][1]) and StringLeft($aAllIncDirs[$j],StringLen($gaRuleSet[$i][1])) = StringLeft($gaRuleSet[$i][1],StringLen($gaRuleSet[$i][1])) then
+			if StringLen(GetDirWithBackslash($aAllIncDirs[$j])) >= StringLen(GetDirWithBackslash($gaRuleSet[$i][1])) and StringLeft(GetDirWithBackslash($aAllIncDirs[$j]),StringLen(GetDirWithBackslash($gaRuleSet[$i][1]))) = StringLeft(GetDirWithBackslash($gaRuleSet[$i][1]),StringLen(GetDirWithBackslash($gaRuleSet[$i][1]))) then
 			   ;replace existing dir in $aAllIncDirs with a shorter, higher level dir in the same path
 			   ;here doublicate entries get into $aAllIncDirs
 			   $aAllIncDirs[$j] = $gaRuleSet[$i][1]
 			   $iFound = True
-			ElseIf StringLen($aAllIncDirs[$j]) < StringLen($gaRuleSet[$i][1]) and StringLeft($aAllIncDirs[$j],StringLen($aAllIncDirs[$j])) = StringLeft($gaRuleSet[$i][1],StringLen($aAllIncDirs[$j])) then
+			ElseIf StringLen(GetDirWithBackslash($aAllIncDirs[$j])) < StringLen(GetDirWithBackslash($gaRuleSet[$i][1])) and StringLeft(GetDirWithBackslash($aAllIncDirs[$j]),StringLen(GetDirWithBackslash($aAllIncDirs[$j]))) = StringLeft(GetDirWithBackslash($gaRuleSet[$i][1]),StringLen(GetDirWithBackslash($aAllIncDirs[$j]))) then
 			   ;the dir in $aAllIncDirs is already a shorter and higher level dir in the same path as $gaRuleSet[$i][1]
 			   $iFound = True
 			EndIf
@@ -1844,7 +1855,7 @@ Func DoScanWithSecondProcess($sDBName)
 	  ;wait for "second process" to end
 	  ProcessWaitClose($iPID)
    EndIf
-   ConsoleWrite("List:  " & $ScanTimer & @CRLF)
+   ConsoleWrite("List:  " & Round($ScanTimer/1000) & "s" & @CRLF)
 
    if $gcDEBUGTimeGetFileInfo = True 			then ConsoleWrite("List-GetFileInfo:         " & Round($giDEBUGTimerGetFileInfo) & @CRLF)
    if $gcDEBUGTimeGetRuleFromRuleSet = True 	then ConsoleWrite("List-GetRuleFromRuleSet:  " & Round($giDEBUGTimerGetRuleFromRuleSet) & @CRLF)
@@ -1931,8 +1942,8 @@ Func DoSecondProcess()
 	  EndIf
    WEnd
 
-   ConsoleWrite("Scan:  " & Round(TimerDiff($ScanTimer) - $iIdleCounter*1000) & @CRLF)
-   ConsoleWrite("Total: " & Round(TimerDiff($ScanTimer)) & @CRLF)
+   ConsoleWrite("Scan:  " & Round((TimerDiff($ScanTimer) - $iIdleCounter*1000)/1000) & "s" & @CRLF)
+   ConsoleWrite("Total: " & Round(TimerDiff($ScanTimer)/1000) & "s" & @CRLF)
 
    if $gcDEBUGTimeGetFileInfo = True 			then ConsoleWrite("Scan-GetFileInfo:         " & Round($giDEBUGTimerGetFileInfo) & @CRLF)
    if $gcDEBUGTimeGetRuleFromRuleSet = True 	then ConsoleWrite("Scan-GetRuleFromRuleSet:  " & Round($giDEBUGTimerGetRuleFromRuleSet) & @CRLF)
@@ -3962,6 +3973,19 @@ Func MakeReportSection2and3($sTempSQL,ByRef $iHasRuleHeader,$sReportFilename,$sR
    if not $gbMSSQL then _SQLite_QueryFinalize($hQuery)
 EndFunc
 
+;----- tool functions -----
+Func GetDirWithBackslash($sDirName)
+
+   ;Ensure a directory name has a backslash at the end
+   ;--------------------------------------------------
+
+   if StringRight($sDirName,1) = "\" Then
+	  Return $sDirName
+   Else
+	  Return $sDirName & "\"
+   EndIf
+
+EndFunc
 
 ;----- mailer functions -----
 
