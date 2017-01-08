@@ -381,22 +381,22 @@ End
 
 ## Quick Start
 
- 1. Create a *CONFIGFILE* with an editor
- 2. Import *CONFIGFILE* into (not yet existing SQLite or existing MS SQL) *DB*:
-    `STD.exe /importcfg *DB* *CONFIGFILE*`
- 3. Initial scan:
-    `STD.exe /scan *DB*`
- 4. Validate initial scan:
-    `STD.exe /validate *DB* *last*`
- 5. Delete all existing invalid scans (optional):
-    `STD.exe /delete *DB* *invalid*`
- 6. Normal scan:
-    `STD.exe /scan *DB*`
- 7. Create report:
-    `STD.exe /report *DB* *REPORTFILE*`
- 8. Review the report with an editor.
- 9. Validate last scan:
-    `STD.exe /validate *DB* *last*`
+1. Create a *CONFIGFILE* with an editor
+2. Import *CONFIGFILE* into (not yet existing SQLite or existing MS SQL) *DB*:
+   `STD.exe /importcfg DB CONFIGFILE`
+3. Initial scan:
+   `STD.exe /scan DB`
+4. Validate initial scan:
+   `STD.exe /validate DB last`
+5. Delete all existing invalid scans (optional):
+   `STD.exe /delete DB invalid`
+6. Normal scan:
+   `STD.exe /scan DB`
+7. Create report:
+   `STD.exe /report DB REPORTFILE`
+8. Review the report with an editor.
+9. Validate last scan:
+   `STD.exe /validate DB last`
 10. Delete all old valid scans (optional):
-    `STD.exe /delete *DB* *oldvalid*`
+   `STD.exe /delete DB oldvalid`
 11. Start next cycle, goto to 5.
