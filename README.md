@@ -5,7 +5,7 @@ Spot the Difference (STD) is a poor mans file integrity checker written in autoi
 * allways to slow, but not that bad
 * SQLite support for scan results
 * MS SQL server support for scan results
-* report changes per email 
+* report changes per email
 * find doublicate files in scan database, based on file content not name
 * get history of the changes to a file
 * uses md5 and crc32 to detect changes within a file
@@ -157,8 +157,8 @@ Textfile that contains all data from one or more scans as comma separated values
 *DB* is a filename that is either a SQLite database file or an ini file that defines the connection to an MS SQL database (see *DBINIFILE* below).
 
 * If the file extension is **.ini** it is an existing DBINIFILE !
-* If the file extension is anything else, the file is a SQLite database files. It will be generated if it does not exist. 
- 
+* If the file extension is anything else, the file is a SQLite database files. It will be generated if it does not exist.
+
 *DB* contains all data of all scans and the imported *CONFIGFILE*.
 If the *DB* gets big, delete old scans !
 
@@ -232,21 +232,21 @@ changed  : c:\temp\stdtest\test.bin
 ----------------------------------------------------------------------
 rule     : test 2
 ----------------------------------------------------------------------
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+\~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 changed      : c:\temp\stdtest\test.bin
--  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -
-                                          expected observed                           
-scantime                       2017.01.08 13:37:14 2017.01.08 13:38:04                
-status                                           0 0                                  
-size         *                                   0 173916096                          
-mtime        *                 2017.01.08 12:36:57 2014.12.13 23:20:50                
-ctime                          2017.01.08 12:36:57 2017.01.08 12:36:57                
-atime        *                 2017.01.08 12:36:57 2017.01.08 12:37:38                
-version                                    0.0.0.0 0.0.0.0                            
-crc32        *                                   0 3373118432                         
-md5          *                                   0 0x4C95398A7AAA9742921C3B7CE9778FD9 
-ptime                                            2 3808                               
-attributes                                       A A                                  
+\-  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -
+                                          expected observed
+scantime                       2017.01.08 13:37:14 2017.01.08 13:38:04
+status                                           0 0
+size         *                                   0 173916096
+mtime        *                 2017.01.08 12:36:57 2014.12.13 23:20:50
+ctime                          2017.01.08 12:36:57 2017.01.08 12:36:57
+atime        *                 2017.01.08 12:36:57 2017.01.08 12:37:38
+version                                    0.0.0.0 0.0.0.0
+crc32        *                                   0 3373118432
+md5          *                                   0 0x4C95398A7AAA9742921C3B7CE9778FD9
+ptime                                            2 3808
+attributes                                       A A
 
 old path       c:\temp\stdtest\test.bin
 new path       c:\temp\stdtest\test.bin
@@ -258,7 +258,7 @@ Describes a ruleset of one or more scan rules. A rule is a code block that start
 **Rule:** statement and ends with an **End** statement.
 
 A rule block consists of statements that describe which directories and
-file extentions should be included in or excluded from the scan. 
+file extentions should be included in or excluded from the scan.
 
 The __Email*__ statements are global for the entire ruleset and therefore NOT enclosed by
 *Rule:* and *End* statements.
@@ -345,7 +345,7 @@ End
 |oattrib|   offline attribute|
 |cattrib|   compressed attribute|
 |tattrib|   temporary attribute|
-                       
+
 
 ##### CONFIGFILE Example
 
@@ -385,34 +385,34 @@ End
  2. Import CONFIGFILE into (not yet existing) DB:
 ```
     STD.exe /importcfg DB CONFIGFILE
-```    
+```
  3. Initial scan:
 ```
     STD.exe /scan DB
-```    
+```
  4. Validate initial scan:
 ```
     STD.exe /validate DB last
-```    
+```
  5. Delete all existing invalid scans (optional):
 ```
     STD.exe /delete DB invalid
-```    
+```
  6. Normal scan:
 ```
     STD.exe /scan DB
-```    
+```
  7. Create report:
 ```
     STD.exe /report DB REPORTFILE
-```    
+```
  8. Review the report with an editor.
  9. Validate last scan:
 ```
     STD.exe /validate DB last
-```    
+```
 10. Delete all old valid scans (optional):
 ```
     STD.exe /delete DB oldvalid
-```    
+```
 11. Start next cycle, goto 5.
