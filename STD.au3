@@ -162,7 +162,7 @@ Changelog
 			readme.md for github is now indeed markdown and no longer the output form /help
 			DoScanWithSecondProcess(): fixed makeing a unique list ($aAllIncDirs) of only the top most dirs from the "IncDirRec:" and "IncDir:" statements in the ruleset
 			DoReport(): fixed : changed file does not show up in /reports ! (Because rulename has to be a hexstring !)
-
+4.0.2.1		Add debug option $gcDEBUGShowMSSQLDeleteSQLCode for DoDelete() with MSSQL
 
 
 
@@ -174,7 +174,7 @@ Changelog
 #cs
 FixMe:
 	  done - /report is not working anymore
-	  - possible sql injection through value of "Rule:" in config file
+	  done - possible sql injection through value of "Rule:" in config file
 	  done - does /report "missing" realy work ???? GetAllRulenamesFromDB() must return ALL rulenames from scanold AND scannew
 ToDo:
 	  obsolete - change name of DB field "status" to "valid"
@@ -267,8 +267,8 @@ End
 #pragma compile(UPX, False)
 
 ;Set file infos
-#pragma compile(ProductVersion,"4.0.2.0")
-#pragma compile(FileVersion,"4.0.2.0")
+#pragma compile(ProductVersion,"4.0.2.1")
+#pragma compile(FileVersion,"4.0.2.1")
 ;Versioning: "Incompatible changes to DB"."new feature"."bug fix"."minor fix"
 
 #pragma compile(FileDescription,"Spot The Difference")
@@ -300,13 +300,14 @@ End
 global const $gcVersion = FileGetVersion(@ScriptName,"ProductVersion")
 global const $gcScannameLimit = 65535				;max number of scannames resturnd from the DB
 ;Debug
-global const $gcDEBUG = False						;master switch for debug output
+global const $gcDEBUG = True						;master switch for debug output
 
-global $gcDEBUGOnlyShowScanBuffer = True		;show only "searching" and buffersize during scan !
+global $gcDEBUGOnlyShowScanBuffer = False		;show only "searching" and buffersize during scan !
 global $gcDEBUGShowVisitedDirectories = False	;show visited directories during scan !
 global $gcDEBUGDoNotStartSecondProcess = False	;run only the list process and do not start the scan process
-global $gcDEBUGRunWithoutCompilation = False		;force the program to run, without beeing compiled
-Global $gcDEBUGShowEmptyScanBuffer = False		;show "*** searching ***" if the scan process is waiting for the list process
+global $gcDEBUGRunWithoutCompilation = False	;force the program to run, without beeing compiled
+global $gcDEBUGShowEmptyScanBuffer = False		;show "*** searching ***" if the scan process is waiting for the list process
+global $gcDEBUGShowMSSQLDeleteSQLCode = True	;show SQL statement for MSSQL version of /delete
 
 
 ;Profiler
@@ -328,6 +329,7 @@ if $gcDEBUG = False Then
    $gcDEBUGDoNotStartSecondProcess = False
    $gcDEBUGRunWithoutCompilation = False
    $gcDEBUGShowEmptyScanBuffer = False
+   $gcDEBUGShowMSSQLDeleteSQLCode = False
 
    $gcDEBUGTimeGetFileInfo = False
    $gcDEBUGTimeGetRuleFromRuleSet = False
@@ -1089,6 +1091,7 @@ EndFunc
 Func DoDeleteScan($sScanname)
    local $aQueryResult = 0	;result of a query
    local $i = 0
+   local $sSQLStatement = ""
 
    $aQueryResult = 0
    if GetScannamesFromDB($sScanname,$aQueryResult) Then
@@ -1096,10 +1099,21 @@ Func DoDeleteScan($sScanname)
 		 ;_ArrayDisplay($aQueryResult)
 
 		 if $gbMSSQL then
-			_SQL_Execute(-1,"delete from filedata where scanid = '" & GetScanIDFromDB($aQueryResult[$i]) & "';")
-			_SQL_Execute(-1,"delete from scans where scantime = '" & $aQueryResult[$i] & "';")
-			_SQL_Execute(-1,"delete " & $gsMSSQLDBName & ".dbo.filenames from  " & $gsMSSQLDBName & ".dbo.filenames LEFT JOIN  " & $gsMSSQLDBName & ".dbo.filedata ON filedata.filenameid = filenames.filenameid WHERE filedata.filenameid IS NULL;")
-			_SQL_Execute(-1,"delete " & $gsMSSQLDBName & ".dbo.rules from " & $gsMSSQLDBName & ".dbo.rules LEFT JOIN " & $gsMSSQLDBName & ".dbo.filedata ON filedata.ruleid = rules.ruleid WHERE filedata.ruleid IS NULL;")
+			$sSQLStatement = "delete from filedata where scanid = '" & GetScanIDFromDB($aQueryResult[$i]) & "';"
+			if $gcDEBUGShowMSSQLDeleteSQLCode then ConsoleWrite( "Debug - Next SQL: " & $sSQLStatement & @CRLF)
+			_SQL_Execute(-1,$sSQLStatement)
+
+			$sSQLStatement = "delete from scans where scantime = '" & $aQueryResult[$i] & "';"
+			if $gcDEBUGShowMSSQLDeleteSQLCode then ConsoleWrite( "Debug - Next SQL: " & $sSQLStatement & @CRLF)
+			_SQL_Execute(-1,$sSQLStatement)
+
+			$sSQLStatement = "delete " & $gsMSSQLDBName & ".dbo.filenames from  " & $gsMSSQLDBName & ".dbo.filenames LEFT JOIN  " & $gsMSSQLDBName & ".dbo.filedata ON filedata.filenameid = filenames.filenameid WHERE filedata.filenameid IS NULL;"
+			if $gcDEBUGShowMSSQLDeleteSQLCode then ConsoleWrite( "Debug - Next SQL: " & $sSQLStatement & @CRLF)
+			_SQL_Execute(-1,$sSQLStatement)
+
+			$sSQLStatement = "delete " & $gsMSSQLDBName & ".dbo.rules from " & $gsMSSQLDBName & ".dbo.rules LEFT JOIN " & $gsMSSQLDBName & ".dbo.filedata ON filedata.ruleid = rules.ruleid WHERE filedata.ruleid IS NULL;"
+			if $gcDEBUGShowMSSQLDeleteSQLCode then ConsoleWrite( "Debug - Next SQL: " & $sSQLStatement & @CRLF)
+			_SQL_Execute(-1,$sSQLStatement)
 		 Else
 			_SQLite_Exec(-1,"delete from filedata where scanid = '" & GetScanIDFromDB($aQueryResult[$i]) & "';")
 			_SQLite_Exec(-1,"delete from scans where scantime = '" & $aQueryResult[$i] & "';")
