@@ -162,7 +162,8 @@ Changelog
 			readme.md for github is now indeed markdown and no longer the output form /help
 			DoScanWithSecondProcess(): fixed makeing a unique list ($aAllIncDirs) of only the top most dirs from the "IncDirRec:" and "IncDir:" statements in the ruleset
 			DoReport(): fixed : changed file does not show up in /reports ! (Because rulename has to be a hexstring !)
-4.0.2.1		Add debug option $gcDEBUGShowMSSQLDeleteSQLCode for DoDelete() with MSSQL
+4.0.2.1		Add debug option $gcDEBUGShowMSSQLDeleteSQLCode for DoDeleteScan() with MSSQL
+4.0.2.2		DoDeleteScan() with MSSQL: put dbname in [] for dbname with "-" like "std-groups"
 
 
 
@@ -218,35 +219,6 @@ ToDo:
 	  - does "ExcDir:" work correctly in conjunction with "IncDirRec:" and IsClimbTarget() ??? probably remove statement "ExcDir:"
 	  done - ignore daylight saving time in timestamps in DB and report
 	  - option for /delete to thin out DB and leaf only one scan per year, month, week, day. Like backups.
-		GetScannamesFromDB(): new symbolic scannames needed:
-			Today						any scan of today (valid and invalid)
-			LatestValidFromTodayMinus1	lastest valid scan from today - 1 (yesterday)
-			LatestValidFromTodayMinus2	lastest valid scan from today - 2 (day before yesterday)
-			LatestValidFromTodayMinus3	...
-			LatestValidFromTodayMinus4	...
-			LatestValidFromTodayMinus5	...
-			LatestValidFromTodayMinus6	...
-			LatestValidFromLastWeek			latest valid scan from last week
-			LatestValidFromLastWeekMinus1	latest valid scan from the week before last week
-			LatestValidFromLastWeekMinus2	...
-			LatestValidFromLastWeekMinus3	...
-			LatestValidFromLastWeekMinus4	...
-			LatestValidFromLastMonth		...
-			LatestValidFromLastMonthMinus1	...
-			LatestValidFromLastMonthMinus2	...
-			LatestValidFromLastMonthMinus3	...
-			LatestValidFromLastMonthMinus4	...
-			LatestValidFromLastMonthMinus5	...
-			LatestValidFromLastMonthMinus6	...
-			LatestValidFromLastMonthMinus7	...
-			LatestValidFromLastMonthMinus8	...
-			LatestValidFromLastMonthMinus9	...
-			LatestValidFromLastMonthMinus10	...
-			LatestValidFromLastMonthMinus11	...
-			LatestValidFromLastMonthMinus12	...
-
-			Find better names for these symbolic scannames !
-
 	  - after "/delete * all" there are no more rules in the rules table ! rules table is filled during DoImportCfg(), is this wrong ?? Should it be done at /scan ?
 	  done - a changed file does not show up in /reports !
 
@@ -296,8 +268,8 @@ End
 #pragma compile(UPX, False)
 
 ;Set file infos
-#pragma compile(ProductVersion,"4.0.2.1")
-#pragma compile(FileVersion,"4.0.2.1")
+#pragma compile(ProductVersion,"4.0.2.2")
+#pragma compile(FileVersion,"4.0.2.2")
 ;Versioning: "Incompatible changes to DB"."new feature"."bug fix"."minor fix"
 
 #pragma compile(FileDescription,"Spot The Difference")
@@ -336,7 +308,7 @@ global $gcDEBUGShowVisitedDirectories = False	;show visited directories during s
 global $gcDEBUGDoNotStartSecondProcess = False	;run only the list process and do not start the scan process
 global $gcDEBUGRunWithoutCompilation = False	;force the program to run, without beeing compiled
 global $gcDEBUGShowEmptyScanBuffer = False		;show "*** searching ***" if the scan process is waiting for the list process
-global $gcDEBUGShowMSSQLDeleteSQLCode = True	;show SQL statement for MSSQL version of /delete
+global $gcDEBUGShowMSSQLDeleteSQLCode = False	;show SQL statement for MSSQL version of /delete
 
 
 ;Profiler
@@ -1136,11 +1108,11 @@ Func DoDeleteScan($sScanname)
 			if $gcDEBUGShowMSSQLDeleteSQLCode then ConsoleWrite( "Debug - Next SQL: " & $sSQLStatement & @CRLF)
 			_SQL_Execute(-1,$sSQLStatement)
 
-			$sSQLStatement = "delete " & $gsMSSQLDBName & ".dbo.filenames from  " & $gsMSSQLDBName & ".dbo.filenames LEFT JOIN  " & $gsMSSQLDBName & ".dbo.filedata ON filedata.filenameid = filenames.filenameid WHERE filedata.filenameid IS NULL;"
+			$sSQLStatement = "delete [" & $gsMSSQLDBName & "].dbo.filenames from  [" & $gsMSSQLDBName & "].dbo.filenames LEFT JOIN  [" & $gsMSSQLDBName & "].dbo.filedata ON filedata.filenameid = filenames.filenameid WHERE filedata.filenameid IS NULL;"
 			if $gcDEBUGShowMSSQLDeleteSQLCode then ConsoleWrite( "Debug - Next SQL: " & $sSQLStatement & @CRLF)
 			_SQL_Execute(-1,$sSQLStatement)
 
-			$sSQLStatement = "delete " & $gsMSSQLDBName & ".dbo.rules from " & $gsMSSQLDBName & ".dbo.rules LEFT JOIN " & $gsMSSQLDBName & ".dbo.filedata ON filedata.ruleid = rules.ruleid WHERE filedata.ruleid IS NULL;"
+			$sSQLStatement = "delete [" & $gsMSSQLDBName & "].dbo.rules from [" & $gsMSSQLDBName & "].dbo.rules LEFT JOIN [" & $gsMSSQLDBName & "].dbo.filedata ON filedata.ruleid = rules.ruleid WHERE filedata.ruleid IS NULL;"
 			if $gcDEBUGShowMSSQLDeleteSQLCode then ConsoleWrite( "Debug - Next SQL: " & $sSQLStatement & @CRLF)
 			_SQL_Execute(-1,$sSQLStatement)
 		 Else
