@@ -162,7 +162,8 @@ Changelog
 			readme.md for github is now indeed markdown and no longer the output form /help
 			DoScanWithSecondProcess(): fixed makeing a unique list ($aAllIncDirs) of only the top most dirs from the "IncDirRec:" and "IncDir:" statements in the ruleset
 			DoReport(): fixed : changed file does not show up in /reports ! (Because rulename has to be a hexstring !)
-4.0.2.1		Add debug option $gcDEBUGShowMSSQLDeleteSQLCode for DoDelete() with MSSQL
+4.0.2.1		Add debug option $gcDEBUGShowMSSQLDeleteSQLCode for DoDeleteScan() with MSSQL
+4.0.2.2		DoDeleteScan() with MSSQL: put dbname in [] for dbname with "-" like "std-groups"
 
 
 
@@ -267,8 +268,8 @@ End
 #pragma compile(UPX, False)
 
 ;Set file infos
-#pragma compile(ProductVersion,"4.0.2.1")
-#pragma compile(FileVersion,"4.0.2.1")
+#pragma compile(ProductVersion,"4.0.2.2")
+#pragma compile(FileVersion,"4.0.2.2")
 ;Versioning: "Incompatible changes to DB"."new feature"."bug fix"."minor fix"
 
 #pragma compile(FileDescription,"Spot The Difference")
@@ -307,7 +308,7 @@ global $gcDEBUGShowVisitedDirectories = False	;show visited directories during s
 global $gcDEBUGDoNotStartSecondProcess = False	;run only the list process and do not start the scan process
 global $gcDEBUGRunWithoutCompilation = False	;force the program to run, without beeing compiled
 global $gcDEBUGShowEmptyScanBuffer = False		;show "*** searching ***" if the scan process is waiting for the list process
-global $gcDEBUGShowMSSQLDeleteSQLCode = True	;show SQL statement for MSSQL version of /delete
+global $gcDEBUGShowMSSQLDeleteSQLCode = False	;show SQL statement for MSSQL version of /delete
 
 
 ;Profiler
@@ -1107,11 +1108,11 @@ Func DoDeleteScan($sScanname)
 			if $gcDEBUGShowMSSQLDeleteSQLCode then ConsoleWrite( "Debug - Next SQL: " & $sSQLStatement & @CRLF)
 			_SQL_Execute(-1,$sSQLStatement)
 
-			$sSQLStatement = "delete " & $gsMSSQLDBName & ".dbo.filenames from  " & $gsMSSQLDBName & ".dbo.filenames LEFT JOIN  " & $gsMSSQLDBName & ".dbo.filedata ON filedata.filenameid = filenames.filenameid WHERE filedata.filenameid IS NULL;"
+			$sSQLStatement = "delete [" & $gsMSSQLDBName & "].dbo.filenames from  [" & $gsMSSQLDBName & "].dbo.filenames LEFT JOIN  [" & $gsMSSQLDBName & "].dbo.filedata ON filedata.filenameid = filenames.filenameid WHERE filedata.filenameid IS NULL;"
 			if $gcDEBUGShowMSSQLDeleteSQLCode then ConsoleWrite( "Debug - Next SQL: " & $sSQLStatement & @CRLF)
 			_SQL_Execute(-1,$sSQLStatement)
 
-			$sSQLStatement = "delete " & $gsMSSQLDBName & ".dbo.rules from " & $gsMSSQLDBName & ".dbo.rules LEFT JOIN " & $gsMSSQLDBName & ".dbo.filedata ON filedata.ruleid = rules.ruleid WHERE filedata.ruleid IS NULL;"
+			$sSQLStatement = "delete [" & $gsMSSQLDBName & "].dbo.rules from [" & $gsMSSQLDBName & "].dbo.rules LEFT JOIN [" & $gsMSSQLDBName & "].dbo.filedata ON filedata.ruleid = rules.ruleid WHERE filedata.ruleid IS NULL;"
 			if $gcDEBUGShowMSSQLDeleteSQLCode then ConsoleWrite( "Debug - Next SQL: " & $sSQLStatement & @CRLF)
 			_SQL_Execute(-1,$sSQLStatement)
 		 Else
