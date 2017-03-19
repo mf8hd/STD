@@ -164,10 +164,9 @@ Changelog
 			DoReport(): fixed : changed file does not show up in /reports ! (Because rulename has to be a hexstring !)
 4.0.2.1		Add debug option $gcDEBUGShowMSSQLDeleteSQLCode for DoDeleteScan() with MSSQL
 4.0.2.2		DoDeleteScan() with MSSQL: put dbname in [] for dbname with "-" like "std-groups"
-
-
-
-
+4.1.0.0		DoListScan(), GetScannamesFromDB(), GetScanInfosFromDB(): /list with scanname/SPECIAL_SCANNAME
+			GetScannamesFromDB(): New SPECIAL_SCANNAME: junk, today , dayminus[0-6], weekminus[0-51], monthminus[0-11]
+			"/delete test.ini junk" keeps all scans of today and one valid scan for every day, week, month in the last year.
 
 #ce
 
@@ -218,10 +217,12 @@ ToDo:
 	  - DirGetSize() for directory data
 	  - does "ExcDir:" work correctly in conjunction with "IncDirRec:" and IsClimbTarget() ??? probably remove statement "ExcDir:"
 	  done - ignore daylight saving time in timestamps in DB and report
-	  - option for /delete to thin out DB and leaf only one scan per year, month, week, day. Like backups.
 	  - after "/delete * all" there are no more rules in the rules table ! rules table is filled during DoImportCfg(), is this wrong ?? Should it be done at /scan ?
 	  done - a changed file does not show up in /reports !
-
+	  done - /list DoListScan(): scanname/SPECIAL_SCANNAME as parameter via GetScannamesFromDB(). E.g. /list test.ini all, /list test.ini valid, /list test.ini today ...
+	  done - option for /delete to thin out DB and leaf only one scan per year, month, week, day. Like backups.
+	  done - GetScannamesFromDB(): implement the new SPECIAL_SCANNAMEs for sqlite
+	  doen - Update readme and help with new SPECIAL_SCANNAME and new option for /list
 #ce
 
 
@@ -268,8 +269,8 @@ End
 #pragma compile(UPX, False)
 
 ;Set file infos
-#pragma compile(ProductVersion,"4.0.2.2")
-#pragma compile(FileVersion,"4.0.2.2")
+#pragma compile(ProductVersion,"4.1.0.0")
+#pragma compile(FileVersion,"4.1.0.0")
 ;Versioning: "Incompatible changes to DB"."new feature"."bug fix"."minor fix"
 
 #pragma compile(FileDescription,"Spot The Difference")
@@ -301,7 +302,7 @@ End
 global const $gcVersion = FileGetVersion(@ScriptName,"ProductVersion")
 global const $gcScannameLimit = 65535				;max number of scannames resturnd from the DB
 ;Debug
-global const $gcDEBUG = True						;master switch for debug output
+global const $gcDEBUG = False						;master switch for debug output
 
 global $gcDEBUGOnlyShowScanBuffer = False		;show only "searching" and buffersize during scan !
 global $gcDEBUGShowVisitedDirectories = False	;show visited directories during scan !
@@ -616,7 +617,11 @@ select
 	  if FileExists($CmdLine[2]) then
 		 OpenDB($CmdLine[2])
 
-		 DoListScan()
+		 if $CmdLine[0] = 3 then
+			DoListScan($CmdLine[3])
+		 Else
+			DoListScan()
+		 EndIf
 
 		 CloseDB()
 	  Else
@@ -1587,11 +1592,16 @@ Func DoValidateScan($sScanname)
 EndFunc
 
 
-Func DoListScan()
-   local $aQueryResult = 0	;result of a query
-   local $iQueryRows = 0
-   local $iQueryColumns = 0
+Func DoListScan($sScanname = "all")
+   local $aScans = 0		;scannames
+   local $aScanInfos = 0	;scaninfos
+
+   local $iScanCounter = 0
+   local $iScanInfoCounter = 0
+;   local $iQueryRows = 0
+;   local $iQueryColumns = 0
    local $sTempValid = ""	;"X" if scan is validated "-" if not yet validated
+#cs
    local $sTempSQL	= ''		;sql statement
 
 
@@ -1602,43 +1612,36 @@ Func DoListScan()
    $sTempSQL &= "FROM scans LEFT JOIN filedata ON scans.scanid = filedata.scanid "
    $sTempSQL &= "GROUP BY scans.scantime,scans.valid "
    $sTempSQL &= "ORDER BY scans.scantime DESC;"
-#cs
-   $sTempSQL =  "SELECT "
-   $sTempSQL &= "scans.scantime,"
-   $sTempSQL &= "count(filedata.filenameid),"
-   $sTempSQL &= "scans.valid "
-   $sTempSQL &= "FROM filedata,rules,scans "
-   $sTempSQL &= "WHERE "
-   $sTempSQL &= "filedata.scanid = scans.scanid AND "
-   $sTempSQL &= "filedata.ruleid = rules.ruleid "
-   $sTempSQL &= "GROUP BY scans.scantime,scans.valid ORDER BY scans.scantime DESC;"
 #ce
+;Func GetScannamesFromDB($sScan,ByRef $aScans)
+;Func GetScanInfosFromDB($sScanname,ByRef $aScanInfos)
 
    ;get all scans in db
-   $aQueryResult = 0
-   ;_SQLite_GetTable2d(-1, "SELECT scantime,count(name),status from files group by scantime order by scantime desc;", $aQueryResult, $iQueryRows, $iQueryColumns)
-   if $gbMSSQL then
-	  _SQL_GetTable2d(-1, $sTempSQL, $aQueryResult, $iQueryRows, $iQueryColumns)
-   Else
-	  _SQLite_GetTable2d(-1, $sTempSQL, $aQueryResult, $iQueryRows, $iQueryColumns)
+   if GetScannamesFromDB($sScanname,$aScans) Then
+
+		 ;_ArrayDisplay($aScans)
+		 ConsoleWrite(StringFormat("%-5s %-14s %-10s %-8s %s","Valid","Scanname","Date","Time","Entries") & @CRLF)
+		 ConsoleWrite(StringFormat("%-5s %-14s %-10s %-8s %s","-----","--------------","----------","--------","--------------"))
+		 for $iScanCounter = 2 to UBound($aScans)-1
+
+			$aScanInfos = 0
+			if GetScanInfosFromDB($aScans[$iScanCounter],$aScanInfos) then
+			   ;_ArrayDisplay($aScanInfos)
+			   for $iScanInfoCounter = 1 to UBound($aScanInfos)-1
+				  if $aScanInfos[$iScanInfoCounter][2] = 1 Then
+					 $sTempValid = "X"
+				  Else
+					 $sTempValid = "-"
+				  EndIf
+
+				  ConsoleWrite(@CRLF & StringFormat("%5s %-14s %4s.%2s.%2s %2s:%2s:%2s %s",$sTempValid,$aScanInfos[$iScanInfoCounter][0],StringMid($aScanInfos[$iScanInfoCounter][0],1,4),StringMid($aScanInfos[$iScanInfoCounter][0],5,2),StringMid($aScanInfos[$iScanInfoCounter][0],7,2),StringMid($aScanInfos[$iScanInfoCounter][0],9,2),StringMid($aScanInfos[$iScanInfoCounter][0],11,2),StringMid($aScanInfos[$iScanInfoCounter][0],13,2),$aScanInfos[$iScanInfoCounter][1]))
+				  ;ConsoleWrite(StringFormat("%-14s",$aScanInfos[$iScanInfoCounter][0]) & @CRLF)
+			   next
+			EndIf
+
+		 Next
+
    EndIf
-   if ($gbMSSQL and $SQL_OK) or not @error Then
-	  ;_ArrayDisplay($aQueryResult)
-	  ConsoleWrite(StringFormat("%-5s %-14s %-10s %-8s %s","Valid","Scanname","Date","Time","Entries") & @CRLF)
-	  ConsoleWrite(StringFormat("%-5s %-14s %-10s %-8s %s","-----","--------------","----------","--------","--------------"))
-	  for $i = 1 to $iQueryRows
-		 if $aQueryResult[$i][2] = 1 Then
-			$sTempValid = "X"
-		 Else
-			$sTempValid = "-"
-		 EndIf
-
-		 ConsoleWrite(@CRLF & StringFormat("%5s %-14s %4s.%2s.%2s %2s:%2s:%2s %s",$sTempValid,$aQueryResult[$i][0],StringMid($aQueryResult[$i][0],1,4),StringMid($aQueryResult[$i][0],5,2),StringMid($aQueryResult[$i][0],7,2),StringMid($aQueryResult[$i][0],9,2),StringMid($aQueryResult[$i][0],11,2),StringMid($aQueryResult[$i][0],13,2),$aQueryResult[$i][1]))
-		 ;ConsoleWrite(StringFormat("%-14s",$aQueryResult[$i][0]) & @CRLF)
-	  next
-
-   EndIf
-
 EndFunc
 
 
@@ -2025,9 +2028,11 @@ Func DoShowHelp()
 
 
    $sText &= @CRLF
-   $sText &= @ScriptName & " /list DB" & @CRLF
+   $sText &= @ScriptName & " /list DB [SCANNAME]" & @CRLF
    $sText &= @ScriptName & " /list c:\test.sqlite" & @CRLF
-   $sText &= "List all scans in DB" & @CRLF
+   $sText &= "List all or just specified scans in DB" & @CRLF
+   $sText &= "SCANNAME is either an existing scan or a SPECIAL_SCANNAME" & @CRLF
+
    $sText &= @CRLF
    $sText &= @ScriptName & " /validate DB SCANNAME" & @CRLF
    $sText &= @ScriptName & " /validate c:\test.sqlite 20160514131610" & @CRLF
@@ -2041,6 +2046,7 @@ Func DoShowHelp()
    $sText &= @CRLF
    $sText &= @ScriptName & " /delete DB SCANNAME" & @CRLF
    $sText &= @ScriptName & " /delete c:\test.sqlite 20160514131610" & @CRLF
+   $sText &= @ScriptName & " /delete c:\test.sqlite junk" & @CRLF
    $sText &= "Delete the scan SCANNAME. SCANNAME is either an existing scan or a SPECIAL_SCANNAME" & @CRLF
    $sText &= @CRLF
    $sText &= @ScriptName & " /exportscan DB SCANNAME CSVFILENAME" & @CRLF
@@ -2074,13 +2080,27 @@ Func DoShowHelp()
    $sText &= @CRLF
    $sText &= @CRLF
    $sText &= "SPECIAL_SCANNAME:" & @CRLF
-   $sText &= "all           all the scans in DB" & @CRLF
-   $sText &= "last          the most recent scan in DB" & @CRLF
-   $sText &= "invalid       all not validated scans in DB" & @CRLF
-   $sText &= "valid         all validated scans in DB" & @CRLF
-   $sText &= "lastinvalid   the most recent not validated scan in DB" & @CRLF
-   $sText &= "lastvalid     the most recent validated scan in DB" & @CRLF
-   $sText &= "oldvalid      all validated scans in DB except lastvalid" & @CRLF
+   $sText &= "all               all the scans in DB" & @CRLF
+   $sText &= "last              the most recent scan in DB" & @CRLF
+   $sText &= "invalid           all not validated scans in DB" & @CRLF
+   $sText &= "valid             all validated scans in DB" & @CRLF
+   $sText &= "lastinvalid       the most recent not validated scan in DB" & @CRLF
+   $sText &= "lastvalid         the most recent validated scan in DB" & @CRLF
+   $sText &= "oldvalid          all validated scans in DB except lastvalid" & @CRLF
+   $sText &= "today             all the scans in DB made today" & @CRLF
+   $sText &= "dayminus[0-6]     most recent valid scan in DB made n day(s) before today," & @CRLF
+   $sText &= "                  with n = 0 to 6" & @CRLF
+   $sText &= "weekminus[0-6]    most recent valid scan in DB made n week(s) before today," & @CRLF
+   $sText &= "                  with n = 0 to 51" & @CRLF
+   $sText &= "monthminus[0-11]  most recent valid scan in DB made n month(s) before today," & @CRLF
+   $sText &= "                  with n = 0 to 11" & @CRLF
+   $sText &= "junk              all scans in DB except:" & @CRLF
+   $sText &= "                      ""today""," & @CRLF
+   $sText &= "                      ""dayminus1"" - ""dayminus6""," & @CRLF
+   $sText &= "                      ""weekminus1"" - ""weekminus4""," & @CRLF
+   $sText &= "                      ""monthminus1"" - ""monthminus11""" & @CRLF
+   $sText &= "                  so you can keep all scans of today and one valid scan for every" & @CRLF
+   $sText &= "                  day, week, month in the last year" & @CRLF
 
 
    $sText &= @CRLF
@@ -2326,8 +2346,8 @@ Func DoShowUsage()
    $sText &= @ScriptName & " /report[s|m|l] DB [[OLDSCANNAME] NEWSCANNAME] REPORTFILE" & @CRLF
    $sText &= "Write the differences between two scans to REPORTFILE" & @CRLF
    $sText &= @CRLF
-   $sText &= @ScriptName & " /list DB" & @CRLF
-   $sText &= "List all scans in DB" & @CRLF
+   $sText &= @ScriptName & " /list DB [SCANNAME]" & @CRLF
+   $sText &= "List all or specified scans in DB" & @CRLF
    $sText &= @CRLF
    $sText &= @ScriptName & " /validate DB SCANNAME" & @CRLF
    $sText &= "Set status of scan SCANNAME to valid." & @CRLF
@@ -2726,16 +2746,80 @@ Func GetScanIDFromDB($sScanname)
 EndFunc
 
 
+Func GetScanInfosFromDB($sScanname,ByRef $aScanInfos)
+
+   ;return informations for the scan $sScanname
+   ;and return them in $aScanInfos (scantime,count of entries,valid)
+   ;----------------------------------------------------------------
+
+   ;local $aQueryResult = 0	;result of a query
+   local $iScanInfoRows = 0
+   local $iScanInfoColumns = 0
+   ;local $sTempValid = ""	;"X" if scan is validated "-" if not yet validated
+   local $sTempSQL	= ''		;sql statement
+
+
+   $sTempSQL =  "SELECT "
+   $sTempSQL &= "scans.scantime,"
+   $sTempSQL &= "count(filedata.filenameid),"
+   $sTempSQL &= "scans.valid "
+   $sTempSQL &= "FROM scans LEFT JOIN filedata ON scans.scanid = filedata.scanid "
+   $sTempSQL &= "WHERE scans.scantime = '" & $sScanname & "' "
+   $sTempSQL &= "GROUP BY scans.scantime,scans.valid "
+   $sTempSQL &= "ORDER BY scans.scantime DESC;"
+
+
+   ;get information for $sScanname in db
+   $aScanInfos = 0
+
+   if $gbMSSQL then
+	  _SQL_GetTable2d(-1, $sTempSQL, $aScanInfos, $iScanInfoRows, $iScanInfoColumns)
+   Else
+	  _SQLite_GetTable2d(-1, $sTempSQL, $aScanInfos, $iScanInfoRows, $iScanInfoColumns)
+   EndIf
+   if ($gbMSSQL and $SQL_OK) or not @error Then
+
+	  Return True
+   EndIf
+
+   Return False
+
+EndFunc
+
+
 Func GetScannamesFromDB($sScan,ByRef $aScans)
 
    ;return the scans described by $sScan
-   ;$sScan can be "all","last","invalid","valid","lastinvalid","lastvalid","oldvalid" or the name of a scan
+   ;$sScan can be "all","last","invalid","valid","lastinvalid","lastvalid","oldvalid","today",
+   ;"dayminus0 - dayminus6", "weekminus0 - weekminus51", "monthminus0 - monthminus11"  or the name of a scan
+   ;"junk": "all" - ("today" + "dayminus[1-6]" + "weekminus[1-4]" + "monthminus[1-11]"
    ;----------------------------------------------------------------
 
    local $sSQL = ""
 
    local $iTempQueryRows = 0
    local $iTempQueryColumns = 0
+
+   local $iTempMinusValue = 0
+   local $sTempScanSearchString = ""
+
+   local $bJunk = False					;True if the original $sScan was "junk"
+   local $aNotJunk = 0					;Resultset of subqueries for junk handling
+   local $iCounter1 = 0
+   local $iCounterJunk = 0
+   local $iCounterAll = 0
+
+   ;for week date calculation
+   local $sTempADayInAWeek = ""
+   local $iTempDayOfWeek = 0
+   local $sTempMondayOfAWeek = ""
+   local $sTempSundayOfAWeek = ""
+
+   ;for "junk" first get "all" then remove the good stuff later from $aScans!
+   if $sScan = "junk" then
+	  $sScan = "all"
+	  $bJunk = True
+   EndIf
 
    if $gbMSSQL then
 	  Select
@@ -2764,6 +2848,52 @@ Func GetScannamesFromDB($sScan,ByRef $aScans)
 			$sSQL &= "FROM ScansValid "
 			$sSQL &= "WHERE RowNumber BETWEEN 2 AND " & $gcScannameLimit & ";"
 
+		 Case $sScan = "today"
+			;all scans from today - valid and invalid
+			$sTempScanSearchString = StringReplace(_NowCalcDate(),"/","") & "%"
+			$sSQL = "SELECT TOP " & $gcScannameLimit & " scantime from scans where scantime like '" & $sTempScanSearchString & "' group by scantime order by scantime desc;"
+		 Case StringLeft($sScan,StringLen("dayminus"))   = "dayminus"
+			;dayminus[0-6]
+			;most recent valid scan from n days before today, where n >= 0 and n <= 6
+			$iTempMinusValue = StringRight($sScan,StringLen($sScan)-StringLen("dayminus"))
+			if $iTempMinusValue >= 0 and $iTempMinusValue <= 6 Then
+			   $sTempScanSearchString = StringReplace(_DateAdd ("D",(-1)*$iTempMinusValue,_NowCalcDate()),"/","") & "%"
+			   $sSQL = "SELECT TOP 1 scantime from scans where valid = 1 and scantime like '" & $sTempScanSearchString & "' group by scantime order by scantime desc;"
+			   ;ConsoleWrite($sSQL & @CRLF)
+			Else
+			   Return False
+			EndIf
+		 Case StringLeft($sScan,StringLen("weekminus"))  = "weekminus"
+			;weekminus[0-51]
+			;most recent valid scan from n weeks before today, where n >= 0 and n <= 51
+			$iTempMinusValue = StringRight($sScan,StringLen($sScan)-StringLen("weekminus"))
+			if $iTempMinusValue >= 0 and $iTempMinusValue <= 51 Then
+
+			   ;calculate the date of monday and sunday of that week
+			   $sTempADayInAWeek = _DateAdd ("w",$iTempMinusValue,_NowCalcDate())
+			   $iTempDayOfWeek = _DateToDayOfWeekISO ( StringMid($sTempADayInAWeek,1,4),StringMid($sTempADayInAWeek,6,2),StringMid($sTempADayInAWeek,9,2))
+
+			   $sTempMondayOfAWeek = _DateAdd ("d",-1*($iTempDayOfWeek-1),$sTempADayInAWeek)
+			   $sTempSundayOfAWeek = _DateAdd ("d",7 - $iTempDayOfWeek,$sTempADayInAWeek)
+
+			   ;StringReplace($sTempMondayOfAWeek,"/","") & "000000"
+			   ;StringReplace($sTempSundayOfAWeek,"/","") & "999999"
+			   $sSQL = "SELECT TOP 1 scantime from scans where valid = 1 and scantime >= '" & StringReplace($sTempMondayOfAWeek,"/","") & "000000" & "' and scantime <= '" & StringReplace($sTempSundayOfAWeek,"/","") & "999999" & "' group by scantime order by scantime desc;"
+			Else
+			   Return False
+			EndIf
+
+		 Case StringLeft($sScan,StringLen("monthminus")) = "monthminus"
+			;monthminus[0-11]
+			;most recent valid scan from n months before today, where n >= 0 and n <= 11
+			$iTempMinusValue = StringRight($sScan,StringLen($sScan)-StringLen("monthminus"))
+			if $iTempMinusValue >= 0 and $iTempMinusValue <= 11 Then
+			   $sTempScanSearchString = StringLeft(StringReplace(_DateAdd ("M",(-1)*$iTempMinusValue,_NowCalcDate()),"/",""),6) & "%"
+			   $sSQL = "SELECT TOP 1 scantime from scans where valid = 1 and scantime like '" & $sTempScanSearchString & "' group by scantime order by scantime desc;"
+			Else
+			   Return False
+			EndIf
+
 		 case Else
 			$sSQL = "SELECT TOP 1 scantime from scans where scantime = '" & $sScan & "' group by scantime order by scantime desc;"
 	  EndSelect
@@ -2785,13 +2915,133 @@ Func GetScannamesFromDB($sScan,ByRef $aScans)
 			$sSQL = "SELECT scantime from scans where valid = 1 group by scantime order by scantime desc limit 1;"
 		 Case $sScan = "oldvalid"
 			$sSQL = "SELECT scantime from scans where valid = 1 group by scantime order by scantime desc limit " & $gcScannameLimit & " offset 1;"
+
+		 Case $sScan = "today"
+			;all scans from today - valid and invalid
+			$sTempScanSearchString = StringReplace(_NowCalcDate(),"/","") & "%"
+			;$sSQL = "SELECT TOP " & $gcScannameLimit & " scantime from scans where scantime like '" & $sTempScanSearchString & "' group by scantime order by scantime desc;"
+			$sSQL = "SELECT scantime from scans where scantime like '" & $sTempScanSearchString & "' group by scantime order by scantime desc limit " & $gcScannameLimit & ";"
+			;$sSQL = "SELECT scantime from scans where valid = 1 group by scantime order by scantime desc limit " & $gcScannameLimit & ";"
+		 Case StringLeft($sScan,StringLen("dayminus"))   = "dayminus"
+			;dayminus[0-6]
+			;most recent valid scan from n days before today, where n >= 0 and n <= 6
+			$iTempMinusValue = StringRight($sScan,StringLen($sScan)-StringLen("dayminus"))
+			if $iTempMinusValue >= 0 and $iTempMinusValue <= 6 Then
+			   $sTempScanSearchString = StringReplace(_DateAdd ("D",(-1)*$iTempMinusValue,_NowCalcDate()),"/","") & "%"
+			   ;$sSQL = "SELECT TOP 1 scantime from scans where valid = 1 and scantime like '" & $sTempScanSearchString & "' group by scantime order by scantime desc;"
+			   $sSQL = "SELECT scantime from scans where valid = 1 and scantime like '" & $sTempScanSearchString & "' group by scantime order by scantime desc limit 1;"
+			   ;ConsoleWrite($sSQL & @CRLF)
+			Else
+			   Return False
+			EndIf
+		 Case StringLeft($sScan,StringLen("weekminus"))  = "weekminus"
+			;weekminus[0-51]
+			;most recent valid scan from n weeks before today, where n >= 0 and n <= 51
+			$iTempMinusValue = StringRight($sScan,StringLen($sScan)-StringLen("weekminus"))
+			if $iTempMinusValue >= 0 and $iTempMinusValue <= 51 Then
+
+			   ;calculate the date of monday and sunday of that week
+			   $sTempADayInAWeek = _DateAdd ("w",$iTempMinusValue,_NowCalcDate())
+			   $iTempDayOfWeek = _DateToDayOfWeekISO ( StringMid($sTempADayInAWeek,1,4),StringMid($sTempADayInAWeek,6,2),StringMid($sTempADayInAWeek,9,2))
+
+			   $sTempMondayOfAWeek = _DateAdd ("d",-1*($iTempDayOfWeek-1),$sTempADayInAWeek)
+			   $sTempSundayOfAWeek = _DateAdd ("d",7 - $iTempDayOfWeek,$sTempADayInAWeek)
+
+			   ;StringReplace($sTempMondayOfAWeek,"/","") & "000000"
+			   ;StringReplace($sTempSundayOfAWeek,"/","") & "999999"
+			   ;$sSQL = "SELECT TOP 1 scantime from scans where valid = 1 and scantime >= '" & StringReplace($sTempMondayOfAWeek,"/","") & "000000" & "' and scantime <= '" & StringReplace($sTempSundayOfAWeek,"/","") & "999999" & "' group by scantime order by scantime desc;"
+			   $sSQL = "SELECT scantime from scans where valid = 1 and scantime >= '" & StringReplace($sTempMondayOfAWeek,"/","") & "000000" & "' and scantime <= '" & StringReplace($sTempSundayOfAWeek,"/","") & "999999" & "' group by scantime order by scantime desc limit 1;"
+			Else
+			   Return False
+			EndIf
+
+		 Case StringLeft($sScan,StringLen("monthminus")) = "monthminus"
+			;monthminus[0-11]
+			;most recent valid scan from n months before today, where n >= 0 and n <= 11
+			$iTempMinusValue = StringRight($sScan,StringLen($sScan)-StringLen("monthminus"))
+			if $iTempMinusValue >= 0 and $iTempMinusValue <= 11 Then
+			   $sTempScanSearchString = StringLeft(StringReplace(_DateAdd ("M",(-1)*$iTempMinusValue,_NowCalcDate()),"/",""),6) & "%"
+			   ;$sSQL = "SELECT TOP 1 scantime from scans where valid = 1 and scantime like '" & $sTempScanSearchString & "' group by scantime order by scantime desc;"
+			   $sSQL = "SELECT scantime from scans where valid = 1 and scantime like '" & $sTempScanSearchString & "' group by scantime order by scantime desc limit 1;"
+			Else
+			   Return False
+			EndIf
+
+
 		 case Else
 			$sSQL = "SELECT scantime from scans where scantime = '" & $sScan & "' group by scantime order by scantime desc limit 1;"
 	  EndSelect
 
 	  _SQLite_GetTable(-1, $sSQL, $aScans, $iTempQueryRows, $iTempQueryColumns)
    EndIf
+
    if ($gbMSSQL and $SQL_OK) or not @error Then
+	  if $bJunk Then
+		 ;$aScans contains "all". let´s get the good stuff and remove it from $aScans!
+		 ;today
+		 $aNotJunk = 0
+		 if GetScannamesFromDB("today",$aNotJunk) then
+			MsgBox(0,"Rows",$iTempQueryRows)
+			_ArrayDisplay($aScans)
+			_ArrayDisplay($aNotJunk)
+
+			for $iCounterJunk = 2 to ubound($aNotJunk)-1
+			   for $iCounterAll = ubound($aScans)-1 to 2 step -1
+				  if $aNotJunk[$iCounterJunk] = $aScans[$iCounterAll] then
+					 _ArrayDelete($aScans,$iCounterAll)
+					 $iTempQueryRows = $iTempQueryRows - 1
+				  EndIf
+			   Next
+			Next
+		 EndIf
+
+		 ;valid from every day last week
+		 for $iCounter1 = 1 to 6
+			$aNotJunk = 0
+			if GetScannamesFromDB("dayminus" & $iCounter1,$aNotJunk) then
+			   for $iCounterJunk = 2 to ubound($aNotJunk)-1
+				  for $iCounterAll = ubound($aScans)-1 to 2 step -1
+					 if $aNotJunk[$iCounterJunk] = $aScans[$iCounterAll] then
+						_ArrayDelete($aScans,$iCounterAll)
+						$iTempQueryRows = $iTempQueryRows - 1
+					 EndIf
+				  Next
+			   Next
+			EndIf
+		 Next
+
+		 ;valid from every week last month
+		 for $iCounter1 = 1 to 4
+			$aNotJunk = 0
+			if GetScannamesFromDB("weekminus" & $iCounter1,$aNotJunk) then
+			   for $iCounterJunk = 2 to ubound($aNotJunk)-1
+				  for $iCounterAll = ubound($aScans)-1 to 2 step -1
+					 if $aNotJunk[$iCounterJunk] = $aScans[$iCounterAll] then
+						_ArrayDelete($aScans,$iCounterAll)
+						$iTempQueryRows = $iTempQueryRows - 1
+					 EndIf
+				  Next
+			   Next
+			EndIf
+
+		 Next
+
+		 ;valid from every month last year
+		 for $iCounter1 = 1 to 11
+			$aNotJunk = 0
+			if GetScannamesFromDB("monthminus" & $iCounter1,$aNotJunk) then
+			   for $iCounterJunk = 2 to ubound($aNotJunk)-1
+				  for $iCounterAll = ubound($aScans)-1 to 2 step -1
+					 if $aNotJunk[$iCounterJunk] = $aScans[$iCounterAll] then
+						_ArrayDelete($aScans,$iCounterAll)
+						$iTempQueryRows = $iTempQueryRows - 1
+					 EndIf
+				  Next
+			   Next
+			EndIf
+		 Next
+	  EndIf
+
 	  if $iTempQueryRows >= 1 then
 		 ;MsgBox(0,"Test",$iQueryRows & @CRLF & $iQueryColumns)
 		 ;_ArrayDisplay($aScans)

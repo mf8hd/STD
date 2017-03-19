@@ -1,13 +1,14 @@
 # STD
-Spot the Difference (STD) is a poor mans file integrity checker written in autoit
+Spot the Difference (STD) is a poor mans file integrity checker written in AutoIt
 
 ## Features
+* command line tool for windows
 * allways to slow, but not that bad
 * SQLite support for scan results
 * MS SQL server support for scan results
-* report changes per email
+* report file changes per email
 * find doublicate files in scan database, based on file content not name
-* get history of the changes to a file
+* get change history of a file
 * uses md5 and crc32 to detect changes within a file
 * each directory and file is only read once, even if the directory is included in multiple scan rules
 
@@ -91,6 +92,7 @@ or a *SPECIAL_SCANNAME*
 #### /delete *DB* *SCANNAME*
 ```
 STD.exe /delete c:\test.sqlite 20160514131610
+STD.exe /delete c:\test.sqlite junk
 ```
 Delete the scan *SCANNAME*. *SCANNAME* is either an existing scan or a *SPECIAL_SCANNAME*
 
@@ -141,6 +143,11 @@ Show version information
 |*lastinvalid*|   the most recent not validated scan in *DB*|
 |*lastvalid*|     the most recent validated scan in *DB*|
 |*oldvalid*|      all validated scans in *DB* except *lastvalid*|
+|*today*|             all the scans in DB made today|
+|*dayminus[0-6]*|     most recent valid scan in DB made n day(s) before today, with n = 0 to 6|
+|*weekminus[0-6]*|    most recent valid scan in DB made n week(s) before today, with n = 0 to 51|
+|*monthminus[0-11]*|  most recent valid scan in DB made n month(s) before today, with n = 0 to 11|
+|*junk*|              all scans in DB except: *today*, *dayminus1* - *dayminus6*, *weekminus1* - *weekminus4*, *monthminus1* - *monthminus11*. So you can keep all scans of today and one valid scan for every day, week, month in the last year.|
 
 
 #### SPECIAL_REPORTNAME
