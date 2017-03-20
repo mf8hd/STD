@@ -167,6 +167,7 @@ Changelog
 4.1.0.0		DoListScan(), GetScannamesFromDB(), GetScanInfosFromDB(): /list with scanname/SPECIAL_SCANNAME
 			GetScannamesFromDB(): New SPECIAL_SCANNAME: junk, today , dayminus[0-6], weekminus[0-51], monthminus[0-11]
 			"/delete test.ini junk" keeps all scans of today and one valid scan for every day, week, month in the last year.
+4.1.0.1		GetScannamesFromDB(): Remove debug code. Decrement $aScans[0] if scan is deleted from $aScans[]
 
 #ce
 
@@ -269,8 +270,8 @@ End
 #pragma compile(UPX, False)
 
 ;Set file infos
-#pragma compile(ProductVersion,"4.1.0.0")
-#pragma compile(FileVersion,"4.1.0.0")
+#pragma compile(ProductVersion,"4.1.0.1")
+#pragma compile(FileVersion,"4.1.0.1")
 ;Versioning: "Incompatible changes to DB"."new feature"."bug fix"."minor fix"
 
 #pragma compile(FileDescription,"Spot The Difference")
@@ -2981,15 +2982,16 @@ Func GetScannamesFromDB($sScan,ByRef $aScans)
 		 ;today
 		 $aNotJunk = 0
 		 if GetScannamesFromDB("today",$aNotJunk) then
-			MsgBox(0,"Rows",$iTempQueryRows)
-			_ArrayDisplay($aScans)
-			_ArrayDisplay($aNotJunk)
+			;MsgBox(0,"Rows",$iTempQueryRows)
+			;_ArrayDisplay($aScans)
+			;_ArrayDisplay($aNotJunk)
 
 			for $iCounterJunk = 2 to ubound($aNotJunk)-1
 			   for $iCounterAll = ubound($aScans)-1 to 2 step -1
 				  if $aNotJunk[$iCounterJunk] = $aScans[$iCounterAll] then
 					 _ArrayDelete($aScans,$iCounterAll)
 					 $iTempQueryRows = $iTempQueryRows - 1
+					 $aScans[0] = $aScans[0] - 1
 				  EndIf
 			   Next
 			Next
@@ -3004,6 +3006,7 @@ Func GetScannamesFromDB($sScan,ByRef $aScans)
 					 if $aNotJunk[$iCounterJunk] = $aScans[$iCounterAll] then
 						_ArrayDelete($aScans,$iCounterAll)
 						$iTempQueryRows = $iTempQueryRows - 1
+						$aScans[0] = $aScans[0] - 1
 					 EndIf
 				  Next
 			   Next
@@ -3019,6 +3022,7 @@ Func GetScannamesFromDB($sScan,ByRef $aScans)
 					 if $aNotJunk[$iCounterJunk] = $aScans[$iCounterAll] then
 						_ArrayDelete($aScans,$iCounterAll)
 						$iTempQueryRows = $iTempQueryRows - 1
+						$aScans[0] = $aScans[0] - 1
 					 EndIf
 				  Next
 			   Next
@@ -3035,6 +3039,7 @@ Func GetScannamesFromDB($sScan,ByRef $aScans)
 					 if $aNotJunk[$iCounterJunk] = $aScans[$iCounterAll] then
 						_ArrayDelete($aScans,$iCounterAll)
 						$iTempQueryRows = $iTempQueryRows - 1
+						$aScans[0] = $aScans[0] - 1
 					 EndIf
 				  Next
 			   Next
