@@ -168,6 +168,7 @@ Changelog
 			GetScannamesFromDB(): New SPECIAL_SCANNAME: junk, today , dayminus[0-6], weekminus[0-51], monthminus[0-11]
 			"/delete test.ini junk" keeps all scans of today and one valid scan for every day, week, month in the last year.
 4.1.0.1		GetScannamesFromDB(): Remove debug code. Decrement $aScans[0] if scan is deleted from $aScans[]
+4.1.1.0		TreeClimberSecondProcess(): Experiment: Is FileFindFirstFile() for every fileextension in ruleset faster than .* ?
 
 #ce
 
@@ -270,8 +271,8 @@ End
 #pragma compile(UPX, False)
 
 ;Set file infos
-#pragma compile(ProductVersion,"4.1.0.1")
-#pragma compile(FileVersion,"4.1.0.1")
+#pragma compile(ProductVersion,"4.1.1.0")
+#pragma compile(FileVersion,"4.1.1.0")
 ;Versioning: "Incompatible changes to DB"."new feature"."bug fix"."minor fix"
 
 #pragma compile(FileDescription,"Spot The Difference")
@@ -3828,113 +3829,167 @@ Func TreeClimberSecondProcess($sStartPath,$iPID,$aRelevantRules)
    local $iRuleCounter = 0
    local $iRuleCounterMax = 0
 
+   Local $hSearch = 0
+   Local $sFileName = ""
+
+   local $sAllFileExtensionToSearchFor = ""
+   local $sCurrentFileExtensionToSearchFor = ""
+   local $iDoExtraSearchForDirs = True
+
    ;abort if $sStartPath is not valid (does not exist)
    if not FileExists($sStartPath) Then Return False
 
-   ;list every directory we are reading - reading is NOT scanning !!!
-   ;ConsoleWrite("TreeClimber: " & $sStartPath & @CRLF)
-
-   ; Assign a Local variable the search handle of all files in the current directory.
-   Local $hSearch = FileFindFirstFile($sStartPath & "\*.*")
-
-
-   ; Check if the search was successful, if not display a message and return False.
-   If $hSearch = -1 Then
-	  ;MsgBox($MB_SYSTEMMODAL, "", "Error: No files/directories matched the search pattern.")
-	  Return False
-   EndIf
-
    ; how many rules are there in the ruleset
    $iRuleCounterMax = GetNumberOfRulesFromRuleSet()
-   ;ConsoleWrite("TreeClimber: " & $iRuleCounterMax & @CRLF)
 
    ;only these rules must be checkt on the climbtarget (subdirectory)
    dim $aRelevantRulesForClimbTarget[$iRuleCounterMax+1]
 
-   ; Assign a Local variable the empty string which will contain the files names found.
-   Local $sFileName = ""
 
-   While 1
-	  $iScanFile = False
-	  $iIsDirectory = False
-
-	  $sFileName = FileFindNextFile($hSearch)
-	  ; If there is no more file matching the search.
-	  If @error Then ExitLoop
-	  if @extended then $iIsDirectory = True
-
-	  $sFullPath = $sStartPath & "\" & $sFileName
+   ;list every directory we are reading - reading is NOT scanning !!!
+   ;ConsoleWrite("TreeClimber: " & $sStartPath & @CRLF)
 
 
-	  ;climb the directory tree downward if needed
-	  if $iIsDirectory Then
-		 $iIsClimbTarget = False
-		 ; check all the rules on this directory
+
+
+   ; get fileextensions to search for from all relevant rules. Default is ".*"
+   $sAllFileExtensionToSearchFor = "."
+   for $iRuleCounter = 1 to $iRuleCounterMax
+
+	  ;check only relevant rules for this directory
+	  if $aRelevantRules[$iRuleCounter] = False then ContinueLoop
+
+	  ;if only one rule has to search for executables, all files must get scanned
+	  if $gaRuleData[$iRuleCounter][$gcIncExe] or $gaRuleData[$iRuleCounter][$gcExcExe] then
+		 $sAllFileExtensionToSearchFor = ".*."
+		 $iDoExtraSearchForDirs = False
+		 ExitLoop
+	  Else
+		 $sAllFileExtensionToSearchFor = $sAllFileExtensionToSearchFor & $gaRuleData[$iRuleCounter][$gcIncExt]
+	  EndIf
+   Next
+   $sAllFileExtensionToSearchFor = StringReplace(StringLower($sAllFileExtensionToSearchFor),"..",".")
+
+
+
+   while $sAllFileExtensionToSearchFor <> "."
+	  if $iDoExtraSearchForDirs Then
+		 $sCurrentFileExtensionToSearchFor = ".*"
+	  Else
+		 $sCurrentFileExtensionToSearchFor = ""
+		 $sCurrentFileExtensionToSearchFor = StringLeft($sAllFileExtensionToSearchFor,StringInStr($sAllFileExtensionToSearchFor,".",1,2)-1)
+		 $sAllFileExtensionToSearchFor = StringReplace($sAllFileExtensionToSearchFor,$sCurrentFileExtensionToSearchFor,"")
+	  EndIf
+   #cs
+	  ConsoleWrite($iDoExtraSearchForDirs & @CRLF)
+	  ConsoleWrite($sCurrentFileExtensionToSearchFor & @CRLF)
+	  ConsoleWrite($sAllFileExtensionToSearchFor & @CRLF)
+   #ce
+
+	  ; Assign a Local variable the search handle of all files in the current directory.
+	  ;$hSearch = FileFindFirstFile($sStartPath & "\*.*")
+	  $hSearch = FileFindFirstFile($sStartPath & "\*" & $sCurrentFileExtensionToSearchFor)
+
+
+	  ; Check if the search was successful, if not display a message and return False.
+	  If $hSearch = -1 Then
+		 ;MsgBox($MB_SYSTEMMODAL, "", "Error: No files/directories matched the search pattern.")
+		 ;Return False
+		 if $iDoExtraSearchForDirs Then $iDoExtraSearchForDirs = False
+		 ContinueLoop
+	  EndIf
+
+
+	  ; Assign a Local variable the empty string which will contain the files names found.
+	  $sFileName = ""
+
+	  While 1
+		 $iScanFile = False
+		 $iIsDirectory = False
+
+		 $sFileName = FileFindNextFile($hSearch)
+		 ; If there is no more file matching the search.
+		 If @error Then ExitLoop
+		 if @extended then $iIsDirectory = True
+
+		 ;Searching for directories but this is none
+		 if $iDoExtraSearchForDirs and not $iIsDirectory Then ContinueLoop
+
+		 $sFullPath = $sStartPath & "\" & $sFileName
+
+
+		 ;climb the directory tree downward if needed
+		 if $iIsDirectory Then
+			$iIsClimbTarget = False
+			; check all the rules on this directory
+			for $iRuleCounter = 1 to $iRuleCounterMax
+			   ;ConsoleWrite("TreeClimber: " & $sFullPath & "\" & " : " & $iIsClimbTarget & @CRLF)
+			   if IsClimbTargetByRule($sFullPath & "\",$iRuleCounter) then
+				  $aRelevantRulesForClimbTarget[$iRuleCounter] = True
+				  $iIsClimbTarget = True
+			   else
+				  $aRelevantRulesForClimbTarget[$iRuleCounter] = False
+			   EndIf
+			Next
+
+			if $iIsClimbTarget Then
+			   if $gcDEBUGShowVisitedDirectories = True then ConsoleWrite("** visited **" & $sFullPath & @CRLF)
+
+			   ;count number of "\" in current path
+			   StringReplace($sFullPath,"\","")
+			   $giCurrentDirBackslashCount = @extended
+			   TreeClimberSecondProcess($sFullPath,$iPID,$aRelevantRulesForClimbTarget)
+			EndIf
+		 EndIf
+
+		 ; check all the rules on this file / directory
 		 for $iRuleCounter = 1 to $iRuleCounterMax
-			;ConsoleWrite("TreeClimber: " & $sFullPath & "\" & " : " & $iIsClimbTarget & @CRLF)
-			if IsClimbTargetByRule($sFullPath & "\",$iRuleCounter) then
-			   $aRelevantRulesForClimbTarget[$iRuleCounter] = True
-			   $iIsClimbTarget = True
-			else
-			   $aRelevantRulesForClimbTarget[$iRuleCounter] = False
+
+			;check only relevant rules for this directory
+			if $aRelevantRules[$iRuleCounter] = False then ContinueLoop
+
+			;check if current directory entry should be scanned according to the current rule
+			if $iIsDirectory Then
+			   ;it is a directory
+			   if IsIncludedByRule($sFullPath & "\",$iRuleCounter,False) then
+				  ;$iScanFile = True
+				  ;ExitLoop
+				  StdinWrite($iPID,StringFormat("%5i%s",$iRuleCounter,$sFullPath & "\") & @CRLF)
+				  if @error then Exit
+			   EndIf
+			Else
+			   ;it is a file
+			   if IsIncludedByRule($sFullPath,$iRuleCounter,False) then
+				  ;$iScanFile = True
+				  ;ExitLoop
+				  StdinWrite($iPID,StringFormat("%5i%s",$iRuleCounter,$sFullPath) & @CRLF)
+				  if @error then Exit
+			   EndIf
 			EndIf
 		 Next
 
-		 if $iIsClimbTarget Then
-			if $gcDEBUGShowVisitedDirectories = True then ConsoleWrite("** visited **" & $sFullPath & @CRLF)
 
-			;count number of "\" in current path
-			StringReplace($sFullPath,"\","")
-			$giCurrentDirBackslashCount = @extended
-			TreeClimberSecondProcess($sFullPath,$iPID,$aRelevantRulesForClimbTarget)
-		 EndIf
-	  EndIf
+   #cs
+		 ;write $sFullPath to stdin of second process
+		 if $iScanFile then
 
-	  ; check all the rules on this file / directory
-	  for $iRuleCounter = 1 to $iRuleCounterMax
-
-		 ;check only relevant rules for this directory
-		 if $aRelevantRules[$iRuleCounter] = False then ContinueLoop
-
-		 ;check if current directory entry should be scanned according to the current rule
-		 if $iIsDirectory Then
-			;it is a directory
-			if IsIncludedByRule($sFullPath & "\",$iRuleCounter,False) then
-			   ;$iScanFile = True
-			   ;ExitLoop
-			   StdinWrite($iPID,StringFormat("%5i%s",$iRuleCounter,$sFullPath & "\") & @CRLF)
+			;ConsoleWrite($sFullPath & @CRLF)
+			if $iIsDirectory Then
+			   StdinWrite($iPID,$sFullPath & "\" & @CRLF)
 			   if @error then Exit
-			EndIf
-		 Else
-			;it is a file
-			if IsIncludedByRule($sFullPath,$iRuleCounter,False) then
-			   ;$iScanFile = True
-			   ;ExitLoop
-			   StdinWrite($iPID,StringFormat("%5i%s",$iRuleCounter,$sFullPath) & @CRLF)
+			Else
+			   StdinWrite($iPID,$sFullPath & @CRLF)
 			   if @error then Exit
 			EndIf
 		 EndIf
-	  Next
+   #ce
+	  WEnd
 
+	  if $iDoExtraSearchForDirs Then $iDoExtraSearchForDirs = False
 
-#cs
-	  ;write $sFullPath to stdin of second process
-	  if $iScanFile then
-
-		 ;ConsoleWrite($sFullPath & @CRLF)
-		 if $iIsDirectory Then
-			StdinWrite($iPID,$sFullPath & "\" & @CRLF)
-			if @error then Exit
-		 Else
-			StdinWrite($iPID,$sFullPath & @CRLF)
-			if @error then Exit
-		 EndIf
-	  EndIf
-#ce
+	  ; Close the search handle.
+	  FileClose($hSearch)
    WEnd
-
-   ; Close the search handle.
-   FileClose($hSearch)
 
 EndFunc
 
