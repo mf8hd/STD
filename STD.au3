@@ -169,6 +169,10 @@ Changelog
 			"/delete test.ini junk" keeps all scans of today and one valid scan for every day, week, month in the last year.
 4.1.0.1		GetScannamesFromDB(): Remove debug code. Decrement $aScans[0] if scan is deleted from $aScans[]
 4.1.1.0		TreeClimberSecondProcess(): Experiment: Is FileFindFirstFile() for every fileextension in ruleset faster than .* ?
+4.1.2.0		BufferedInsertIntoFiledataTable() for ms sql
+			TreeClimberSecondProcess(): early check for relevant file extentions.
+			Revert changes from 4.1.1.0 because it is to expensive to find directories :-(
+
 
 #ce
 
@@ -225,6 +229,7 @@ ToDo:
 	  done - option for /delete to thin out DB and leaf only one scan per year, month, week, day. Like backups.
 	  done - GetScannamesFromDB(): implement the new SPECIAL_SCANNAMEs for sqlite
 	  doen - Update readme and help with new SPECIAL_SCANNAME and new option for /list
+	  - BufferedInsertIntoFiledataTable() for sqlite ?
 #ce
 
 
@@ -271,8 +276,8 @@ End
 #pragma compile(UPX, False)
 
 ;Set file infos
-#pragma compile(ProductVersion,"4.1.1.0")
-#pragma compile(FileVersion,"4.1.1.0")
+#pragma compile(ProductVersion,"4.1.2.0")
+#pragma compile(FileVersion,"4.1.2.0")
 ;Versioning: "Incompatible changes to DB"."new feature"."bug fix"."minor fix"
 
 #pragma compile(FileDescription,"Spot The Difference")
@@ -303,15 +308,17 @@ End
 ;Constants
 global const $gcVersion = FileGetVersion(@ScriptName,"ProductVersion")
 global const $gcScannameLimit = 65535				;max number of scannames resturnd from the DB
+
 ;Debug
 global const $gcDEBUG = False						;master switch for debug output
 
-global $gcDEBUGOnlyShowScanBuffer = False		;show only "searching" and buffersize during scan !
-global $gcDEBUGShowVisitedDirectories = False	;show visited directories during scan !
-global $gcDEBUGDoNotStartSecondProcess = False	;run only the list process and do not start the scan process
-global $gcDEBUGRunWithoutCompilation = False	;force the program to run, without beeing compiled
-global $gcDEBUGShowEmptyScanBuffer = False		;show "*** searching ***" if the scan process is waiting for the list process
-global $gcDEBUGShowMSSQLDeleteSQLCode = False	;show SQL statement for MSSQL version of /delete
+global $gcDEBUGOnlyShowScanBuffer = False			;show only "searching" and buffersize during scan !
+global $gcDEBUGShowVisitedDirectories = False		;show visited directories during scan !
+global $gcDEBUGDoNotStartSecondProcess = False		;run only the list process and do not start the scan process
+global $gcDEBUGRunWithoutCompilation = False		;force the program to run, without beeing compiled
+global $gcDEBUGShowEmptyScanBuffer = False			;show "*** searching ***" if the scan process is waiting for the list process
+global $gcDEBUGShowMSSQLDeleteSQLCode = False		;show SQL statement for MSSQL version of /delete
+global $gcDEBUGShowMSSQLInsertBufferFlushes = False	;show when BufferedInsertIntoFiledataTable() flushes the buffer
 
 
 ;Profiler
@@ -334,6 +341,7 @@ if $gcDEBUG = False Then
    $gcDEBUGRunWithoutCompilation = False
    $gcDEBUGShowEmptyScanBuffer = False
    $gcDEBUGShowMSSQLDeleteSQLCode = False
+   $gcDEBUGShowMSSQLInsertBufferFlushes = False
 
    $gcDEBUGTimeGetFileInfo = False
    $gcDEBUGTimeGetRuleFromRuleSet = False
@@ -1948,7 +1956,8 @@ Func DoSecondProcess()
 			if not $gcDEBUGOnlyShowScanBuffer then ConsoleWrite($sTempText & @CRLF)
 
 			if $gbMSSQL then
-			   _SQL_Execute(-1,"INSERT INTO [filedata] ([scanid],[ruleid],[filenameid],[status],[size],[attributes],[mtime],[ctime],[atime],[version],[crc32],[md5],[ptime],[rattrib],[aattrib],[sattrib],[hattrib],[nattrib],[dattrib],[oattrib],[cattrib],[tattrib])  values ('" & $giScanId & "','" & GetRuleIdFromRuleSet($iRuleCounter) & "','" & GetFilenameIDFromDB(_StringToHex($gaFileInfo[0]),_StringToHex($gaFileInfo[8])) & "','" & $gaFileInfo[1] & "','" & $gaFileInfo[2] & "','" & $gaFileInfo[3] & "','" & $gaFileInfo[4] & "','" & $gaFileInfo[5] & "','" & $gaFileInfo[6] & "','" & $gaFileInfo[7] & "','" & $gaFileInfo[9] & "','" & $gaFileInfo[10] & "','" & $gaFileInfo[11] & "','" & $gaFileInfo[13] & "','" & $gaFileInfo[14] & "','" & $gaFileInfo[15] & "','" & $gaFileInfo[16] & "','" & $gaFileInfo[17] & "','" & $gaFileInfo[18] & "','" & $gaFileInfo[19] & "','" & $gaFileInfo[20] & "','" & $gaFileInfo[21] & "');")
+			   BufferedInsertIntoFiledataTable("('" & $giScanId & "','" & GetRuleIdFromRuleSet($iRuleCounter) & "','" & GetFilenameIDFromDB(_StringToHex($gaFileInfo[0]),_StringToHex($gaFileInfo[8])) & "','" & $gaFileInfo[1] & "','" & $gaFileInfo[2] & "','" & $gaFileInfo[3] & "','" & $gaFileInfo[4] & "','" & $gaFileInfo[5] & "','" & $gaFileInfo[6] & "','" & $gaFileInfo[7] & "','" & $gaFileInfo[9] & "','" & $gaFileInfo[10] & "','" & $gaFileInfo[11] & "','" & $gaFileInfo[13] & "','" & $gaFileInfo[14] & "','" & $gaFileInfo[15] & "','" & $gaFileInfo[16] & "','" & $gaFileInfo[17] & "','" & $gaFileInfo[18] & "','" & $gaFileInfo[19] & "','" & $gaFileInfo[20] & "','" & $gaFileInfo[21] & "')")
+			   ;_SQL_Execute(-1,"INSERT INTO [filedata] ([scanid],[ruleid],[filenameid],[status],[size],[attributes],[mtime],[ctime],[atime],[version],[crc32],[md5],[ptime],[rattrib],[aattrib],[sattrib],[hattrib],[nattrib],[dattrib],[oattrib],[cattrib],[tattrib])  values ('" & $giScanId & "','" & GetRuleIdFromRuleSet($iRuleCounter) & "','" & GetFilenameIDFromDB(_StringToHex($gaFileInfo[0]),_StringToHex($gaFileInfo[8])) & "','" & $gaFileInfo[1] & "','" & $gaFileInfo[2] & "','" & $gaFileInfo[3] & "','" & $gaFileInfo[4] & "','" & $gaFileInfo[5] & "','" & $gaFileInfo[6] & "','" & $gaFileInfo[7] & "','" & $gaFileInfo[9] & "','" & $gaFileInfo[10] & "','" & $gaFileInfo[11] & "','" & $gaFileInfo[13] & "','" & $gaFileInfo[14] & "','" & $gaFileInfo[15] & "','" & $gaFileInfo[16] & "','" & $gaFileInfo[17] & "','" & $gaFileInfo[18] & "','" & $gaFileInfo[19] & "','" & $gaFileInfo[20] & "','" & $gaFileInfo[21] & "');")
 			Else
 			   _SQLite_Exec(-1,"INSERT INTO filedata (scanid,ruleid,filenameid,status,size,attributes,mtime,ctime,atime,version,crc32,md5,ptime,rattrib,aattrib,sattrib,hattrib,nattrib,dattrib,oattrib,cattrib,tattrib)  values ('" & $giScanId & "', '" & GetRuleIdFromRuleSet($iRuleCounter) & "', '" & GetFilenameIDFromDB(_StringToHex($gaFileInfo[0]),_StringToHex($gaFileInfo[8])) & "','" & $gaFileInfo[1] & "','" & $gaFileInfo[2] & "','" & $gaFileInfo[3] & "','" & $gaFileInfo[4] & "','" & $gaFileInfo[5] & "','" & $gaFileInfo[6] & "','" & $gaFileInfo[7] & "','" & $gaFileInfo[9] & "','" & $gaFileInfo[10] & "','" & $gaFileInfo[11] & "','" & $gaFileInfo[13] & "','" & $gaFileInfo[14] & "','" & $gaFileInfo[15] & "','" & $gaFileInfo[16] & "','" & $gaFileInfo[17] & "','" & $gaFileInfo[18] & "','" & $gaFileInfo[19] & "','" & $gaFileInfo[20] & "','" & $gaFileInfo[21] & "');")
 			EndIf
@@ -1961,6 +1970,9 @@ Func DoSecondProcess()
 		 $iIdleCounter += 1
 	  EndIf
    WEnd
+
+   ;flush the buffer
+   if $gbMSSQL then BufferedInsertIntoFiledataTable("")
 
    ConsoleWrite("Scan:  " & Round((TimerDiff($ScanTimer) - $iIdleCounter*1000)/1000) & "s" & @CRLF)
    ConsoleWrite("Total: " & Round(TimerDiff($ScanTimer)/1000) & "s" & @CRLF)
@@ -2386,6 +2398,62 @@ EndFunc
 
 ;----- get stuff from DB functions -----
 
+Func BufferedInsertIntoFiledataTable($sSQLValues = "")
+   ;Buffer for sql data inserts into filedata
+   ;if $sSQLValues = "" then the buffer will be commited to the database
+   ;$sSQLValues is one line in round brackets like:
+   ;"(SCANID,RULEID,FILENAMEID,STATUS,SIZE,ATTRIBUTES,MTIME,CTIME,ATIME,VERSION,CRC32,MD5,PTIME,RATTRIB,AATTRIB,SATTRIB,HATTRIB,NATTRIB,DATTRIB,OATTRIB,CATTRIB,TATTRIB)"
+   ;---------------------------------------
+
+#cs
+   _SQL_Execute(-1,"INSERT INTO [filedata] ([scanid],[ruleid],[filenameid],[status],[size],[attributes],[mtime],[ctime],[atime],[version],[crc32],[md5],[ptime],[rattrib],[aattrib],[sattrib],[hattrib],[nattrib],[dattrib],[oattrib],[cattrib],[tattrib])  values ('" & $giScanId & "','" & GetRuleIdFromRuleSet($iRuleCounter) & "','" & GetFilenameIDFromDB(_StringToHex($gaFileInfo[0]),_StringToHex($gaFileInfo[8])) & "','" & $gaFileInfo[1] & "','" & $gaFileInfo[2] & "','" & $gaFileInfo[3] & "','" & $gaFileInfo[4] & "','" & $gaFileInfo[5] & "','" & $gaFileInfo[6] & "','" & $gaFileInfo[7] & "','" & $gaFileInfo[9] & "','" & $gaFileInfo[10] & "','" & $gaFileInfo[11] & "','" & $gaFileInfo[13] & "','" & $gaFileInfo[14] & "','" & $gaFileInfo[15] & "','" & $gaFileInfo[16] & "','" & $gaFileInfo[17] & "','" & $gaFileInfo[18] & "','" & $gaFileInfo[19] & "','" & $gaFileInfo[20] & "','" & $gaFileInfo[21] & "');")
+   "INSERT INTO [filedata]
+   ([scanid],[ruleid],[filenameid],[status],[size],[attributes],[mtime],[ctime],[atime],[version],[crc32],[md5],[ptime],[rattrib],[aattrib],[sattrib],[hattrib],[nattrib],[dattrib],[oattrib],[cattrib],[tattrib])
+   values
+   ('" & $giScanId & "','" & GetRuleIdFromRuleSet($iRuleCounter) & "','" & GetFilenameIDFromDB(_StringToHex($gaFileInfo[0]),_StringToHex($gaFileInfo[8])) & "','" & $gaFileInfo[1] & "','" & $gaFileInfo[2] & "','" & $gaFileInfo[3] & "','" & $gaFileInfo[4] & "','" & $gaFileInfo[5] & "','" & $gaFileInfo[6] & "','" & $gaFileInfo[7] & "','" & $gaFileInfo[9] & "','" & $gaFileInfo[10] & "','" & $gaFileInfo[11] & "','" & $gaFileInfo[13] & "','" & $gaFileInfo[14] & "','" & $gaFileInfo[15] & "','" & $gaFileInfo[16] & "','" & $gaFileInfo[17] & "','" & $gaFileInfo[18] & "','" & $gaFileInfo[19] & "','" & $gaFileInfo[20] & "','" & $gaFileInfo[21] & "')
+   ;"
+#ce
+
+   if $gbMSSQL then
+	  Static local $lssInsertBuffer = ""
+	  Local Const  $lcsInsertBufferDefault = "INSERT INTO [filedata] ([scanid],[ruleid],[filenameid],[status],[size],[attributes],[mtime],[ctime],[atime],[version],[crc32],[md5],[ptime],[rattrib],[aattrib],[sattrib],[hattrib],[nattrib],[dattrib],[oattrib],[cattrib],[tattrib])  values "
+	  ;Static local $lsiHasValues = False
+	  ;Local Const  $lciBufferThreshold = 2*1024*1024
+	  ;Local Const  $lciBufferThreshold = 10*1024
+	  Static Local $lsiBufferValueLines = 0
+	  Local Const  $lciBufferValueLinesMax = 500	;MS SQL Server 2014 Express has a limit of 1000 value lines
+
+
+	  Select
+		 Case $sSQLValues = "" and $lsiBufferValueLines > 0
+			;force buffer flush to database
+			if $gcDEBUGShowMSSQLInsertBufferFlushes then ConsoleWrite("Insert Buffer: forced flush" & @CRLF)
+			_SQL_Execute(-1,$lssInsertBuffer & ";")
+			$lssInsertBuffer = $lcsInsertBufferDefault
+			;$lsiHasValues = False
+			$lsiBufferValueLines = 0
+		 ;case StringLen($lssInsertBuffer) > $lciBufferThreshold and $lsiHasValues
+		 case $lsiBufferValueLines >= $lciBufferValueLinesMax and $lsiBufferValueLines > 0
+			;high level watermark has been reached, so let´s flush the buffer to database
+			if $gcDEBUGShowMSSQLInsertBufferFlushes then ConsoleWrite("Insert Buffer: flush" & @CRLF)
+			;ConsoleWrite($lssInsertBuffer & "," & $sSQLValues & ";" & @CRLF)
+			_SQL_Execute(-1,$lssInsertBuffer & "," & $sSQLValues & ";")
+			$lssInsertBuffer = $lcsInsertBufferDefault
+			;$lsiHasValues = False
+			$lsiBufferValueLines = 0
+		 case $lsiBufferValueLines > 0
+			$lssInsertBuffer = $lssInsertBuffer & "," & $sSQLValues
+			;$lsiHasValues = True
+			$lsiBufferValueLines = $lsiBufferValueLines + 1
+		 case Else
+			$lssInsertBuffer = $lcsInsertBufferDefault & $sSQLValues
+			;$lsiHasValues = True
+			$lsiBufferValueLines = $lsiBufferValueLines + 1
+			;ConsoleWrite("Insert Buffer: " & Stringlen($lssInsertBuffer) & @CRLF)
+	  EndSelect
+
+   EndIf
+EndFunc
 
 Func GetNewRuleIDFromDB($sRulename)
 
@@ -3833,8 +3901,7 @@ Func TreeClimberSecondProcess($sStartPath,$iPID,$aRelevantRules)
    Local $sFileName = ""
 
    local $sAllFileExtensionToSearchFor = ""
-   local $sCurrentFileExtensionToSearchFor = ""
-   local $iDoExtraSearchForDirs = True
+   local $iFindAllExtensions = False
 
    ;abort if $sStartPath is not valid (does not exist)
    if not FileExists($sStartPath) Then Return False
@@ -3862,7 +3929,7 @@ Func TreeClimberSecondProcess($sStartPath,$iPID,$aRelevantRules)
 	  ;if only one rule has to search for executables, all files must get scanned
 	  if $gaRuleData[$iRuleCounter][$gcIncExe] or $gaRuleData[$iRuleCounter][$gcExcExe] then
 		 $sAllFileExtensionToSearchFor = ".*."
-		 $iDoExtraSearchForDirs = False
+		 $iFindAllExtensions = True
 		 ExitLoop
 	  Else
 		 $sAllFileExtensionToSearchFor = $sAllFileExtensionToSearchFor & $gaRuleData[$iRuleCounter][$gcIncExt]
@@ -3871,125 +3938,94 @@ Func TreeClimberSecondProcess($sStartPath,$iPID,$aRelevantRules)
    $sAllFileExtensionToSearchFor = StringReplace(StringLower($sAllFileExtensionToSearchFor),"..",".")
 
 
-
-   while $sAllFileExtensionToSearchFor <> "."
-	  if $iDoExtraSearchForDirs Then
-		 $sCurrentFileExtensionToSearchFor = ".*"
-	  Else
-		 $sCurrentFileExtensionToSearchFor = ""
-		 $sCurrentFileExtensionToSearchFor = StringLeft($sAllFileExtensionToSearchFor,StringInStr($sAllFileExtensionToSearchFor,".",1,2)-1)
-		 $sAllFileExtensionToSearchFor = StringReplace($sAllFileExtensionToSearchFor,$sCurrentFileExtensionToSearchFor,"")
-	  EndIf
-   #cs
-	  ConsoleWrite($iDoExtraSearchForDirs & @CRLF)
-	  ConsoleWrite($sCurrentFileExtensionToSearchFor & @CRLF)
-	  ConsoleWrite($sAllFileExtensionToSearchFor & @CRLF)
-   #ce
-
-	  ; Assign a Local variable the search handle of all files in the current directory.
-	  ;$hSearch = FileFindFirstFile($sStartPath & "\*.*")
-	  $hSearch = FileFindFirstFile($sStartPath & "\*" & $sCurrentFileExtensionToSearchFor)
+   ; Assign a Local variable the search handle of all files in the current directory.
+   $hSearch = FileFindFirstFile($sStartPath & "\*.*")
 
 
-	  ; Check if the search was successful, if not display a message and return False.
-	  If $hSearch = -1 Then
-		 ;MsgBox($MB_SYSTEMMODAL, "", "Error: No files/directories matched the search pattern.")
-		 ;Return False
-		 if $iDoExtraSearchForDirs Then $iDoExtraSearchForDirs = False
-		 ContinueLoop
-	  EndIf
+   ; Check if the search was successful, if not display a message and return False.
+   If $hSearch = -1 Then
+	  ;MsgBox($MB_SYSTEMMODAL, "", "Error: No files/directories matched the search pattern.")
+	  Return False
+	  ;ContinueLoop
+   EndIf
 
 
-	  ; Assign a Local variable the empty string which will contain the files names found.
-	  $sFileName = ""
+   ; Assign a Local variable the empty string which will contain the files names found.
+   $sFileName = ""
 
-	  While 1
-		 $iScanFile = False
-		 $iIsDirectory = False
+   While 1
+	  $iScanFile = False
+	  $iIsDirectory = False
 
-		 $sFileName = FileFindNextFile($hSearch)
-		 ; If there is no more file matching the search.
-		 If @error Then ExitLoop
-		 if @extended then $iIsDirectory = True
+	  $sFileName = FileFindNextFile($hSearch)
+	  ; If there is no more file matching the search.
+	  If @error Then ExitLoop
+	  if @extended then $iIsDirectory = True
 
-		 ;Searching for directories but this is none
-		 if $iDoExtraSearchForDirs and not $iIsDirectory Then ContinueLoop
+	  ;has this directory entry a relevant file extension or is it a directory ?
+	  ;consolewrite(StringRight($sFileName,StringLen($sFileName)-StringInStr($sFileName,".",1,-1)) & @CRLF)
+	  if not $iIsDirectory and not $iFindAllExtensions and StringInStr($sAllFileExtensionToSearchFor,"." & StringRight($sFileName,StringLen($sFileName)-StringInStr($sFileName,".",0,-1)) & ".") = 0 then ContinueLoop
 
-		 $sFullPath = $sStartPath & "\" & $sFileName
+
+	  $sFullPath = $sStartPath & "\" & $sFileName
 
 
-		 ;climb the directory tree downward if needed
-		 if $iIsDirectory Then
-			$iIsClimbTarget = False
-			; check all the rules on this directory
-			for $iRuleCounter = 1 to $iRuleCounterMax
-			   ;ConsoleWrite("TreeClimber: " & $sFullPath & "\" & " : " & $iIsClimbTarget & @CRLF)
-			   if IsClimbTargetByRule($sFullPath & "\",$iRuleCounter) then
-				  $aRelevantRulesForClimbTarget[$iRuleCounter] = True
-				  $iIsClimbTarget = True
-			   else
-				  $aRelevantRulesForClimbTarget[$iRuleCounter] = False
-			   EndIf
-			Next
-
-			if $iIsClimbTarget Then
-			   if $gcDEBUGShowVisitedDirectories = True then ConsoleWrite("** visited **" & $sFullPath & @CRLF)
-
-			   ;count number of "\" in current path
-			   StringReplace($sFullPath,"\","")
-			   $giCurrentDirBackslashCount = @extended
-			   TreeClimberSecondProcess($sFullPath,$iPID,$aRelevantRulesForClimbTarget)
-			EndIf
-		 EndIf
-
-		 ; check all the rules on this file / directory
+	  ;climb the directory tree downward if needed
+	  if $iIsDirectory Then
+		 $iIsClimbTarget = False
+		 ; check all the rules on this directory
 		 for $iRuleCounter = 1 to $iRuleCounterMax
-
-			;check only relevant rules for this directory
-			if $aRelevantRules[$iRuleCounter] = False then ContinueLoop
-
-			;check if current directory entry should be scanned according to the current rule
-			if $iIsDirectory Then
-			   ;it is a directory
-			   if IsIncludedByRule($sFullPath & "\",$iRuleCounter,False) then
-				  ;$iScanFile = True
-				  ;ExitLoop
-				  StdinWrite($iPID,StringFormat("%5i%s",$iRuleCounter,$sFullPath & "\") & @CRLF)
-				  if @error then Exit
-			   EndIf
-			Else
-			   ;it is a file
-			   if IsIncludedByRule($sFullPath,$iRuleCounter,False) then
-				  ;$iScanFile = True
-				  ;ExitLoop
-				  StdinWrite($iPID,StringFormat("%5i%s",$iRuleCounter,$sFullPath) & @CRLF)
-				  if @error then Exit
-			   EndIf
+			;ConsoleWrite("TreeClimber: " & $sFullPath & "\" & " : " & $iIsClimbTarget & @CRLF)
+			if IsClimbTargetByRule($sFullPath & "\",$iRuleCounter) then
+			   $aRelevantRulesForClimbTarget[$iRuleCounter] = True
+			   $iIsClimbTarget = True
+			else
+			   $aRelevantRulesForClimbTarget[$iRuleCounter] = False
 			EndIf
 		 Next
 
+		 if $iIsClimbTarget Then
+			if $gcDEBUGShowVisitedDirectories = True then ConsoleWrite("** visited **" & $sFullPath & @CRLF)
 
-   #cs
-		 ;write $sFullPath to stdin of second process
-		 if $iScanFile then
+			;count number of "\" in current path
+			StringReplace($sFullPath,"\","")
+			$giCurrentDirBackslashCount = @extended
+			TreeClimberSecondProcess($sFullPath,$iPID,$aRelevantRulesForClimbTarget)
+		 EndIf
+	  EndIf
 
-			;ConsoleWrite($sFullPath & @CRLF)
-			if $iIsDirectory Then
-			   StdinWrite($iPID,$sFullPath & "\" & @CRLF)
+	  ; check all the rules on this file / directory
+	  for $iRuleCounter = 1 to $iRuleCounterMax
+
+		 ;check only relevant rules for this directory
+		 if $aRelevantRules[$iRuleCounter] = False then ContinueLoop
+
+		 ;check if current directory entry should be scanned according to the current rule
+		 if $iIsDirectory Then
+			;it is a directory
+			if IsIncludedByRule($sFullPath & "\",$iRuleCounter,False) then
+			   ;$iScanFile = True
+			   ;ExitLoop
+			   StdinWrite($iPID,StringFormat("%5i%s",$iRuleCounter,$sFullPath & "\") & @CRLF)
 			   if @error then Exit
-			Else
-			   StdinWrite($iPID,$sFullPath & @CRLF)
+			EndIf
+		 Else
+			;it is a file
+			if IsIncludedByRule($sFullPath,$iRuleCounter,False) then
+			   ;$iScanFile = True
+			   ;ExitLoop
+			   StdinWrite($iPID,StringFormat("%5i%s",$iRuleCounter,$sFullPath) & @CRLF)
 			   if @error then Exit
 			EndIf
 		 EndIf
-   #ce
-	  WEnd
+	  Next
 
-	  if $iDoExtraSearchForDirs Then $iDoExtraSearchForDirs = False
 
-	  ; Close the search handle.
-	  FileClose($hSearch)
    WEnd
+
+   ; Close the search handle.
+   FileClose($hSearch)
+
 
 EndFunc
 
