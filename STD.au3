@@ -172,6 +172,8 @@ Changelog
 4.1.2.0		BufferedInsertIntoFiledataTable() for ms sql
 			TreeClimberSecondProcess(): early check for relevant file extentions.
 			Revert changes from 4.1.1.0 because it is to expensive to find directories :-(
+4.1.3.0		Profiling options for BufferedInsertIntoFiledataTable() and GetFilenameIDFromDB()
+			OpenDBMSSQL(): primary key for table [filenames]
 
 
 #ce
@@ -276,8 +278,8 @@ End
 #pragma compile(UPX, False)
 
 ;Set file infos
-#pragma compile(ProductVersion,"4.1.2.0")
-#pragma compile(FileVersion,"4.1.2.0")
+#pragma compile(ProductVersion,"4.1.3.0")
+#pragma compile(FileVersion,"4.1.3.0")
 ;Versioning: "Incompatible changes to DB"."new feature"."bug fix"."minor fix"
 
 #pragma compile(FileDescription,"Spot The Difference")
@@ -312,13 +314,13 @@ global const $gcScannameLimit = 65535				;max number of scannames resturnd from 
 ;Debug
 global const $gcDEBUG = False						;master switch for debug output
 
-global $gcDEBUGOnlyShowScanBuffer = False			;show only "searching" and buffersize during scan !
+global $gcDEBUGOnlyShowScanBuffer = True			;show only "searching" and buffersize during scan !
 global $gcDEBUGShowVisitedDirectories = False		;show visited directories during scan !
 global $gcDEBUGDoNotStartSecondProcess = False		;run only the list process and do not start the scan process
 global $gcDEBUGRunWithoutCompilation = False		;force the program to run, without beeing compiled
-global $gcDEBUGShowEmptyScanBuffer = False			;show "*** searching ***" if the scan process is waiting for the list process
+global $gcDEBUGShowEmptyScanBuffer = True			;show "*** searching ***" if the scan process is waiting for the list process
 global $gcDEBUGShowMSSQLDeleteSQLCode = False		;show SQL statement for MSSQL version of /delete
-global $gcDEBUGShowMSSQLInsertBufferFlushes = False	;show when BufferedInsertIntoFiledataTable() flushes the buffer
+global $gcDEBUGShowMSSQLInsertBufferFlushes = True	;show when BufferedInsertIntoFiledataTable() flushes the buffer
 
 
 ;Profiler
@@ -327,12 +329,17 @@ global $gcDEBUGTimeGetRuleFromRuleSet = True
 global $gcDEBUGTimeIsExecutable = True
 global $gcDEBUGTimeIsIncludedByRule = True
 global $gcDEBUGTimeIsClimbTargetByRule = True
+global $gcDEBUGTimeBufferedInsertIntoFiledataTable = True
+global $gcDEBUGTimeGetFilenameIDFromDB = True
 
 global $giDEBUGTimerGetFileInfo = 0
 global $giDEBUGTimerGetRuleFromRuleSet = 0
 global $giDEBUGTimerIsExecutable = 0
 global $giDEBUGTimerIsIncludedByRule = 0
 global $giDEBUGTimerIsClimbTargetByRule = 0
+global $giDEBUGTimerBufferedInsertIntoFiledataTable = 0
+global $giDEBUGTimerGetFilenameIDFromDB = 0
+
 
 if $gcDEBUG = False Then
    $gcDEBUGOnlyShowScanBuffer = False
@@ -348,6 +355,9 @@ if $gcDEBUG = False Then
    $gcDEBUGTimeIsExecutable = False
    $gcDEBUGTimeIsIncludedByRule = False
    $gcDEBUGTimeIsClimbTargetByRule = False
+   $gcDEBUGTimeBufferedInsertIntoFiledataTable = False
+   $gcDEBUGTimeGetFilenameIDFromDB = False
+
 EndIf
 
 
@@ -1966,6 +1976,8 @@ Func DoSecondProcess()
 	  Else
 		 ;no data in stdin, so let´s wait a bid
 		 if $gcDEBUGOnlyShowScanBuffer or $gcDEBUGShowEmptyScanBuffer then ConsoleWrite("** searching **" & @CRLF)
+		 ;flush InsertBuffer if possible
+		 if $gbMSSQL then BufferedInsertIntoFiledataTable("")
 		 sleep(1000)
 		 $iIdleCounter += 1
 	  EndIf
@@ -1977,14 +1989,13 @@ Func DoSecondProcess()
    ConsoleWrite("Scan:  " & Round((TimerDiff($ScanTimer) - $iIdleCounter*1000)/1000) & "s" & @CRLF)
    ConsoleWrite("Total: " & Round(TimerDiff($ScanTimer)/1000) & "s" & @CRLF)
 
-   if $gcDEBUGTimeGetFileInfo = True 			then ConsoleWrite("Scan-GetFileInfo:         " & Round($giDEBUGTimerGetFileInfo) & @CRLF)
-   if $gcDEBUGTimeGetRuleFromRuleSet = True 	then ConsoleWrite("Scan-GetRuleFromRuleSet:  " & Round($giDEBUGTimerGetRuleFromRuleSet) & @CRLF)
-   if $gcDEBUGTimeIsExecutable = True 			then ConsoleWrite("Scan-IsExecutable:        " & Round($giDEBUGTimerIsExecutable) & @CRLF)
-   if $gcDEBUGTimeIsIncludedByRule = True 		then ConsoleWrite("Scan-IsIncludedByRule:    " & Round($giDEBUGTimerIsIncludedByRule) & @CRLF)
-   if $gcDEBUGTimeIsClimbTargetByRule = True 	then ConsoleWrite("Scan-IsClimbTargetByRule: " & Round($giDEBUGTimerIsClimbTargetByRule) & @CRLF)
-
-
-
+   if $gcDEBUGTimeGetFileInfo = True 						then ConsoleWrite("Scan-GetFileInfo:                     " & Round($giDEBUGTimerGetFileInfo) & @CRLF)
+   if $gcDEBUGTimeGetRuleFromRuleSet = True 				then ConsoleWrite("Scan-GetRuleFromRuleSet:              " & Round($giDEBUGTimerGetRuleFromRuleSet) & @CRLF)
+   if $gcDEBUGTimeIsExecutable = True 						then ConsoleWrite("Scan-IsExecutable:                    " & Round($giDEBUGTimerIsExecutable) & @CRLF)
+   if $gcDEBUGTimeIsIncludedByRule = True 					then ConsoleWrite("Scan-IsIncludedByRule:                " & Round($giDEBUGTimerIsIncludedByRule) & @CRLF)
+   if $gcDEBUGTimeIsClimbTargetByRule = True 				then ConsoleWrite("Scan-IsClimbTargetByRule:             " & Round($giDEBUGTimerIsClimbTargetByRule) & @CRLF)
+   if $gcDEBUGTimeBufferedInsertIntoFiledataTable = True 	then ConsoleWrite("Scan-BufferedInsertIntoFiledataTable: " & Round($giDEBUGTimerBufferedInsertIntoFiledataTable) & @CRLF)
+   if $gcDEBUGTimeGetFilenameIDFromDB = True 				then ConsoleWrite("Scan-GetFilenameIDFromDB:             " & Round($giDEBUGTimerGetFilenameIDFromDB) & @CRLF)
 
 EndFunc
 
@@ -2413,6 +2424,8 @@ Func BufferedInsertIntoFiledataTable($sSQLValues = "")
    ('" & $giScanId & "','" & GetRuleIdFromRuleSet($iRuleCounter) & "','" & GetFilenameIDFromDB(_StringToHex($gaFileInfo[0]),_StringToHex($gaFileInfo[8])) & "','" & $gaFileInfo[1] & "','" & $gaFileInfo[2] & "','" & $gaFileInfo[3] & "','" & $gaFileInfo[4] & "','" & $gaFileInfo[5] & "','" & $gaFileInfo[6] & "','" & $gaFileInfo[7] & "','" & $gaFileInfo[9] & "','" & $gaFileInfo[10] & "','" & $gaFileInfo[11] & "','" & $gaFileInfo[13] & "','" & $gaFileInfo[14] & "','" & $gaFileInfo[15] & "','" & $gaFileInfo[16] & "','" & $gaFileInfo[17] & "','" & $gaFileInfo[18] & "','" & $gaFileInfo[19] & "','" & $gaFileInfo[20] & "','" & $gaFileInfo[21] & "')
    ;"
 #ce
+   if $gcDEBUGTimeBufferedInsertIntoFiledataTable = True then local $iTimer = TimerInit()
+
 
    if $gbMSSQL then
 	  Static local $lssInsertBuffer = ""
@@ -2421,21 +2434,23 @@ Func BufferedInsertIntoFiledataTable($sSQLValues = "")
 	  ;Local Const  $lciBufferThreshold = 2*1024*1024
 	  ;Local Const  $lciBufferThreshold = 10*1024
 	  Static Local $lsiBufferValueLines = 0
-	  Local Const  $lciBufferValueLinesMax = 500	;MS SQL Server 2014 Express has a limit of 1000 value lines
+	  Local Const  $lciBufferValueLinesMax = 900	;MS SQL Server 2014 Express has a limit of 1000 value lines
 
 
 	  Select
 		 Case $sSQLValues = "" and $lsiBufferValueLines > 0
 			;force buffer flush to database
-			if $gcDEBUGShowMSSQLInsertBufferFlushes then ConsoleWrite("Insert Buffer: forced flush" & @CRLF)
+			if $gcDEBUGShowMSSQLInsertBufferFlushes then ConsoleWrite("Insert Buffer: forced flush - " & $lsiBufferValueLines & " lines " & @CRLF)
 			_SQL_Execute(-1,$lssInsertBuffer & ";")
 			$lssInsertBuffer = $lcsInsertBufferDefault
 			;$lsiHasValues = False
 			$lsiBufferValueLines = 0
 		 ;case StringLen($lssInsertBuffer) > $lciBufferThreshold and $lsiHasValues
+		 Case $sSQLValues = "" and $lsiBufferValueLines = 0
+			;there is nothing to flush
 		 case $lsiBufferValueLines >= $lciBufferValueLinesMax and $lsiBufferValueLines > 0
 			;high level watermark has been reached, so let´s flush the buffer to database
-			if $gcDEBUGShowMSSQLInsertBufferFlushes then ConsoleWrite("Insert Buffer: flush" & @CRLF)
+			if $gcDEBUGShowMSSQLInsertBufferFlushes then ConsoleWrite("Insert Buffer: flush - " & $lsiBufferValueLines & " lines " & @CRLF)
 			;ConsoleWrite($lssInsertBuffer & "," & $sSQLValues & ";" & @CRLF)
 			_SQL_Execute(-1,$lssInsertBuffer & "," & $sSQLValues & ";")
 			$lssInsertBuffer = $lcsInsertBufferDefault
@@ -2453,7 +2468,9 @@ Func BufferedInsertIntoFiledataTable($sSQLValues = "")
 	  EndSelect
 
    EndIf
+   if $gcDEBUGTimeBufferedInsertIntoFiledataTable = True then $giDEBUGTimerBufferedInsertIntoFiledataTable += TimerDiff($iTimer)
 EndFunc
+
 
 Func GetNewRuleIDFromDB($sRulename)
 
@@ -2737,16 +2754,20 @@ Func GetFilenameIDFromDB($sPath,$sSPath)
    ;------------------------------------------------
 
    local $aRow = 0	;Returned data row
+   if $gcDEBUGTimeGetFilenameIDFromDB = True then local $iTimer = TimerInit()
+
 
    if $gbMSSQL then
 	  if _SQL_QuerySingleRow(-1,"SELECT filenameid FROM filenames where path='" & $sPath & "' and spath='" & $sSPath & "'",$aRow) = $SQL_OK and $aRow[0]<>"" Then
 		 ;get filenameid
+		 if $gcDEBUGTimeGetFilenameIDFromDB = True then $giDEBUGTimerGetFilenameIDFromDB += TimerDiff($iTimer)
 		 return $aRow[0]
 	  Else
 		 ;filename does not exist in DB so create it
 		 _SQL_Execute(-1,"INSERT INTO [filenames] ([path],[spath]) VALUES(N'" & $sPath & "',N'" & $sSPath & "')")
 		 if _SQL_QuerySingleRow(-1,"SELECT filenameid FROM filenames where path='" & $sPath & "' and spath='" & $sSPath & "'",$aRow) = $SQL_OK and $aRow[0]<>"" Then
 			;get filenameid
+			if $gcDEBUGTimeGetFilenameIDFromDB = True then $giDEBUGTimerGetFilenameIDFromDB += TimerDiff($iTimer)
 			return $aRow[0]
 		 EndIf
 
@@ -2755,17 +2776,20 @@ Func GetFilenameIDFromDB($sPath,$sSPath)
    Else
 	  if _SQLite_QuerySingleRow(-1,'SELECT filenameid FROM filenames where path="' & $sPath & '" and spath="' & $sSPath & '"',$aRow) = $SQLITE_OK Then
 		 ;get filenameid
+		 if $gcDEBUGTimeGetFilenameIDFromDB = True then $giDEBUGTimerGetFilenameIDFromDB += TimerDiff($iTimer)
 		 return $aRow[0]
 	  Else
 		 ;filename does not exist in DB so create it
 		 _SQLite_Exec(-1,'INSERT INTO filenames VALUES(NULL,"' & $sPath & '","' & $sSPath & '")')
 		 if _SQLite_QuerySingleRow(-1,'SELECT filenameid FROM filenames where path="' & $sPath & '" and spath="' & $sSPath & '"',$aRow) = $SQLITE_OK Then
 			;get filenameid
+			if $gcDEBUGTimeGetFilenameIDFromDB = True then $giDEBUGTimerGetFilenameIDFromDB += TimerDiff($iTimer)
 			return $aRow[0]
 		 EndIf
 
 	  EndIf
    EndIf
+   if $gcDEBUGTimeGetFilenameIDFromDB = True then $giDEBUGTimerGetFilenameIDFromDB += TimerDiff($iTimer)
    Return 0
 EndFunc
 
@@ -3205,7 +3229,8 @@ Func OpenDBMSSQL($sDBINIFilename)
    _SQL_Execute(-1,"IF OBJECT_ID ('config', 'Table') IS NULL CREATE TABLE [config] ([linenumber] INTEGER IDENTITY(1,1)  ,[line] VARCHAR NULL  ,CONSTRAINT [config_PRIMARY]  PRIMARY KEY  NONCLUSTERED  ([linenumber])); ")
    _SQL_Execute(-1,"IF OBJECT_ID ('scans', 'Table') IS NULL CREATE TABLE [scans] ([scanid] INTEGER IDENTITY(1,1)  ,[scantime] char(14) NULL  ,[valid] INTEGER NULL  DEFAULT 0 ,CONSTRAINT [scans_PRIMARY]  PRIMARY KEY  NONCLUSTERED  ([scanid]));")
    _SQL_Execute(-1,"IF OBJECT_ID ('rules', 'Table') IS NULL CREATE TABLE [rules] ([ruleid] INTEGER IDENTITY(1,1)  ,[rulename] varchar(255)  ,CONSTRAINT [rules_PRIMARY]  PRIMARY KEY  NONCLUSTERED  ([ruleid]));")
-   _SQL_Execute(-1,"IF OBJECT_ID ('filenames', 'Table') IS NULL CREATE TABLE [filenames] ([filenameid] INTEGER IDENTITY(1,1)  ,[path] varchar(1024) NULL  ,[spath] varchar(512) NULL  );")
+   ;_SQL_Execute(-1,"IF OBJECT_ID ('filenames', 'Table') IS NULL CREATE TABLE [filenames] ([filenameid] INTEGER IDENTITY(1,1)  ,[path] varchar(1024) NULL  ,[spath] varchar(512) NULL  );")
+   _SQL_Execute(-1,"IF OBJECT_ID ('filenames', 'Table') IS NULL CREATE TABLE [filenames] ([filenameid] INTEGER IDENTITY(1,1)  ,[path] varchar(1024) NOT NULL DEFAULT '' ,[spath] varchar(512) NOT NULL DEFAULT '' ,CONSTRAINT [filenames_PRIMARY]  PRIMARY KEY  NONCLUSTERED  ([path],[spath]) );")
    _SQL_Execute(-1,"IF OBJECT_ID ('filedata', 'Table') IS NULL CREATE TABLE [filedata] ([scanid] INTEGER NOT NULL  DEFAULT 0 ,[ruleid] INTEGER NOT NULL  DEFAULT 0 ,[filenameid] INTEGER NOT NULL  DEFAULT 0 ,[status] INTEGER NULL  DEFAULT 0 ,[size] INTEGER NULL  DEFAULT 0 ,[attributes] CHAR(1) NULL  ,[mtime] CHAR(14) NULL  ,[ctime] CHAR(14) NULL  ,[atime] CHAR(14) NULL  ,[version] VARCHAR(80) NULL  ,[crc32] varchar(35) NULL  ,[md5] varchar(35) NULL  ,[ptime] INTEGER NULL  ,[rattrib] INTEGER NULL  DEFAULT 0 ,[aattrib] INTEGER NULL  DEFAULT 0 ,[sattrib] INTEGER NULL  DEFAULT 0 ,[hattrib] INTEGER NULL  DEFAULT 0 ,[nattrib] INTEGER NULL  DEFAULT 0 ,[dattrib] INTEGER NULL  DEFAULT 0 ,[oattrib] INTEGER NULL  DEFAULT 0 ,[cattrib] INTEGER NULL  DEFAULT 0 ,[tattrib] INTEGER NULL  DEFAULT 0 ,CONSTRAINT [filedata_PRIMARY]  PRIMARY KEY  NONCLUSTERED  ([scanid],[ruleid],[filenameid]));")
 
 
