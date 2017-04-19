@@ -174,6 +174,7 @@ Changelog
 			Revert changes from 4.1.1.0 because it is to expensive to find directories :-(
 4.1.3.0		Profiling options for BufferedInsertIntoFiledataTable() and GetFilenameIDFromDB()
 			OpenDBMSSQL(): primary key for table [filenames]
+4.1.3.1		More profiling options for GetFileInfo()
 
 
 #ce
@@ -278,8 +279,8 @@ End
 #pragma compile(UPX, False)
 
 ;Set file infos
-#pragma compile(ProductVersion,"4.1.3.0")
-#pragma compile(FileVersion,"4.1.3.0")
+#pragma compile(ProductVersion,"4.1.3.1")
+#pragma compile(FileVersion,"4.1.3.1")
 ;Versioning: "Incompatible changes to DB"."new feature"."bug fix"."minor fix"
 
 #pragma compile(FileDescription,"Spot The Difference")
@@ -312,7 +313,7 @@ global const $gcVersion = FileGetVersion(@ScriptName,"ProductVersion")
 global const $gcScannameLimit = 65535				;max number of scannames resturnd from the DB
 
 ;Debug
-global const $gcDEBUG = False						;master switch for debug output
+global const $gcDEBUG = True						;master switch for debug output
 
 global $gcDEBUGOnlyShowScanBuffer = True			;show only "searching" and buffersize during scan !
 global $gcDEBUGShowVisitedDirectories = False		;show visited directories during scan !
@@ -325,6 +326,15 @@ global $gcDEBUGShowMSSQLInsertBufferFlushes = True	;show when BufferedInsertInto
 
 ;Profiler
 global $gcDEBUGTimeGetFileInfo = True
+global $gcDEBUGTimeGetFileInfo_GetFileInformationByHandle = True
+global $gcDEBUGTimeGetFileInfo_FileGetAttrib = True
+global $gcDEBUGTimeGetFileInfo_FileGetTime = True
+global $gcDEBUGTimeGetFileInfo_FileGetVersion = True
+global $gcDEBUGTimeGetFileInfo_FileGetShortName = True
+global $gcDEBUGTimeGetFileInfo_CalcHashes = True
+
+
+
 global $gcDEBUGTimeGetRuleFromRuleSet = True
 global $gcDEBUGTimeIsExecutable = True
 global $gcDEBUGTimeIsIncludedByRule = True
@@ -333,6 +343,13 @@ global $gcDEBUGTimeBufferedInsertIntoFiledataTable = True
 global $gcDEBUGTimeGetFilenameIDFromDB = True
 
 global $giDEBUGTimerGetFileInfo = 0
+global $giDEBUGTimerGetFileInfo_GetFileInformationByHandle = 0
+global $giDEBUGTimerGetFileInfo_FileGetAttrib = 0
+global $giDEBUGTimerGetFileInfo_FileGetTime = 0
+global $giDEBUGTimerGetFileInfo_FileGetVersion = 0
+global $giDEBUGTimerGetFileInfo_FileGetShortName = 0
+global $giDEBUGTimerGetFileInfo_CalcHashes = 0
+
 global $giDEBUGTimerGetRuleFromRuleSet = 0
 global $giDEBUGTimerIsExecutable = 0
 global $giDEBUGTimerIsIncludedByRule = 0
@@ -350,7 +367,16 @@ if $gcDEBUG = False Then
    $gcDEBUGShowMSSQLDeleteSQLCode = False
    $gcDEBUGShowMSSQLInsertBufferFlushes = False
 
+
    $gcDEBUGTimeGetFileInfo = False
+   $gcDEBUGTimeGetFileInfo_GetFileInformationByHandle = False
+   $gcDEBUGTimeGetFileInfo_FileGetAttrib = False
+   $gcDEBUGTimeGetFileInfo_FileGetTime = False
+   $gcDEBUGTimeGetFileInfo_FileGetVersion = False
+   $gcDEBUGTimeGetFileInfo_FileGetShortName = False
+   $gcDEBUGTimeGetFileInfo_CalcHashes = False
+
+
    $gcDEBUGTimeGetRuleFromRuleSet = False
    $gcDEBUGTimeIsExecutable = False
    $gcDEBUGTimeIsIncludedByRule = False
@@ -1989,7 +2015,16 @@ Func DoSecondProcess()
    ConsoleWrite("Scan:  " & Round((TimerDiff($ScanTimer) - $iIdleCounter*1000)/1000) & "s" & @CRLF)
    ConsoleWrite("Total: " & Round(TimerDiff($ScanTimer)/1000) & "s" & @CRLF)
 
-   if $gcDEBUGTimeGetFileInfo = True 						then ConsoleWrite("Scan-GetFileInfo:                     " & Round($giDEBUGTimerGetFileInfo) & @CRLF)
+   if $gcDEBUGTimeGetFileInfo = True 								then ConsoleWrite("Scan-GetFileInfo:                     " & Round($giDEBUGTimerGetFileInfo) & @CRLF)
+
+   if $gcDEBUGTimeGetFileInfo_GetFileInformationByHandle = True		then ConsoleWrite("Scan-GetFileInfo_GetFileInfoByHandle: " & Round($giDEBUGTimerGetFileInfo_GetFileInformationByHandle) & @CRLF)
+   if $gcDEBUGTimeGetFileInfo_FileGetAttrib = True					then ConsoleWrite("Scan-GetFileInfo_FileGetAttrib:       " & Round($giDEBUGTimerGetFileInfo_FileGetAttrib) & @CRLF)
+   if $gcDEBUGTimeGetFileInfo_FileGetTime = True					then ConsoleWrite("Scan-GetFileInfo_FileGetTime:         " & Round($giDEBUGTimerGetFileInfo_FileGetTime) & @CRLF)
+   if $gcDEBUGTimeGetFileInfo_FileGetVersion = True					then ConsoleWrite("Scan-GetFileInfo_FileGetVersion:      " & Round($giDEBUGTimerGetFileInfo_FileGetVersion) & @CRLF)
+   if $gcDEBUGTimeGetFileInfo_FileGetShortName = True				then ConsoleWrite("Scan-GetFileInfo_FileGetShortName:    " & Round($giDEBUGTimerGetFileInfo_FileGetShortName) & @CRLF)
+   if $gcDEBUGTimeGetFileInfo_CalcHashes = True						then ConsoleWrite("Scan-GetFileInfo_CalcHashes:          " & Round($giDEBUGTimerGetFileInfo_CalcHashes) & @CRLF)
+
+
    if $gcDEBUGTimeGetRuleFromRuleSet = True 				then ConsoleWrite("Scan-GetRuleFromRuleSet:              " & Round($giDEBUGTimerGetRuleFromRuleSet) & @CRLF)
    if $gcDEBUGTimeIsExecutable = True 						then ConsoleWrite("Scan-IsExecutable:                    " & Round($giDEBUGTimerIsExecutable) & @CRLF)
    if $gcDEBUGTimeIsIncludedByRule = True 					then ConsoleWrite("Scan-IsIncludedByRule:                " & Round($giDEBUGTimerIsIncludedByRule) & @CRLF)
@@ -2434,7 +2469,7 @@ Func BufferedInsertIntoFiledataTable($sSQLValues = "")
 	  ;Local Const  $lciBufferThreshold = 2*1024*1024
 	  ;Local Const  $lciBufferThreshold = 10*1024
 	  Static Local $lsiBufferValueLines = 0
-	  Local Const  $lciBufferValueLinesMax = 900	;MS SQL Server 2014 Express has a limit of 1000 value lines
+	  Local Const  $lciBufferValueLinesMax = 100	;MS SQL Server 2014 Express has a limit of 1000 value lines
 
 
 	  Select
@@ -4150,6 +4185,14 @@ Func GetFileInfo( ByRef $gaFileInfo, $sFilename, $iHashes )
    local $sDirName = ""		;Directory name without trailing "\"
    local $sTempAttribs = ""	;Buffer for directory attributes
 
+   local $iDEBUGTimerGetFileInfo_GetFileInformationByHandle = 0	;Timer
+   local $iDEBUGTimerGetFileInfo_FileGetAttrib = 0				;Timer
+   local $iDEBUGTimerGetFileInfo_FileGetTime = 0				;Timer
+   local $iDEBUGTimerGetFileInfo_FileGetVersion = 0				;Timer
+   local $iDEBUGTimerGetFileInfo_FileGetShortName = 0			;Timer
+   local $iDEBUGTimerGetFileInfo_CalcHashes = 0			;Timer
+
+
    $gaFileInfo[0]  = $sFilename	;name
    $gaFileInfo[1]  = 0			;file could not be read 1 else 0
    $gaFileInfo[2]  = 0			;size
@@ -4177,8 +4220,10 @@ Func GetFileInfo( ByRef $gaFileInfo, $sFilename, $iHashes )
    $iTimer = TimerInit()
 
    ;this does not work for directories
+   $iDEBUGTimerGetFileInfo_GetFileInformationByHandle = TimerInit()
    Local $hFile = _WinAPI_CreateFile($sFilename, 2, 2, 2)
    Local $aInfo = _WinAPI_GetFileInformationByHandle($hFile)
+   $giDEBUGTimerGetFileInfo_GetFileInformationByHandle += TimerDiff($iDEBUGTimerGetFileInfo_GetFileInformationByHandle)
    If IsArray($aInfo) Then
 
 	  ;Manage file attributes
@@ -4238,7 +4283,9 @@ Func GetFileInfo( ByRef $gaFileInfo, $sFilename, $iHashes )
 		 ;remove the trailing "\" in directories
 		 $sDirName = StringTrimRight($sFilename,1)
 
+		 $iDEBUGTimerGetFileInfo_FileGetAttrib = TimerInit()
 		 $sTempAttribs = FileGetAttrib($sDirName)
+		 $giDEBUGTimerGetFileInfo_FileGetAttrib += TimerDiff($iDEBUGTimerGetFileInfo_FileGetAttrib)
 		 if not @error Then
 			;we can read directory attributes with autoit functions
 			$gaFileInfo[1] = 0
@@ -4255,9 +4302,11 @@ Func GetFileInfo( ByRef $gaFileInfo, $sFilename, $iHashes )
 			If StringInStr($sTempAttribs,"T") > 0 Then $gaFileInfo[21] = 1
 
 			;manage timestamps
+		    $iDEBUGTimerGetFileInfo_FileGetTime = TimerInit()
 			$gaFileInfo[4]  = FileGetTime($sDirName,0,1)			;file modification timestamp
 			$gaFileInfo[5]  = FileGetTime($sDirName,1,1)			;file creation timestamp
 			$gaFileInfo[6]  = FileGetTime($sDirName,2,1)			;file accessed timestamp
+			$giDEBUGTimerGetFileInfo_FileGetTime += TimerDiff($iDEBUGTimerGetFileInfo_FileGetTime)
 		 EndIf
 	  EndIf
    EndIf
@@ -4266,6 +4315,7 @@ Func GetFileInfo( ByRef $gaFileInfo, $sFilename, $iHashes )
 
 
    ; calculate checksums
+   $iDEBUGTimerGetFileInfo_CalcHashes = TimerInit()
    if not $gaFileInfo[18] Then
 	  ;it´s not a directory it´s a file, so md5 and crc32 DO work !
 
@@ -4301,11 +4351,16 @@ Func GetFileInfo( ByRef $gaFileInfo, $sFilename, $iHashes )
 
 	  EndIf
    EndIf
+   $giDEBUGTimerGetFileInfo_CalcHashes += TimerDiff($iDEBUGTimerGetFileInfo_CalcHashes)
 
+
+   $iDEBUGTimerGetFileInfo_FileGetVersion = TimerInit()
    $gaFileInfo[7] = FileGetVersion($sFilename)
+   $giDEBUGTimerGetFileInfo_FileGetVersion += TimerDiff($iDEBUGTimerGetFileInfo_FileGetVersion)
 
+   $iDEBUGTimerGetFileInfo_FileGetShortName = TimerInit()
    $gaFileInfo[8] = FileGetShortName($sFilename)
-
+   $giDEBUGTimerGetFileInfo_FileGetShortName += TimerDiff($iDEBUGTimerGetFileInfo_FileGetShortName)
 
    ;End processing
    $gaFileInfo[11] = Round(TimerDiff($iTimer))
