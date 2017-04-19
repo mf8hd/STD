@@ -174,6 +174,7 @@ Changelog
 			Revert changes from 4.1.1.0 because it is to expensive to find directories :-(
 4.1.3.0		Profiling options for BufferedInsertIntoFiledataTable() and GetFilenameIDFromDB()
 			OpenDBMSSQL(): primary key for table [filenames]
+4.1.3.1
 
 
 #ce
@@ -2434,7 +2435,7 @@ Func BufferedInsertIntoFiledataTable($sSQLValues = "")
 	  ;Local Const  $lciBufferThreshold = 2*1024*1024
 	  ;Local Const  $lciBufferThreshold = 10*1024
 	  Static Local $lsiBufferValueLines = 0
-	  Local Const  $lciBufferValueLinesMax = 900	;MS SQL Server 2014 Express has a limit of 1000 value lines
+	  Local Const  $lciBufferValueLinesMax = 100	;MS SQL Server 2014 Express has a limit of 1000 value lines
 
 
 	  Select
