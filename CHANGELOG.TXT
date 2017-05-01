@@ -1,0 +1,293 @@
+Versioning: "incompatible changes to DB"."new feature"."bug fix"."minor fix"
+----------------------------------------------------------------------------
+
+
+Changelog
+----------
+			ToDo:
+			output of volume,links,fileid (report, history, export, ...)
+			DoReport(): HTML-Report inline in eMail
+			DoExportScan(): in CSV fileid is not displayed as char !
+
+
+5.0.0.0		move changelog and todo list to CHANGELOG.TXT
+			GetFileInfo(),OpenDBMSSQL(),DoGetFileinfosOfRelevantFiles(),OutputLineOfQueryResult():
+				replace crc32 hash with sha1. so we can use autoit standard crypt.au3 udf
+			DoScanWithSecondProcess(): renamed to DoGetListOfRelevantFiles()
+			DoSecondProcess(): renamed to DoGetFileinfosOfRelevantFiles()
+			TreeClimberSecondProcess(): renamed to TreeClimber()
+			new statements "NoMD5" and "NoSHA1" in CONFIGFILE
+			DoImportCfg(): Repopulate db table "rules" if it is empty
+			new file properties: volume,links,fileid
+			compile as x64
+			GetFileInfo(): only try an expensive FileGetVersion() if there is a chance there is a file version resource
+			TreeClimber(): eliminate uninterresting file extensions with $abValidLastChar
+			$gaRuleData[]: access array via enumerations as index
+
+4.1.4.0		TreeClimberSecondProcess(): check if last character of filename extension is relevant by rule
+
+4.1.3.1		More profiling options for GetFileInfo()
+
+4.1.3.0		Profiling options for BufferedInsertIntoFiledataTable() and GetFilenameIDFromDB()
+			OpenDBMSSQL(): primary key for table [filenames]
+
+4.1.2.0		BufferedInsertIntoFiledataTable() for ms sql
+			TreeClimberSecondProcess(): early check for relevant file extentions.
+			Revert changes from 4.1.1.0 because it is to expensive to find directories :-(
+
+4.1.1.0		TreeClimberSecondProcess(): Experiment: Is FileFindFirstFile() for every fileextension in ruleset faster than .* ?
+
+4.1.0.1		GetScannamesFromDB(): Remove debug code. Decrement $aScans[0] if scan is deleted from $aScans[]
+
+4.1.0.0		DoListScan(), GetScannamesFromDB(), GetScanInfosFromDB(): /list with scanname/SPECIAL_SCANNAME
+			GetScannamesFromDB(): New SPECIAL_SCANNAME: junk, today , dayminus[0-6], weekminus[0-51], monthminus[0-11]
+			"/delete test.ini junk" keeps all scans of today and one valid scan for every day, week, month in the last year.
+
+4.0.2.2		DoDeleteScan() with MSSQL: put dbname in [] for dbname with "-" like "std-groups"
+
+4.0.2.1		Add debug option $gcDEBUGShowMSSQLDeleteSQLCode for DoDeleteScan() with MSSQL
+
+4.0.2.0		DoSecondProcess(),DoScanWithSecondProcess(): convert scan, list and total time from milliseconds to second
+			readme.md for github is now indeed markdown and no longer the output form /help
+			DoScanWithSecondProcess(): fixed makeing a unique list ($aAllIncDirs) of only the top most dirs from the "IncDirRec:" and "IncDir:" statements in the ruleset
+			DoReport(): fixed : changed file does not show up in /reports ! (Because rulename has to be a hexstring !)
+
+4.0.1.1		readme.md for github
+
+4.0.1.0		GetFileInfo(): mtime,ctime,atime are now UTC
+
+4.0.0.0		DoImportCfg(): Generate a unique "RuleID:" statement for every rule
+						   Update Rulename in Table rule in DoImportCfg()
+			DoScanWithSecondProcess(): display total scan time
+			removed GetRuleIDFromDB(): the "RuleID:" is in the config
+			rules.rulename: is now a hexstring
+			filenames.spath: is now a hexstring
+
+3.9.0.1		DoListScan(): display scans with no entries
+
+3.9.0.0		new statement "IncDirs" in CONFIGFILE. "ExcDirs" is removed. So by default no file or directory or alternate datastream is scanned by default.
+			use precalculated values ($giCurrentDirBackslashCount, $gaRuleSetLineBackslashCount[]) in IsClimbTargetByRule() like its already done in IsIncludedByRule() (performance !! - well, just a little)
+			GetFileInfo(): _WinAPI_GetFileInformationByHandle() does not work with directories, use standard autoit functions instead.
+
+3.8.1.0		TreeClimberSecondProcess(): set $aRelevantRulesForClimbTarget[$iRuleCounter] = False
+
+3.8.0.2		TreeClimberSecondProcess(),IsIncludedByRule(): Skip processing of "IncDir:","IncDirRec:","ExcDir:","ExcDirRec:" if we already know that from $aRelevantRules[] (performance !!)
+
+3.8.0.1		include UDFs from @ScriptDir
+
+3.8.0.0		DoReport(): add short medium and large report, large is the standard report
+
+3.7.0.0		support MS SQL as database. db-filename is ini-file with connection definition
+			DoDelete(): delete unused lines in table rules and filenames
+			DoReport(): simplify code with MakeReportSection1(),MakeReportSection2and3()
+
+3.6.1.0		DoReport(): fixed handling of special scan "none"
+
+3.6.0.0		DoReport(),OutputLineOfQueryResultHeadline(): beautify report again
+			DoReport(): create report for just one given scan aka dump all the data from the scan in a report
+			help extended
+
+3.5.0.0		show debug settings in DoShowVersion()
+			DoReport(): read email options from $aRuleSet and not from table "config"
+			DoReport(): compare any two scans, given as parameters
+			help extended
+			DoReport(),OutputLineOfQueryResultHeadline(): beautify report
+			allways check if DB file exists
+
+3.4.0.0		remove obsolete GetRuleFromRuleSet()
+			remove obsolete $gaRule[]
+			remove obsolete DoScan() and /scan-obsolete
+			remove obsolete TreeClimber()
+			rename $gaRuleExtensions[] to $gaRuleData[] and add $gcNoHashes,$gcExcDirs,$gcHasExcDir
+			IsIncludedByRule(),IsClimbTargetByRule(): search for "ExcDir:" or "ExcDirRec:" only if the rule has these statements
+			new statement NoHashes in CONFIGFILE
+
+3.3.1.9		DoScanWithSecondProcess(): $aRelevantRulesForClimbTarget is set corrently for the initial directories too.
+			$gcDEBUGDoNotStartSecondProcess: Debug - run only the list process and do not start the scan process
+			$gcDEBUGRunWithoutCompilation: Debug - force the program to run, without beeing compiled
+			GetRulename(): reimplemented (performance !)
+			DoSecondProcess(),TreeClimberSecondProcess(): rulenumber and filename are sent from list process to scan process via stdout,stdin
+
+3.3.1.8		DoScanWithSecondProcess(),TreeClimberSecondProcess(): Only check relevant rules on the current file or directory (performance !)
+			   Initially all rules are relevant -> fixme this is not true but IsClimbTarget() works only with $aRuleSet !!!
+			$gcDEBUG: Main switch for debug output.
+
+3.3.1.7		DoReport(): delete comments with $gaRulenames
+
+3.3.1.6		remove all OLD_ functions
+			rename ShowHelp() to DoShowHelp()
+			rename ShowVersions() to DoShowVersions()
+			DoShowUsage(): show short help
+			remove IncludeDirDataInDBByRule()
+			remove GetAllRulenamesFromDB()
+			rename all global variables to $gTypeVariablename
+
+3.3.1.5		TreeClimberSecondProcess(), TreeClimber(), GetRuleSetFromDB(), IsIncludedByRule():
+			Replace StringReplace() with "bufferd" count of "\" for "IncDir:","ExcDir:"
+			($aRuleSetLineBackslashCount[],$iCurrentDirBackslashCount)
+			GetRuleSetFromDB(), IsIncludedByRule():
+			replace stringlen($aRuleSet[$i][1] & "\") with "buffered" StringLen() for "IncDir:","ExcDir:","IncDirRec:","ExcDirRec:"
+			($aRuleSetLineDirStringLenPlusOne[])
+			DoReport(),IsFilepropertyIgnoredByRule($sFileproperty,$iRuleNumber): use $aRuleSet[] not $aRule[]
+
+3.3.1.4		IsIncludedByRule(): Search for "ExcDir:" and "ExcDirRec:" only if "IncDir:" or "IncDirRec:" returned $iIsIncluded = True
+
+3.3.1.3		GetRuleSetFromDB(),IsIncludedByRule(): use $aRuleExtensions (performance !)
+			Remove GetRuleFromRuleSet() and old calls to GetRulename($aRule)
+			Replace GetRuleId($aRule) with GetRuleIdFromRuleSet($iRuleNumber)
+			OutputLineOfQueryResult(): fix changed marker for attributes
+
+3.3.1.2		GetRuleSetFromDB(),GetRuleFromRuleSet(): Write begin of all rules in $aRuleSet[] to $aRuleStart[] (performance !)
+			IsClimbTargetByRule($PathOrFile,$iRuleNumber),IsIncludedByRule($PathOrFile,$iRuleNumber),GetRulename($iRuleNumber): use $aRuleSet[] not $aRule[] , so GetRuleFromRuleSet() is obsolete (performance !)
+
+3.3.1.1		GetFileInfo(): sanitized variable names
+			profiler options: $gcDEBUGTimeGetFileInfo, $cDEBUGTimeGetRuleFromRuleSet, $cDEBUGTimeIsExecutable, $cDEBUGTimeIsIncludedByRule, $cDEBUGTimeIsClimbTargetByRule
+
+3.3.1.0		new debug option $cDEBUGShowVisitedDirectories
+			IsExecutable(): remember result of last use, so the file is tested just once while itterating over all rules (performance !)
+
+3.3.0.2		/history
+			/duplicates: has 3 commandline parameter, not only 2
+
+3.3.0.1		DoSecondProcess(): calculate scantime better
+
+3.3.0.0		/history: file history (search is case sensitiv !)
+			/scan: added error message, script must be compiled !
+			help extended
+			OpenDB(): write errors to console not to MsgBox()
+			/duplicates: list files with identical size,crc32 and md5 in a scan
+
+3.2.0.0		DoScan(): iterate over directories not rules !
+			TreeClimber(): iterate over directories not rules !
+			IsClimbTargetByRule()
+			DoScanWithSecondProcess(), TreeClimberSecondProcess(), DoSecondProcess(): /scan now uses two processes
+			   1. gets the filenames
+			   2. gets the fileinformation and puts it in the db
+			   better performance, but higher cpu usage
+			   second process is started with: @ScriptName /secondprocess DBNAME
+			   /scan-obsolete is the obsolete single process version of /scan
+			IsIncludedByRule(): ExcDirs moved from IncludeDirDataInDBByRule()
+			IncludeDirDataInDBByRule(): function is now obsolete because of IsClimbTargetByRule() and a fixed IsIncludedByRule()
+			OutputLineOfQueryResult(): all file attributes printed on one line
+
+3.1.1.0		GetFileInfo(): new version that uses _WinAPI_GetFileAttributes() for performance (kind of)
+			Old_GetFileInfo(): obsolete old version of GetFileInfo() that uses FileGetAttrib()
+
+3.1.0.0		help extended
+			reorganize code in mainloop
+			clean up variable declarations
+			GetRuleSetFromDB()
+			GetRuleFromRuleSet()
+			sourcecode cleanup
+			InsertStatementInRuleSet()
+			IsFilepropertyIgnoredByRule()
+			Ignore file properties in report with the "Ign:"  statement
+			performance: sqlite in WAL mode and sync to normal
+			DoScan(), DoReport(): use GetRuleSetFromDB()
+
+3.0.0.0		split filedata.attributes in DB into rattrib,aattrib,sattrib,hattrib,nattrib,dattrib,oattrib,cattrib,tattrib
+
+2.1.0.2		DoReport(): replace views with temporary tables for performance reasons
+			DoReport(), OutputLineOfQueryResult(): replace "valid" from scan.valid with "status" from filedata.status in report
+			OpenDB(): remove unnecessary db index on table filedata
+			TreeClimber(): remove 2x FileGetAttrib() in inner loop and use @extended of FileFindNextFile() instead
+			TreeClimber(): code cleanup
+			GetFileInfo(): increase buffersize for CRC and md5
+
+2.1.0.1		close all _SQLite_Query() with _SQLite_QueryFinalize()
+
+2.1.0.0		OpenDB(): create db index for path and fileinfo
+
+2.0.1.2		OutputLineOfQueryResult(): changes in attributes not indicated by a * in report
+			OutputLineOfQueryResult(): if filesize is greater 0 and the file can not be read, then set file status  = 1
+
+2.0.1.1		GetFileInfo(): first get filesize then calculate md5 and crc32
+
+2.0.1.0		report shows "changed" files with no difference
+			error messages if report is not generated
+			GetFileInfo(): no md5 and crc32 for directories
+			GetFileInfo(): handle files that can not be read (status = $gaFileInfo[1] = 1 )
+
+2.0.0.0		split filedata in DB in several tables
+			reorganize code in mainloop
+
+1.3.0.1		update todo list
+
+1.3.0.0		new statement ExcDirs in CONFIGFILE
+			new statement EmailFrom in CONFIGFILE
+			new statement EmailTo in CONFIGFILE
+			new statement EmailSubject in CONFIGFILE
+			new statement EmailServer in CONFIGFILE
+			new statement EmailPort in CONFIGFILE
+			new SPECIAL_REPORTNAME email on commandline
+			shrink (vacuum) DB file after /delete
+			/exportscan export scan to csv
+
+1.2.0.0		access time (atime) is not a difference of files, so ignore it
+			/v	show versions of scirpt, sqlite.dll and autoit
+
+1.1.0.0		make TreeClimber ignore excludes Dirs
+
+1.0.0.0		integrate CONFIGFILE in DB table config (line by line as hexstring)
+			help extended
+			set file infos of executable with pragma compile()
+			new programm name
+
+
+
+ToDo List
+------------
+- unused field "filedata.attributes" in DB
+- count directory entries and put the count in the DB
+- record total scan time and save it in DB
+- use a spellchecker on source code
+- /delete : sqlite "vacuum" copies DB content to a new file. Check for diskspace !
+- rename statements "IncDirRec:" and "ExcDirRec:" to "IncDirSub:" and "ExcDirSub:" (?)
+- redesign DB : there is a row of data in table 'filedata' for every rule ! (redundant !)
+- is the csv format ok ? /doublicates /history ...
+- write README.TXT
+- put changelog in Change.Log
+- DoImportCfg(): Insert "RuleId" statement into config with unique ruleid, if a rule has none. If the rule has a "RuleID:" statement then check if the ruleid is "sane" (a number within range) and update rulename if necessary
+- enumerate alternate datastreams and put them with FileInfo[] in the db
+- put the file id form _WinAPI_GetFileInformationByHandle in db
+- path may be 32,767 Byte long in DB
+- DirGetSize() for directory data
+- does "ExcDir:" work correctly in conjunction with "IncDirRec:" and IsClimbTarget() ??? probably remove statement "ExcDir:"
+done - after "/delete * all" there are no more rules in the rules table ! rules table is filled during DoImportCfg(), is this wrong ?? Should it be done at /scan ?
+- BufferedInsertIntoFiledataTable() for sqlite ?
+- if a file is included by multiple rules, GetFileinfo() is invoced MULTIPLE time ! This is slow !
+
+done - /report is not working anymore
+done - possible sql injection through value of "Rule:" in config file
+done - does /report "missing" realy work ???? GetAllRulenamesFromDB() must return ALL rulenames from scanold AND scannew
+done - DoDeleteScan() sanitize DB tables rules and filenames !
+done - unused field "filedata.status" in DB
+done - email report via smtp
+done - redesign DB structure, so all name-strings are referenced with foreign keys etc. (DB size !)
+done - report: ignore differences of certain fileinfos (size,mtime etc.)
+done - export scan data to csv
+done - read directories in ONE pass and check ALL the rule on each file, not the other way round
+done - /scan2 use
+done - help for /history is missing
+done - allways check if DB-file exists !
+done - mail report: email options should be read from $aRuleSet and not from table "config"
+done - /scan : eliminate IsExecutable() in second process (performance !)
+done - /report : compare any two scans, given as parameters
+done - /duplicates : show duplicate files in DB based on status = 0, size, crc32 and md5
+done - rename global variables
+done - per default nothing is scanned into the database (CONFIG) or vice versa. but stick to it !
+done - use RuleID for rule identification. Export RuleID with /exportcfg
+done - use:
+			 if StringLeft($PathOrFile,$gaRuleSetLineDirStringLenPlusOne[$i]) = $gaRuleSet[$i][1] & "\" And $giCurrentDirBackslashCount = $gaRuleSetLineBackslashCount[$i] then
+	   in IsClimbTargetByRule() like its done in IsIncludedByRule()
+done - DoListScan() doesn't show scans with zero entries
+done - ignore daylight saving time in timestamps in DB and report
+done - a changed file does not show up in /reports !
+done - /list DoListScan(): scanname/SPECIAL_SCANNAME as parameter via GetScannamesFromDB(). E.g. /list test.ini all, /list test.ini valid, /list test.ini today ...
+done - option for /delete to thin out DB and leaf only one scan per year, month, week, day. Like backups.
+done - GetScannamesFromDB(): implement the new SPECIAL_SCANNAMEs for sqlite
+doen - Update readme and help with new SPECIAL_SCANNAME and new option for /list
+
+no - use _SQLite_Escape() not _StringToHex() for text in DB
+
+obsolete - change name of DB field "status" to "valid"

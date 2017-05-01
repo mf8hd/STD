@@ -4,293 +4,39 @@
 ;
 ; By Reinhard Dittmann
 ;-----------------------------------------------------------------------------
+; AutoIT version: 3.3.10.2
+;-----------------------------------------------------------------------------
 ;
 ;Invocation:
-;	SCRIPTNAME COMMAND PARAMETERS
-;               /help				show help
-;               /?                  show help
+;   std.exe /help				show help
+;   std.exe /?                  show help
 ;
 ;Needs:
 ;	sqlite.dll
-;	CRC32 and MD5 UDF form Dan Nagel https://dannagle.com/2012/10/autoit-md5-sha1-base64-crc32
+;		and/or
+;   a database on an MS SQL Server (express)
+;
 ;	_SQL UDF for MS SQL form ChrisL https://www.autoitscript.com/forum/topic/51952-_sqlau3-adodbconnection/
+;-----------------------------------------------------------------------------
 
-;Changelog
-#cs
-Versioning: "Incompatible changes to DB"."new feature"."bug fix"."minor fix"
-
-Changelog
-1.0.0.0		integrate CONFIGFILE in DB table config (line by line as hexstring)
-			help extended
-			set file infos of executable with pragma compile()
-			new programm name
-1.1.0.0		make TreeClimber ignore excludes Dirs
-1.2.0.0		access time (atime) is not a difference of files, so ignore it
-			/v	show versions of scirpt, sqlite.dll and autoit
-1.3.0.0		new statement ExcDirs in CONFIGFILE
-			new statement EmailFrom in CONFIGFILE
-			new statement EmailTo in CONFIGFILE
-			new statement EmailSubject in CONFIGFILE
-			new statement EmailServer in CONFIGFILE
-			new statement EmailPort in CONFIGFILE
-			new SPECIAL_REPORTNAME email on commandline
-			shrink (vacuum) DB file after /delete
-			/exportscan export scan to csv
-1.3.0.1		update todo list
-2.0.0.0		split filedata in DB in several tables
-			reorganize code in mainloop
-2.0.1.0		report shows "changed" files with no difference
-			error messages if report is not generated
-			GetFileInfo(): no md5 and crc32 for directories
-			GetFileInfo(): handle files that can not be read (status = $gaFileInfo[1] = 1 )
-2.0.1.1		GetFileInfo(): first get filesize then calculate md5 and crc32
-2.0.1.2		OutputLineOfQueryResult(): changes in attributes not indicated by a * in report
-			OutputLineOfQueryResult(): if filesize is greater 0 and the file can not be read, then set file status  = 1
-2.1.0.0		OpenDB(): create db index for path and fileinfo
-2.1.0.1		close all _SQLite_Query() with _SQLite_QueryFinalize()
-2.1.0.2		DoReport(): replace views with temporary tables for performance reasons
-			DoReport(), OutputLineOfQueryResult(): replace "valid" from scan.valid with "status" from filedata.status in report
-			OpenDB(): remove unnecessary db index on table filedata
-			TreeClimber(): remove 2x FileGetAttrib() in inner loop and use @extended of FileFindNextFile() instead
-			TreeClimber(): code cleanup
-			GetFileInfo(): increase buffersize for CRC and md5
-3.0.0.0		split filedata.attributes in DB into rattrib,aattrib,sattrib,hattrib,nattrib,dattrib,oattrib,cattrib,tattrib
-3.1.0.0		help extended
-			reorganize code in mainloop
-			clean up variable declarations
-			GetRuleSetFromDB()
-			GetRuleFromRuleSet()
-			sourcecode cleanup
-			InsertStatementInRuleSet()
-			IsFilepropertyIgnoredByRule()
-			Ignore file properties in report with the "Ign:"  statement
-			performance: sqlite in WAL mode and sync to normal
-			DoScan(), DoReport(): use GetRuleSetFromDB()
-3.1.1.0		GetFileInfo(): new version that uses _WinAPI_GetFileAttributes() for performance (kind of)
-			Old_GetFileInfo(): obsolete old version of GetFileInfo() that uses FileGetAttrib()
-3.2.0.0		DoScan(): iterate over directories not rules !
-			TreeClimber(): iterate over directories not rules !
-			IsClimbTargetByRule()
-			DoScanWithSecondProcess(), TreeClimberSecondProcess(), DoSecondProcess(): /scan now uses two processes
-			   1. gets the filenames
-			   2. gets the fileinformation and puts it in the db
-			   better performance, but higher cpu usage
-			   second process is started with: @ScriptName /secondprocess DBNAME
-			   /scan-obsolete is the obsolete single process version of /scan
-			IsIncludedByRule(): ExcDirs moved from IncludeDirDataInDBByRule()
-			IncludeDirDataInDBByRule(): function is now obsolete because of IsClimbTargetByRule() and a fixed IsIncludedByRule()
-			OutputLineOfQueryResult(): all file attributes printed on one line
-3.3.0.0		/history: file history (search is case sensitiv !)
-			/scan: added error message, script must be compiled !
-			help extended
-			OpenDB(): write errors to console not to MsgBox()
-			/duplicates: list files with identical size,crc32 and md5 in a scan
-3.3.0.1		DoSecondProcess(): calculate scantime better
-3.3.0.2		/history
-			/duplicates: has 3 commandline parameter, not only 2
-3.3.1.0		new debug option $cDEBUGShowVisitedDirectories
-			IsExecutable(): remember result of last use, so the file is tested just once while itterating over all rules (performance !)
-3.3.1.1		GetFileInfo(): sanitized variable names
-			profiler options: $gcDEBUGTimeGetFileInfo, $cDEBUGTimeGetRuleFromRuleSet, $cDEBUGTimeIsExecutable, $cDEBUGTimeIsIncludedByRule, $cDEBUGTimeIsClimbTargetByRule
-3.3.1.2		GetRuleSetFromDB(),GetRuleFromRuleSet(): Write begin of all rules in $aRuleSet[] to $aRuleStart[] (performance !)
-			IsClimbTargetByRule($PathOrFile,$iRuleNumber),IsIncludedByRule($PathOrFile,$iRuleNumber),GetRulename($iRuleNumber): use $aRuleSet[] not $aRule[] , so GetRuleFromRuleSet() is obsolete (performance !)
-3.3.1.3		GetRuleSetFromDB(),IsIncludedByRule(): use $aRuleExtensions (performance !)
-			Remove GetRuleFromRuleSet() and old calls to GetRulename($aRule)
-			Replace GetRuleId($aRule) with GetRuleIdFromRuleSet($iRuleNumber)
-			OutputLineOfQueryResult(): fix changed marker for attributes
-3.3.1.4		IsIncludedByRule(): Search for "ExcDir:" and "ExcDirRec:" only if "IncDir:" or "IncDirRec:" returned $iIsIncluded = True
-3.3.1.5		TreeClimberSecondProcess(), TreeClimber(), GetRuleSetFromDB(), IsIncludedByRule():
-			Replace StringReplace() with "bufferd" count of "\" for "IncDir:","ExcDir:"
-			($aRuleSetLineBackslashCount[],$iCurrentDirBackslashCount)
-			GetRuleSetFromDB(), IsIncludedByRule():
-			replace stringlen($aRuleSet[$i][1] & "\") with "buffered" StringLen() for "IncDir:","ExcDir:","IncDirRec:","ExcDirRec:"
-			($aRuleSetLineDirStringLenPlusOne[])
-			DoReport(),IsFilepropertyIgnoredByRule($sFileproperty,$iRuleNumber): use $aRuleSet[] not $aRule[]
-3.3.1.6		remove all OLD_ functions
-			rename ShowHelp() to DoShowHelp()
-			rename ShowVersions() to DoShowVersions()
-			DoShowUsage(): show short help
-			remove IncludeDirDataInDBByRule()
-			remove GetAllRulenamesFromDB()
-			rename all global variables to $gTypeVariablename
-3.3.1.7		DoReport(): delete comments with $gaRulenames
-3.3.1.8		DoScanWithSecondProcess(),TreeClimberSecondProcess(): Only check relevant rules on the current file or directory (performance !)
-			   Initially all rules are relevant -> fixme this is not true but IsClimbTarget() works only with $aRuleSet !!!
-			$gcDEBUG: Main switch for debug output.
-3.3.1.9		DoScanWithSecondProcess(): $aRelevantRulesForClimbTarget is set corrently for the initial directories too.
-			$gcDEBUGDoNotStartSecondProcess: Debug - run only the list process and do not start the scan process
-			$gcDEBUGRunWithoutCompilation: Debug - force the program to run, without beeing compiled
-			GetRulename(): reimplemented (performance !)
-			DoSecondProcess(),TreeClimberSecondProcess(): rulenumber and filename are sent from list process to scan process via stdout,stdin
-3.4.0.0		remove obsolete GetRuleFromRuleSet()
-			remove obsolete $gaRule[]
-			remove obsolete DoScan() and /scan-obsolete
-			remove obsolete TreeClimber()
-			rename $gaRuleExtensions[] to $gaRuleData[] and add $gcNoHashes,$gcExcDirs,$gcHasExcDir
-			IsIncludedByRule(),IsClimbTargetByRule(): search for "ExcDir:" or "ExcDirRec:" only if the rule has these statements
-			new statement NoHashes in CONFIGFILE
-3.5.0.0		show debug settings in DoShowVersion()
-			DoReport(): read email options from $aRuleSet and not from table "config"
-			DoReport(): compare any two scans, given as parameters
-			help extended
-			DoReport(),OutputLineOfQueryResultHeadline(): beautify report
-			allways check if DB file exists
-3.6.0.0		DoReport(),OutputLineOfQueryResultHeadline(): beautify report again
-			DoReport(): create report for just one given scan aka dump all the data from the scan in a report
-			help extended
-3.6.1.0		DoReport(): fixed handling of special scan "none"
-3.7.0.0		support MS SQL as database. db-filename is ini-file with connection definition
-			DoDelete(): delete unused lines in table rules and filenames
-			DoReport(): simplify code with MakeReportSection1(),MakeReportSection2and3()
-3.8.0.0		DoReport(): add short medium and large report, large is the standard report
-3.8.0.1		include UDFs from @ScriptDir
-3.8.0.2		TreeClimberSecondProcess(),IsIncludedByRule(): Skip processing of "IncDir:","IncDirRec:","ExcDir:","ExcDirRec:" if we already know that from $aRelevantRules[] (performance !!)
-3.8.1.0		TreeClimberSecondProcess(): set $aRelevantRulesForClimbTarget[$iRuleCounter] = False
-3.9.0.0		new statement "IncDirs" in CONFIGFILE. "ExcDirs" is removed. So by default no file or directory or alternate datastream is scanned by default.
-			use precalculated values ($giCurrentDirBackslashCount, $gaRuleSetLineBackslashCount[]) in IsClimbTargetByRule() like its already done in IsIncludedByRule() (performance !! - well, just a little)
-			GetFileInfo(): _WinAPI_GetFileInformationByHandle() does not work with directories, use standard autoit functions instead.
-3.9.0.1		DoListScan(): display scans with no entries
-4.0.0.0		DoImportCfg(): Generate a unique "RuleID:" statement for every rule
-						   Update Rulename in Table rule in DoImportCfg()
-			DoScanWithSecondProcess(): display total scan time
-			removed GetRuleIDFromDB(): the "RuleID:" is in the config
-			rules.rulename: is now a hexstring
-			filenames.spath: is now a hexstring
-4.0.1.0		GetFileInfo(): mtime,ctime,atime are now UTC
-4.0.1.1		readme.md for github
-4.0.2.0		DoSecondProcess(),DoScanWithSecondProcess():convert scan, list and total time from milliseconds to second
-			readme.md for github is now indeed markdown and no longer the output form /help
-			DoScanWithSecondProcess(): fixed makeing a unique list ($aAllIncDirs) of only the top most dirs from the "IncDirRec:" and "IncDir:" statements in the ruleset
-			DoReport(): fixed : changed file does not show up in /reports ! (Because rulename has to be a hexstring !)
-4.0.2.1		Add debug option $gcDEBUGShowMSSQLDeleteSQLCode for DoDeleteScan() with MSSQL
-4.0.2.2		DoDeleteScan() with MSSQL: put dbname in [] for dbname with "-" like "std-groups"
-4.1.0.0		DoListScan(), GetScannamesFromDB(), GetScanInfosFromDB(): /list with scanname/SPECIAL_SCANNAME
-			GetScannamesFromDB(): New SPECIAL_SCANNAME: junk, today , dayminus[0-6], weekminus[0-51], monthminus[0-11]
-			"/delete test.ini junk" keeps all scans of today and one valid scan for every day, week, month in the last year.
-4.1.0.1		GetScannamesFromDB(): Remove debug code. Decrement $aScans[0] if scan is deleted from $aScans[]
-4.1.1.0		TreeClimberSecondProcess(): Experiment: Is FileFindFirstFile() for every fileextension in ruleset faster than .* ?
-4.1.2.0		BufferedInsertIntoFiledataTable() for ms sql
-			TreeClimberSecondProcess(): early check for relevant file extentions.
-			Revert changes from 4.1.1.0 because it is to expensive to find directories :-(
-4.1.3.0		Profiling options for BufferedInsertIntoFiledataTable() and GetFilenameIDFromDB()
-			OpenDBMSSQL(): primary key for table [filenames]
-4.1.3.1		More profiling options for GetFileInfo()
-
-
-#ce
-
-;ToDo List
-#cs
-FixMe:
-	  done - /report is not working anymore
-	  done - possible sql injection through value of "Rule:" in config file
-	  done - does /report "missing" realy work ???? GetAllRulenamesFromDB() must return ALL rulenames from scanold AND scannew
-ToDo:
-	  obsolete - change name of DB field "status" to "valid"
-	  done - DoDeleteScan() sanitize DB tables rules and filenames !
-	  done - unused field "filedata.status" in DB
-	  - unused field "filedata.attributes" in DB
-	  - count directory entries and put the count in the DB
-	  done - email report via smtp
-	  done - redesign DB structure, so all name-strings are referenced with foreign keys etc. (DB size !)
-	  done - report: ignore differences of certain fileinfos (size,mtime etc.)
-	  done - export scan data to csv
-	  done - read directories in ONE pass and check ALL the rule on each file, not the other way round
-	  - record total scan time and save it in DB
-	  done - /scan2 use
-	  done - help for /history is missing
-	  done - allways check if DB-file exists !
-	  done - mail report: email options should be read from $aRuleSet and not from table "config"
-	  - use a spellchecker on source code
-	  done - /scan : eliminate IsExecutable() in second process (performance !)
-	  - /delete : sqlite "vacuum" copies DB content to a new file. Check for diskspace !
-	  done - /report : compare any two scans, given as parameters
-	  - rename statements "IncDirRec:" and "ExcDirRec:" to "IncDirSub:" and "ExcDirSub:" (?)
-	  done - /duplicates : show duplicate files in DB based on status = 0, size, crc32 and md5
-	  - redesign DB : there is a row of data in table 'filedata' for every rule ! (redundant !)
-	  done - rename global variables
-	  done - per default nothing is scanned into the database (CONFIG) or vice versa. but stick to it !
-	  done - use RuleID for rule identification. Export RuleID with /exportcfg
-	  - is the csv format ok ? /doublicates /history ...
-	  no - use _SQLite_Escape() not _StringToHex() for text in DB
-	  - write README.TXT
-	  - put changelog in Change.Log
-	  - DoImportCfg(): Insert "RuleId" statement into config with unique ruleid, if a rule has none. If the rule has a "RuleID:" statement then check if the ruleid is "sane" (a number within range) and update rulename if necessary
-	  - enumerate alternate datastreams and put them with FileInfo[] in the db
-	  - put the file id form _WinAPI_GetFileInformationByHandle in db
-	  done - use:
-					 if StringLeft($PathOrFile,$gaRuleSetLineDirStringLenPlusOne[$i]) = $gaRuleSet[$i][1] & "\" And $giCurrentDirBackslashCount = $gaRuleSetLineBackslashCount[$i] then
-			  in IsClimbTargetByRule() like its done in IsIncludedByRule()
-	  done - DoListScan() doesn't show scans with zero entries
-	  - path may be 32,767 Byte long in DB
-	  - DirGetSize() for directory data
-	  - does "ExcDir:" work correctly in conjunction with "IncDirRec:" and IsClimbTarget() ??? probably remove statement "ExcDir:"
-	  done - ignore daylight saving time in timestamps in DB and report
-	  - after "/delete * all" there are no more rules in the rules table ! rules table is filled during DoImportCfg(), is this wrong ?? Should it be done at /scan ?
-	  done - a changed file does not show up in /reports !
-	  done - /list DoListScan(): scanname/SPECIAL_SCANNAME as parameter via GetScannamesFromDB(). E.g. /list test.ini all, /list test.ini valid, /list test.ini today ...
-	  done - option for /delete to thin out DB and leaf only one scan per year, month, week, day. Like backups.
-	  done - GetScannamesFromDB(): implement the new SPECIAL_SCANNAMEs for sqlite
-	  doen - Update readme and help with new SPECIAL_SCANNAME and new option for /list
-	  - BufferedInsertIntoFiledataTable() for sqlite ?
-#ce
-
-
-#cs
-file format config.cfg
-
-Rule:RULENAME			;name of rule
-IncDirRec:PATH			;directory to include, including all subdirectories
-ExcDirRec:PATH			;directory to exclude, including all subdirectories
-IncDir:PATH				;directory to include, only this directory
-ExcDir:PATH				;directory to exclude, only this directory
-IncExt:FILEEXTENTION	;file extention to include
-ExcExt:FILEEXTENTION	;file extention to exclude
-IncExe					;all executable files, no matter what the extention is
-IncAll					;all files, no matter what the extention is aka *.*
-ExcExe					;no executable files, no matter what the extention is
-ExcAll					;no files, no matter what the extention is aka *.*, only directories
-End
-
-Rule:Rule #1
-IncDirRec:"d:\temp"
-ExcDirRec:"d:\temp\unimportant"
-IncDir:c:\windows\softwaredistribution
-IncDir:"c:\windows"
-ExcDir:"c:\windows\system32"
-IncExt:doc
-IncExt:xls
-IncExt:txt
-End
-
-Rule:Documents I love
-IncDirRec:"e:\Documents"
-IncExt:*
-ExcExt:pdf
-End
-
-Rule:All executables
-IncDirRec:"c:\Program Files (x86)"
-IncExe
-End
-#ce
-
-#pragma compile(Console, true)
-#pragma compile(UPX, False)
 
 ;Set file infos
-#pragma compile(ProductVersion,"4.1.3.1")
-#pragma compile(FileVersion,"4.1.3.1")
+
 ;Versioning: "Incompatible changes to DB"."new feature"."bug fix"."minor fix"
+#pragma compile(ProductVersion,"5.0.0.0")
+#pragma compile(FileVersion,"5.0.0.0")
 
 #pragma compile(FileDescription,"Spot The Difference")
 #pragma compile(ProductName,"Spot The Difference")
 #pragma compile(InternalName,"STD")
 
+;set compile options
+#pragma compile(Console, true)
+#pragma compile(UPX, False)
+#pragma compile(x64, True)
 
-;3rd party UDFs from Dan Nagel https://dannagle.com/2012/10/autoit-md5-sha1-base64-crc32
-#include "CRC32.au3"
-#include "MD5.au3"
+
+
 ;3rd party UDF from ChrisL https://www.autoitscript.com/forum/topic/51952-_sqlau3-adodbconnection/
 #include "_SQL.au3"
 ;AutiIt UDFs
@@ -305,7 +51,11 @@ End
 #include <WinAPIFiles.au3>
 #include <Date.au3>
 #include <Constants.au3>
+#include <Crypt.au3>
 
+;Compile options
+Opt("TrayIconHide", 1)
+Opt("MustDeclareVars", 1)
 
 
 ;Constants
@@ -313,7 +63,7 @@ global const $gcVersion = FileGetVersion(@ScriptName,"ProductVersion")
 global const $gcScannameLimit = 65535				;max number of scannames resturnd from the DB
 
 ;Debug
-global const $gcDEBUG = True						;master switch for debug output
+global const $gcDEBUG = False						;master switch for debug output
 
 global $gcDEBUGOnlyShowScanBuffer = True			;show only "searching" and buffersize during scan !
 global $gcDEBUGShowVisitedDirectories = False		;show visited directories during scan !
@@ -321,7 +71,7 @@ global $gcDEBUGDoNotStartSecondProcess = False		;run only the list process and d
 global $gcDEBUGRunWithoutCompilation = False		;force the program to run, without beeing compiled
 global $gcDEBUGShowEmptyScanBuffer = True			;show "*** searching ***" if the scan process is waiting for the list process
 global $gcDEBUGShowMSSQLDeleteSQLCode = False		;show SQL statement for MSSQL version of /delete
-global $gcDEBUGShowMSSQLInsertBufferFlushes = True	;show when BufferedInsertIntoFiledataTable() flushes the buffer
+global $gcDEBUGShowMSSQLInsertBufferFlushes = False	;show when BufferedInsertIntoFiledataTable() flushes the buffer
 
 
 ;Profiler
@@ -333,8 +83,7 @@ global $gcDEBUGTimeGetFileInfo_FileGetVersion = True
 global $gcDEBUGTimeGetFileInfo_FileGetShortName = True
 global $gcDEBUGTimeGetFileInfo_CalcHashes = True
 
-
-
+global $gcDEBUGTimeTreeClimber_MakeValidLastChar = True
 global $gcDEBUGTimeGetRuleFromRuleSet = True
 global $gcDEBUGTimeIsExecutable = True
 global $gcDEBUGTimeIsIncludedByRule = True
@@ -350,6 +99,7 @@ global $giDEBUGTimerGetFileInfo_FileGetVersion = 0
 global $giDEBUGTimerGetFileInfo_FileGetShortName = 0
 global $giDEBUGTimerGetFileInfo_CalcHashes = 0
 
+global $giDEBUGTimerTreeClimber_MakeValidLastChar = 0
 global $giDEBUGTimerGetRuleFromRuleSet = 0
 global $giDEBUGTimerIsExecutable = 0
 global $giDEBUGTimerIsIncludedByRule = 0
@@ -376,7 +126,7 @@ if $gcDEBUG = False Then
    $gcDEBUGTimeGetFileInfo_FileGetShortName = False
    $gcDEBUGTimeGetFileInfo_CalcHashes = False
 
-
+   $gcDEBUGTimeTreeClimber_MakeValidLastChar = False
    $gcDEBUGTimeGetRuleFromRuleSet = False
    $gcDEBUGTimeIsExecutable = False
    $gcDEBUGTimeIsIncludedByRule = False
@@ -385,14 +135,6 @@ if $gcDEBUG = False Then
    $gcDEBUGTimeGetFilenameIDFromDB = False
 
 EndIf
-
-
-
-
-;Compile options
-Opt("TrayIconHide", 1)
-;Opt("MustDeclareVars", 1)
-
 
 
 ;Variables
@@ -411,27 +153,34 @@ global $gaRuleSet[1][3]	;all rules form config db table
 						;IncExt:    | log       | 2
 						;.....................................
 global $gaRuleStart[1]   	    ;Index of start of all rules in $gaRuleSet[]
-global const $gcIncExt = 0 	    ;column index for IncExt parameters in $gaRuleData[]
-global const $gcExcExt = 1	    ;column index for ExcExt parameters in $gaRuleData[]
-global const $gcIncExe = 2	    ;column index for IncExe statement in $gaRuleData[]
-global const $gcExcExe = 3	    ;column index for ExcExe statement in $gaRuleData[]
-global const $gcIncAll = 4	    ;column index for IncAll statement in $gaRuleData[]
-global const $gcExcAll = 5	    ;column index for ExcAll statement in $gaRuleData[]
-global const $gcNoHashes  = 6	;column index for NoHashes statement in $gaRuleData[]
-global const $gcIncDirs   = 7	;column index for IncDirs statement in $gaRuleData[]
-global const $gcHasExcDir = 8   ;column index for the existence of "ExcDir:" or "ExcDirRec:" parameters in $gaRuleData[]
-global $gaRuleData[1][9]	;all infos of extension statements of a rule
-		;........................................................................................................................................
-		;IncExt           | ExcExt           | IncExe    | ExcExe    | IncAll    | ExcAll    | NoHashes    | IncDirs    | are there "ExcDir:" or "ExcDirRec:"
-		;                 |                  |           |           |           |           |             |            | statements in the rule ?
-		;$gcIncExt        | $gcExcExt        | $gcIncExe | $gcExcExe | $gcIncAll | $gcExcAll | $gcNoHashes | $gcIncDirs | $gcHasExcDir
-		;----------------------------------------------------------------------------------------------------------------------------------------
-		;".txt.dll.docx." | ".txt.dll.xlsx." | True      | False     | True      | False     | True        | True       | True
-		;........................................................................................................................................
+
+Global Enum $geRD_IncExt,$geRD_IncExtLC,$geRD_ExcExt,$geRD_IncExe,$geRD_ExcExe,$geRD_IncAll,$geRD_ExcAll,$geRD_NoHashes,$geRD_NoMD5,$geRD_NoSHA1,$geRD_IncDirs,$geRD_HasExcDir,$geRDMax
+#cs
+$geRD_IncExt 	    ;column index for IncExt parameters in $gaRuleData[]
+$geRD_IncExtLC      ;column index for last characters of IncExt in $gaRuleData[]
+$geRD_ExcExt	    ;column index for ExcExt parameters in $gaRuleData[]
+$geRD_IncExe	    ;column index for IncExe statement in $gaRuleData[]
+$geRD_ExcExe	    ;column index for ExcExe statement in $gaRuleData[]
+$geRD_IncAll	    ;column index for IncAll statement in $gaRuleData[]
+$geRD_ExcAll	    ;column index for ExcAll statement in $gaRuleData[]
+$geRD_NoHashes		;column index for NoHashes statement in $gaRuleData[]
+$geRD_NoMD5			;column index for NoMD5 statement in $gaRuleData[]
+$geRD_NoSHA1		;column index for NoSHA1 statement in $gaRuleData[]
+$geRD_IncDirs		;column index for IncDirs statement in $gaRuleData[]
+$geRD_HasExcDir   	;column index for the existence of "ExcDir:" or "ExcDirRec:" parameters in $gaRuleData[]
+#ce
+global $gaRuleData[1][$geRDMax]	;all infos of extension statements of a rule
+		;......................................................................................................................................................................................................
+		;IncExt           | IncExt           | ExcExt           | IncExe       | ExcExe       | IncAll       | ExcAll       | NoHashes       | NoMD5       | NoSHA1       | IncDirs       | are there "ExcDir:" or "ExcDirRec:"
+		;                 | last char of ext |                  |              |              |              |              |                |             |              |               | statements in the rule ?
+		;$geRD_IncExt     | $geRD_IncExtLC   | $geRD_ExcExt     | $geRD_IncExe | $geRD_ExcExe | $geRD_IncAll | $geRD_ExcAll | $geRD_NoHashes | $geRD_NoMD5 | $geRD_NoSHA1 | $geRD_IncDirs | $geRD_HasExcDir
+		;------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+		;".txt.dll.docx." | "tlx"            | ".txt.dll.xlsx." | True         | False        | True         | False        | True           | True        | True         | True          | True
+		;......................................................................................................................................................................................................
 global $gaRuleSetLineDirStringLenPlusOne[1]		;stringlen($gaRuleSet[$i][1] & "\") for every "IncDir:","ExcDir:","IncDirRec:","ExcDirRec:" line in $gaRuleSet[]
 global $gaRuleSetLineBackslashCount[1] 			;number of backslashes for every "IncDir:" and "ExcDir:" line in $gaRuleSet[]
 global $giCurrentDirBackslashCount 				;number of backslashes in the currently scanned path
-global $gaFileInfo[22]		;array with informations about the file
+global $gaFileInfo[25]		;array with informations about the file
 #cs
 		 $gaFileInfo[0]		;name
 		 $gaFileInfo[1]		;file could not be read 1 else 0
@@ -442,7 +191,7 @@ global $gaFileInfo[22]		;array with informations about the file
 		 $gaFileInfo[6]		;file accessed timestamp
 		 $gaFileInfo[7]		;version
 		 $gaFileInfo[8]		;8.3 short path+name
-		 $gaFileInfo[9]		;crc32
+		 $gaFileInfo[9]		;sha1 hash
 		 $gaFileInfo[10]	;md5 hash
 		 $gaFileInfo[11]	;time it took to process the file
 		 $gaFileInfo[12]	;rulename
@@ -455,7 +204,11 @@ global $gaFileInfo[22]		;array with informations about the file
 		 $gaFileInfo[19]	;1 if the "O" = OFFLINE attribute is set
 		 $gaFileInfo[20]	;1 if the "C" = COMPRESSED (NTFS compression, not ZIP compression) attribute is set
 		 $gaFileInfo[21]	;1 if the "T" = TEMPORARY attribute is set
+		 $gaFileInfo[22]	;volume serial
+		 $gaFileInfo[23]	;number of links
+		 $gaFileInfo[24]	;file id
 #ce
+global $gsExtWithVersion = ".exe.com.dll.scr.ocx.sys."	;List of file extensions GetFileinfo() does a FileGetVersion() (expensive !)
 global $gsScantime = ""		;date and time of the scan
 global $giScanId	= 0		;scanid
 global $ghDBHandle = ""		;handle of db
@@ -464,7 +217,8 @@ global $gsMSSQLDBName = ""	;MS SQL database name
 
 ;mailer setup
 Global $goMyRet[2]
-Global $goMyError = ObjEvent("AutoIt.Error", "MyErrFunc")
+Global $goMyError = ObjEvent("AutoIt.Error", "SmtpMailErrFunc")
+;Global $goMyError = ObjEvent("AutoIt.Error", "_SQL_ErrFunc")
 
 ;IsExecutable() global lookup
 global $giIsExecutableLastResult = False	;result of last call to IsExecutable()
@@ -483,11 +237,13 @@ db stucture
    atime			file access time
    version			file version information (exe or dll version)
    spath			short filename incl. path
-   crc32			crc32 checksum of file content
+   sha1				sha1 hash of file content
    md5				md5	hash of file content
    ptime			time to process the file while scanning in ms
    rulename			name of the rule from config file, according to that the file was processed
-
+   volume			serial number of the volume that contains a file|
+   links			number of links to this file|
+   fileid		    unique identifier that is associated with a file|
 #ce
 
 
@@ -686,7 +442,7 @@ select
 	  if FileExists($CmdLine[2]) then
 		 OpenDB($CmdLine[2])
 
-		 DoSecondProcess()
+		 DoGetFileinfosOfRelevantFiles()
 
 		 CloseDB()
 	  Else
@@ -707,7 +463,7 @@ select
 		 if FileExists($CmdLine[2]) then
 			OpenDB($CmdLine[2])
 
-			DoScanWithSecondProcess($CmdLine[2])
+			DoGetListOfRelevantFiles($CmdLine[2])
 
 			CloseDB()
 		 Else
@@ -813,6 +569,7 @@ Func DoImportCfg($ConfigFilename)
    local $sTempCfgLine = "" 	;content of current line in $ConfigFilename
    local $iRuleCounter = 0
    local $iCounter = 0
+   local $aRow = 0
 
    local $iMaxRuleID = 0		;biggest rule id in $ConfigFilename
 
@@ -942,15 +699,26 @@ Func DoImportCfg($ConfigFilename)
 				  if $gbMSSQL Then
 					 ;Update rulename for the given "RuleID:"
 
-					 _SQL_Execute(-1,"UPDATE [rules] SET [rulename]='" & _StringToHex($aRuleIds[$iRuleCounter][0]) & "' WHERE [ruleid] = " & $aRuleIds[$iRuleCounter][1] & ";")
+					 if _SQL_QuerySingleRow(-1,"SELECT rulename FROM rules where ruleid = " & $aRuleIds[$iRuleCounter][1] & ";",$aRow) = $SQL_OK and $aRow[0]<>"" Then
+						_SQL_Execute(-1,"UPDATE [rules] SET [rulename]='" & _StringToHex($aRuleIds[$iRuleCounter][0]) & "' WHERE [ruleid] = " & $aRuleIds[$iRuleCounter][1] & ";")
+					 Else
+						_SQL_Execute(-1,"SET IDENTITY_INSERT rules ON; " & "INSERT INTO rules ([ruleid],[rulename]) VALUES(" & $aRuleIds[$iRuleCounter][1] & ",'" & _StringToHex($aRuleIds[$iRuleCounter][0]) & "');" & " SET IDENTITY_INSERT rules OFF;")
+					 EndIf
 
 					 _SQL_Execute(-1,"INSERT INTO [config] ([line]) VALUES (N'" & _StringToHex($sTempCfgLine) & "');")
 				  Else
 					 ;Update rulename for the given "RuleID:"
-					 _SQLite_Exec(-1,"UPDATE rules SET rulename='" & _StringToHex($aRuleIds[$iRuleCounter][0]) & "' WHERE ruleid = " & $aRuleIds[$iRuleCounter][1] & ";")
+
+					 ;### !!! THIS IS NOT TESTED !!! ###
+					 if _SQLite_QuerySingleRow(-1,'SELECT rulename FROM rules where ruleid = ' & $aRuleIds[$iRuleCounter][1] & ';',$aRow) = $SQLITE_OK Then
+						_SQLite_Exec(-1,'UPDATE rules SET rulename="' & _StringToHex($aRuleIds[$iRuleCounter][0]) & '" WHERE ruleid = ' & $aRuleIds[$iRuleCounter][1] & ';')
+					 Else
+						_SQLite_Exec(-1,'INSERT INTO rules VALUES(' & $aRuleIds[$iRuleCounter][1] & ',"' & _StringToHex($aRuleIds[$iRuleCounter][0]) & '");')
+					 EndIf
 
 					 _SQLite_Exec(-1,"INSERT INTO config(line) values ('" & _StringToHex($sTempCfgLine) & "');")
 				  EndIf
+
 			   EndIf
 			case Else
 			   if $gbMSSQL Then
@@ -999,7 +767,7 @@ EndFunc
 Func DoDuplicates($sScanname)
 
    ;list duplicate files in a scan
-   ;based on size,crc32,md5
+   ;based on size,sha1,md5
    ;------------------------------------------------
 
    local $aQueryResult = 0	;result of a query
@@ -1019,7 +787,7 @@ Func DoDuplicates($sScanname)
 	  $sTempSQL &= "filenames.path as path,"
 	  $sTempSQL &= "filedata.status as status,"
 	  $sTempSQL &= "filedata.size as size,"
-	  $sTempSQL &= "filedata.crc32 as crc32,"
+	  $sTempSQL &= "filedata.sha1 as sha1,"
 	  $sTempSQL &= "filedata.md5 as md5 "
 	  ;$sTempSQL &= "count(filedata.md5) "
 	  $sTempSQL &= "FROM scans,filedata,filenames "
@@ -1029,12 +797,12 @@ Func DoDuplicates($sScanname)
 	  $sTempSQL &= "filedata.filenameid = filenames.filenameid AND "
 	  $sTempSQL &= "filedata.status = '0' AND "
 	  $sTempSQL &= "filedata.size <> '0' AND "
-	  $sTempSQL &= "filedata.crc32 <> '0' AND "
+	  $sTempSQL &= "filedata.sha1 <> '0' AND "
 	  $sTempSQL &= "filedata.md5 <> '0' "
-	  $sTempSQL &= "GROUP BY scans.scantime,filedata.status,filedata.size,filedata.crc32,filedata.md5,filenames.path "
-	  $sTempSQL &= "ORDER BY filedata.size,filedata.crc32,filedata.md5,filenames.path ASC;"
+	  $sTempSQL &= "GROUP BY scans.scantime,filedata.status,filedata.size,filedata.sha1,filedata.md5,filenames.path "
+	  $sTempSQL &= "ORDER BY filedata.size,filedata.sha1,filedata.md5,filenames.path ASC;"
 
-	  ConsoleWrite("scantime,size,crc32,md5,filename" & @CRLF)
+	  ConsoleWrite("scantime,size,sha1,md5,filename" & @CRLF)
 
 	  $aQueryResult = 0
 
@@ -1093,7 +861,7 @@ Func DoHistory($sFilename)
    $sTempSQL &= "filedata.atime,"
    $sTempSQL &= "filedata.version,"
    $sTempSQL &= "filenames.spath,"
-   $sTempSQL &= "filedata.crc32,"
+   $sTempSQL &= "filedata.sha1,"
    $sTempSQL &= "filedata.md5,"
    $sTempSQL &= "filedata.ptime,"
    $sTempSQL &= "rules.rulename,"
@@ -1105,7 +873,10 @@ Func DoHistory($sFilename)
    $sTempSQL &= "filedata.dattrib,"
    $sTempSQL &= "filedata.oattrib,"
    $sTempSQL &= "filedata.cattrib,"
-   $sTempSQL &= "filedata.tattrib "
+   $sTempSQL &= "filedata.tattrib,"
+   $sTempSQL &= "filedata.volume,"
+   $sTempSQL &= "filedata.links,"
+   $sTempSQL &= "filedata.fileid "
    $sTempSQL &= "FROM filedata,filenames,rules,scans "
    $sTempSQL &= "WHERE "
    $sTempSQL &= "filedata.filenameid = filenames.filenameid AND "
@@ -1233,7 +1004,7 @@ Func DoReport($sReportMode,$ReportFilename,$sScannameOld = "lastvalid",$sScannam
    $sTempSQL &= "filedata.atime,"
    $sTempSQL &= "filedata.version,"
    $sTempSQL &= "filenames.spath,"
-   $sTempSQL &= "filedata.crc32,"
+   $sTempSQL &= "filedata.sha1,"
    $sTempSQL &= "filedata.md5,"
    $sTempSQL &= "filedata.ptime,"
    $sTempSQL &= "rules.rulename,"
@@ -1245,7 +1016,10 @@ Func DoReport($sReportMode,$ReportFilename,$sScannameOld = "lastvalid",$sScannam
    $sTempSQL &= "filedata.dattrib,"
    $sTempSQL &= "filedata.oattrib,"
    $sTempSQL &= "filedata.cattrib,"
-   $sTempSQL &= "filedata.tattrib "
+   $sTempSQL &= "filedata.tattrib,"
+   $sTempSQL &= "filedata.volume,"
+   $sTempSQL &= "filedata.links,"
+   $sTempSQL &= "filedata.fileid "
    $sTempSQL &= "FROM filedata,filenames,rules,scans "
    $sTempSQL &= "WHERE "
    $sTempSQL &= "filedata.filenameid = filenames.filenameid AND "
@@ -1253,8 +1027,8 @@ Func DoReport($sReportMode,$ReportFilename,$sScannameOld = "lastvalid",$sScannam
    $sTempSQL &= "filedata.ruleid = rules.ruleid"
    ;$sTempSQL &= ";"
 
-   ;$sTempSQL = "create view if not exists scannew as SELECT scans.scantime,filenames.path,scans.valid,filedata.size,filedata.attributes,filedata.mtime,filedata.ctime,filedata.atime,filedata.version,filenames.spath,filedata.crc32,filedata.md5,filedata.ptime,rules.rulename FROM filedata,filenames,rules,scans WHERE filedata.filenameid = filenames.filenameid AND filedata.scanid = scans.scanid AND filedata.ruleid = rules.ruleid;"
-   ;$sTempSQL = "SELECT scans.scantime,filenames.path,scans.valid,filedata.size,filedata.attributes,filedata.mtime,filedata.ctime,filedata.atime,filedata.version,filenames.spath,filedata.crc32,filedata.md5,filedata.ptime,rules.rulename FROM filedata,filenames,rules,scans WHERE filedata.filenameid = filenames.filenameid AND filedata.scanid = scans.scanid AND filedata.ruleid = rules.ruleid"
+   ;$sTempSQL = "create view if not exists scannew as SELECT scans.scantime,filenames.path,scans.valid,filedata.size,filedata.attributes,filedata.mtime,filedata.ctime,filedata.atime,filedata.version,filenames.spath,filedata.sha1,filedata.md5,filedata.ptime,rules.rulename FROM filedata,filenames,rules,scans WHERE filedata.filenameid = filenames.filenameid AND filedata.scanid = scans.scanid AND filedata.ruleid = rules.ruleid;"
+   ;$sTempSQL = "SELECT scans.scantime,filenames.path,scans.valid,filedata.size,filedata.attributes,filedata.mtime,filedata.ctime,filedata.atime,filedata.version,filenames.spath,filedata.sha1,filedata.md5,filedata.ptime,rules.rulename FROM filedata,filenames,rules,scans WHERE filedata.filenameid = filenames.filenameid AND filedata.scanid = scans.scanid AND filedata.ruleid = rules.ruleid"
 
 
    if $ReportFilename = "email" then
@@ -1359,7 +1133,7 @@ Func DoReport($sReportMode,$ReportFilename,$sScannameOld = "lastvalid",$sScannam
 			if not IsFilepropertyIgnoredByRule("ctime",$i)        then $sTempSQL &= "scannew.ctime <> scanold.ctime or "
 			if not IsFilepropertyIgnoredByRule("version",$i)      then $sTempSQL &= "scannew.version <> scanold.version or "
 			if not IsFilepropertyIgnoredByRule("spath",$i)        then $sTempSQL &= "scannew.spath <> scanold.spath or "
-			if not IsFilepropertyIgnoredByRule("crc32",$i)        then $sTempSQL &= "scannew.crc32 <> scanold.crc32 or "
+			if not IsFilepropertyIgnoredByRule("sha1",$i)         then $sTempSQL &= "scannew.sha1 <> scanold.sha1 or "
 			if not IsFilepropertyIgnoredByRule("md5",$i)          then $sTempSQL &= "scannew.md5 <> scanold.md5 or "
 			if not IsFilepropertyIgnoredByRule("rattrib",$i)      then $sTempSQL &= "scannew.rattrib <> scanold.rattrib or "
 			if not IsFilepropertyIgnoredByRule("aattrib",$i)      then $sTempSQL &= "scannew.aattrib <> scanold.aattrib or "
@@ -1370,6 +1144,9 @@ Func DoReport($sReportMode,$ReportFilename,$sScannameOld = "lastvalid",$sScannam
 			if not IsFilepropertyIgnoredByRule("oattrib",$i)      then $sTempSQL &= "scannew.oattrib <> scanold.oattrib or "
 			if not IsFilepropertyIgnoredByRule("cattrib",$i)      then $sTempSQL &= "scannew.cattrib <> scanold.cattrib or "
 			if not IsFilepropertyIgnoredByRule("tattrib",$i)      then $sTempSQL &= "scannew.tattrib <> scanold.tattrib or "
+			if not IsFilepropertyIgnoredByRule("volume",$i)       then $sTempSQL &= "scannew.volume <> scanold.volume or "
+			if not IsFilepropertyIgnoredByRule("links",$i)        then $sTempSQL &= "scannew.links <> scanold.links or "
+			if not IsFilepropertyIgnoredByRule("fileid",$i)       then $sTempSQL &= "scannew.fileid <> scanold.fileid or "
 			$sTempSQL &= ");"
 
 			;fix sql statement
@@ -1430,7 +1207,7 @@ Func DoReport($sReportMode,$ReportFilename,$sScannameOld = "lastvalid",$sScannam
 			   if not IsFilepropertyIgnoredByRule("ctime",$i)        then $sTempSQL &= "scannew.ctime <> scanold.ctime or "
 			   if not IsFilepropertyIgnoredByRule("version",$i)      then $sTempSQL &= "scannew.version <> scanold.version or "
 			   if not IsFilepropertyIgnoredByRule("spath",$i)        then $sTempSQL &= "scannew.spath <> scanold.spath or "
-			   if not IsFilepropertyIgnoredByRule("crc32",$i)        then $sTempSQL &= "scannew.crc32 <> scanold.crc32 or "
+			   if not IsFilepropertyIgnoredByRule("sha1",$i)         then $sTempSQL &= "scannew.sha1 <> scanold.sha1 or "
 			   if not IsFilepropertyIgnoredByRule("md5",$i)          then $sTempSQL &= "scannew.md5 <> scanold.md5 or "
 			   if not IsFilepropertyIgnoredByRule("rattrib",$i)      then $sTempSQL &= "scannew.rattrib <> scanold.rattrib or "
 			   if not IsFilepropertyIgnoredByRule("aattrib",$i)      then $sTempSQL &= "scannew.aattrib <> scanold.aattrib or "
@@ -1441,6 +1218,9 @@ Func DoReport($sReportMode,$ReportFilename,$sScannameOld = "lastvalid",$sScannam
 			   if not IsFilepropertyIgnoredByRule("oattrib",$i)      then $sTempSQL &= "scannew.oattrib <> scanold.oattrib or "
 			   if not IsFilepropertyIgnoredByRule("cattrib",$i)      then $sTempSQL &= "scannew.cattrib <> scanold.cattrib or "
 			   if not IsFilepropertyIgnoredByRule("tattrib",$i)      then $sTempSQL &= "scannew.tattrib <> scanold.tattrib or "
+			   if not IsFilepropertyIgnoredByRule("volume",$i)       then $sTempSQL &= "scannew.volume <> scanold.volume or "
+			   if not IsFilepropertyIgnoredByRule("links",$i)        then $sTempSQL &= "scannew.links <> scanold.links or "
+			   if not IsFilepropertyIgnoredByRule("fileid",$i)       then $sTempSQL &= "scannew.fileid <> scanold.fileid or "
 			   $sTempSQL &= ");"
 
 			   ;fix sql statement
@@ -1495,7 +1275,7 @@ Func DoReport($sReportMode,$ReportFilename,$sScannameOld = "lastvalid",$sScannam
 			   if not IsFilepropertyIgnoredByRule("ctime",$i)        then $sTempSQL &= "scannew.ctime <> scanold.ctime or "
 			   if not IsFilepropertyIgnoredByRule("version",$i)      then $sTempSQL &= "scannew.version <> scanold.version or "
 			   if not IsFilepropertyIgnoredByRule("spath",$i)        then $sTempSQL &= "scannew.spath <> scanold.spath or "
-			   if not IsFilepropertyIgnoredByRule("crc32",$i)        then $sTempSQL &= "scannew.crc32 <> scanold.crc32 or "
+			   if not IsFilepropertyIgnoredByRule("sha1",$i)         then $sTempSQL &= "scannew.sha1 <> scanold.sha1 or "
 			   if not IsFilepropertyIgnoredByRule("md5",$i)          then $sTempSQL &= "scannew.md5 <> scanold.md5 or "
 			   if not IsFilepropertyIgnoredByRule("rattrib",$i)      then $sTempSQL &= "scannew.rattrib <> scanold.rattrib or "
 			   if not IsFilepropertyIgnoredByRule("aattrib",$i)      then $sTempSQL &= "scannew.aattrib <> scanold.aattrib or "
@@ -1506,6 +1286,9 @@ Func DoReport($sReportMode,$ReportFilename,$sScannameOld = "lastvalid",$sScannam
 			   if not IsFilepropertyIgnoredByRule("oattrib",$i)      then $sTempSQL &= "scannew.oattrib <> scanold.oattrib or "
 			   if not IsFilepropertyIgnoredByRule("cattrib",$i)      then $sTempSQL &= "scannew.cattrib <> scanold.cattrib or "
 			   if not IsFilepropertyIgnoredByRule("tattrib",$i)      then $sTempSQL &= "scannew.tattrib <> scanold.tattrib or "
+			   if not IsFilepropertyIgnoredByRule("volume",$i)       then $sTempSQL &= "scannew.volume <> scanold.volume or "
+			   if not IsFilepropertyIgnoredByRule("links",$i)        then $sTempSQL &= "scannew.links <> scanold.links or "
+			   if not IsFilepropertyIgnoredByRule("fileid",$i)       then $sTempSQL &= "scannew.fileid <> scanold.fileid or "
 			   $sTempSQL &= ");"
 
 			   ;fix sql statement
@@ -1695,7 +1478,7 @@ Func DoExportScan($sScanname,$sCSVFilename)
    ;$sScanname = $CmdLine[3]
    ;$sCSVFilename = $CmdLine[4]
 
-   local $aCSVDesc[] = ["scantime","name","valid","size","mtime","ctime","atime","version","spath","crc32","md5","ptime","rulename","attributes"]
+   local $aCSVDesc[] = ["scantime","name","status","size","mtime","ctime","atime","version","spath","sha1","md5","ptime","rulename","attributes","volume","links","fileid"]
    local $aAttribDesc[] = ["r","a","s","h","n","d","o","c","t"]
    local $sTempText = ''
    local $sTempSQL	= ''		;sql statement
@@ -1716,7 +1499,7 @@ Func DoExportScan($sScanname,$sCSVFilename)
    filedata.filenameid = filenames.filenameid AND
    filedata.scanid = scans.scanid AND
    filedata.ruleid = rules.ruleid
-   scans.scantime,filenames.path,scans.valid,filedata.size,filedata.attributes,filedata.mtime,filedata.ctime,filedata.atime,filedata.version,filenames.spath,filedata.crc32,filedata.md5,filedata.ptime,rules.rulename
+   scans.scantime,filenames.path,scans.valid,filedata.size,filedata.attributes,filedata.mtime,filedata.ctime,filedata.atime,filedata.version,filenames.spath,filedata.sha1,filedata.md5,filedata.ptime,rules.rulename
    #ce
 
    $sTempSQL = "SELECT "
@@ -1730,7 +1513,7 @@ Func DoExportScan($sScanname,$sCSVFilename)
    $sTempSQL &= "filedata.atime,"
    $sTempSQL &= "filedata.version,"
    $sTempSQL &= "filenames.spath,"
-   $sTempSQL &= "filedata.crc32,"
+   $sTempSQL &= "filedata.sha1,"
    $sTempSQL &= "filedata.md5,"
    $sTempSQL &= "filedata.ptime,"
    $sTempSQL &= "rules.rulename, "
@@ -1742,7 +1525,10 @@ Func DoExportScan($sScanname,$sCSVFilename)
    $sTempSQL &= "filedata.dattrib,"
    $sTempSQL &= "filedata.oattrib,"
    $sTempSQL &= "filedata.cattrib,"
-   $sTempSQL &= "filedata.tattrib "
+   $sTempSQL &= "filedata.tattrib,"
+   $sTempSQL &= "filedata.volume,"
+   $sTempSQL &= "filedata.links,"
+   $sTempSQL &= "filedata.fileid "
    $sTempSQL &= "FROM filedata,filenames,rules,scans "
    $sTempSQL &= "WHERE "
    $sTempSQL &= "filedata.filenameid = filenames.filenameid AND "
@@ -1755,7 +1541,7 @@ Func DoExportScan($sScanname,$sCSVFilename)
 
    ;write fileheader
    $sTempText = ''
-   for $j = 0 to 13
+   for $j = 0 to 16
 	  if $j = 0 then
 		 $sTempText &= '"' & $aCSVDesc[$j] & '"'
 	  Else
@@ -1789,7 +1575,7 @@ Func DoExportScan($sScanname,$sCSVFilename)
 ;		 While _SQLite_FetchData($hCSVQuery, $aCSVQueryResult) = $SQLITE_OK
 		 While ($gbMSSQL and _SQL_FetchData($hCSVQuery, $aCSVQueryResult) = $SQL_OK) or (not $gbMSSQL and _SQLite_FetchData($hCSVQuery, $aCSVQueryResult) = $SQLITE_OK)
 			$sTempText = ''
-			for $j = 0 to 21
+			for $j = 0 to 24
 			   if $j = 0 then
 				  $sTempText &= '"' & $aCSVQueryResult[$j] & '"'
 			   Elseif $j = 1 or $j = 8 or $j = 12 then
@@ -1816,7 +1602,7 @@ Func DoExportScan($sScanname,$sCSVFilename)
 EndFunc
 
 
-Func DoScanWithSecondProcess($sDBName)
+Func DoGetListOfRelevantFiles($sDBName)
 
    ;list all the files and directories we need to scan
    ;on stdout.
@@ -1904,7 +1690,7 @@ Func DoScanWithSecondProcess($sDBName)
 	  ;_ArrayDisplay($aAllIncDirs)
 	  if Not $gcDEBUGDoNotStartSecondProcess then
 
-		 TreeClimberSecondProcess($aAllIncDirs[$i],$iPID,$aRelevantRulesForClimbTarget)
+		 TreeClimber($aAllIncDirs[$i],$iPID,$aRelevantRulesForClimbTarget)
 	  EndIf
    Next
 
@@ -1921,17 +1707,17 @@ Func DoScanWithSecondProcess($sDBName)
    EndIf
    ConsoleWrite("List:  " & Round($ScanTimer/1000) & "s" & @CRLF)
 
-   if $gcDEBUGTimeGetFileInfo = True 			then ConsoleWrite("List-GetFileInfo:         " & Round($giDEBUGTimerGetFileInfo) & @CRLF)
-   if $gcDEBUGTimeGetRuleFromRuleSet = True 	then ConsoleWrite("List-GetRuleFromRuleSet:  " & Round($giDEBUGTimerGetRuleFromRuleSet) & @CRLF)
-   if $gcDEBUGTimeIsExecutable = True 			then ConsoleWrite("List-IsExecutable:        " & Round($giDEBUGTimerIsExecutable) & @CRLF)
-   if $gcDEBUGTimeIsIncludedByRule = True 		then ConsoleWrite("List-IsIncludedByRule:    " & Round($giDEBUGTimerIsIncludedByRule) & @CRLF)
-   if $gcDEBUGTimeIsClimbTargetByRule = True 	then ConsoleWrite("List-IsClimbTargetByRule: " & Round($giDEBUGTimerIsClimbTargetByRule) & @CRLF)
-
+   if $gcDEBUGTimeGetFileInfo 					then ConsoleWrite("List-GetFileInfo:                   " & Round($giDEBUGTimerGetFileInfo) & @CRLF)
+   if $gcDEBUGTimeGetRuleFromRuleSet 			then ConsoleWrite("List-GetRuleFromRuleSet:            " & Round($giDEBUGTimerGetRuleFromRuleSet) & @CRLF)
+   if $gcDEBUGTimeIsExecutable 					then ConsoleWrite("List-IsExecutable:                  " & Round($giDEBUGTimerIsExecutable) & @CRLF)
+   if $gcDEBUGTimeIsIncludedByRule 				then ConsoleWrite("List-IsIncludedByRule:              " & Round($giDEBUGTimerIsIncludedByRule) & @CRLF)
+   if $gcDEBUGTimeIsClimbTargetByRule 			then ConsoleWrite("List-IsClimbTargetByRule:           " & Round($giDEBUGTimerIsClimbTargetByRule) & @CRLF)
+   if $gcDEBUGTimeTreeClimber_MakeValidLastChar	then ConsoleWrite("List-TreeClimber_MakeValidLastChar: " & Round($giDEBUGTimerTreeClimber_MakeValidLastChar) & @CRLF)
 
 EndFunc
 
 
-Func DoSecondProcess()
+Func DoGetFileinfosOfRelevantFiles()
 
    ;read a list with all the files and directories
    ;we need to scan from stdin and
@@ -1947,6 +1733,10 @@ Func DoSecondProcess()
    local $sTempText = ""
    local $ScanTimer = TimerInit()
    local $iIdleCounter = 0				;times we had to wait for the list process (first process)
+
+
+   ;speedup for hash caclulation in GetFileInfo()
+   _Crypt_Startup()
 
    GetRuleSetFromDB()
 
@@ -1969,12 +1759,12 @@ Func DoSecondProcess()
 	  if @extended then
 		 if $gcDEBUGOnlyShowScanBuffer then
 			StringReplace($sInputBuffer,@CRLF,"")
-			ConsoleWrite( StringFormat("** %9i **",@extended) & $sTempText & @CRLF)
+			ConsoleWrite( StringFormat("** %9i lines from List-Proc - ",@extended) & $sTempText & @CRLF)
 		 EndIf
 		 While StringInStr($sInputBuffer,@CRLF) > 0
 
 			;read and empty the buffer line by line
-			$sFullPath = StringLeft($sInputBuffer,StringInStr($sInputBuffer,@CRLF)-1)
+			$sFullPath = StringLeft($sInputBuffer,StringInStr($sInputBuffer,@CRLF,1)-1)
 
 			$sInputBuffer = StringTrimLeft($sInputBuffer,Stringlen($sFullPath)+2)
 
@@ -1983,7 +1773,7 @@ Func DoSecondProcess()
 			$sFullPath = StringTrimLeft($sFullPath,5)
 
 			;get the file information
-		    GetFileInfo($gaFileInfo,$sFullPath,Not $gaRuleData[$iRuleCounter][$gcNoHashes])
+		    GetFileInfo($gaFileInfo,$sFullPath,Not $gaRuleData[$iRuleCounter][$geRD_NoHashes],Not $gaRuleData[$iRuleCounter][$geRD_NoMD5],Not $gaRuleData[$iRuleCounter][$geRD_NoSHA1])
 
 			;list every file or directory we scan - reading is NOT scanning !!!
 			$sTempText = GetRulename($iRuleCounter) & " : " & $sFullPath
@@ -1992,10 +1782,11 @@ Func DoSecondProcess()
 			if not $gcDEBUGOnlyShowScanBuffer then ConsoleWrite($sTempText & @CRLF)
 
 			if $gbMSSQL then
-			   BufferedInsertIntoFiledataTable("('" & $giScanId & "','" & GetRuleIdFromRuleSet($iRuleCounter) & "','" & GetFilenameIDFromDB(_StringToHex($gaFileInfo[0]),_StringToHex($gaFileInfo[8])) & "','" & $gaFileInfo[1] & "','" & $gaFileInfo[2] & "','" & $gaFileInfo[3] & "','" & $gaFileInfo[4] & "','" & $gaFileInfo[5] & "','" & $gaFileInfo[6] & "','" & $gaFileInfo[7] & "','" & $gaFileInfo[9] & "','" & $gaFileInfo[10] & "','" & $gaFileInfo[11] & "','" & $gaFileInfo[13] & "','" & $gaFileInfo[14] & "','" & $gaFileInfo[15] & "','" & $gaFileInfo[16] & "','" & $gaFileInfo[17] & "','" & $gaFileInfo[18] & "','" & $gaFileInfo[19] & "','" & $gaFileInfo[20] & "','" & $gaFileInfo[21] & "')")
-			   ;_SQL_Execute(-1,"INSERT INTO [filedata] ([scanid],[ruleid],[filenameid],[status],[size],[attributes],[mtime],[ctime],[atime],[version],[crc32],[md5],[ptime],[rattrib],[aattrib],[sattrib],[hattrib],[nattrib],[dattrib],[oattrib],[cattrib],[tattrib])  values ('" & $giScanId & "','" & GetRuleIdFromRuleSet($iRuleCounter) & "','" & GetFilenameIDFromDB(_StringToHex($gaFileInfo[0]),_StringToHex($gaFileInfo[8])) & "','" & $gaFileInfo[1] & "','" & $gaFileInfo[2] & "','" & $gaFileInfo[3] & "','" & $gaFileInfo[4] & "','" & $gaFileInfo[5] & "','" & $gaFileInfo[6] & "','" & $gaFileInfo[7] & "','" & $gaFileInfo[9] & "','" & $gaFileInfo[10] & "','" & $gaFileInfo[11] & "','" & $gaFileInfo[13] & "','" & $gaFileInfo[14] & "','" & $gaFileInfo[15] & "','" & $gaFileInfo[16] & "','" & $gaFileInfo[17] & "','" & $gaFileInfo[18] & "','" & $gaFileInfo[19] & "','" & $gaFileInfo[20] & "','" & $gaFileInfo[21] & "');")
+			   BufferedInsertIntoFiledataTable("('" & $giScanId & "','" & GetRuleIdFromRuleSet($iRuleCounter) & "','" & GetFilenameIDFromDB(_StringToHex($gaFileInfo[0]),_StringToHex($gaFileInfo[8])) & "','" & $gaFileInfo[1] & "','" & $gaFileInfo[2] & "','" & $gaFileInfo[3] & "','" & $gaFileInfo[4] & "','" & $gaFileInfo[5] & "','" & $gaFileInfo[6] & "','" & $gaFileInfo[7] & "','" & $gaFileInfo[9] & "','" & $gaFileInfo[10] & "','" & $gaFileInfo[11] & "','" & $gaFileInfo[13] & "','" & $gaFileInfo[14] & "','" & $gaFileInfo[15] & "','" & $gaFileInfo[16] & "','" & $gaFileInfo[17] & "','" & $gaFileInfo[18] & "','" & $gaFileInfo[19] & "','" & $gaFileInfo[20] & "','" & $gaFileInfo[21] & "','" & $gaFileInfo[22] & "','" & $gaFileInfo[23] & "','" & $gaFileInfo[24] & "')")
+			   ;_SQL_Execute(-1,"INSERT INTO [filedata] ([scanid],[ruleid],[filenameid],[status],[size],[attributes],[mtime],[ctime],[atime],[version],[sha1],[md5],[ptime],[rattrib],[aattrib],[sattrib],[hattrib],[nattrib],[dattrib],[oattrib],[cattrib],[tattrib])  values ('" & $giScanId & "','" & GetRuleIdFromRuleSet($iRuleCounter) & "','" & GetFilenameIDFromDB(_StringToHex($gaFileInfo[0]),_StringToHex($gaFileInfo[8])) & "','" & $gaFileInfo[1] & "','" & $gaFileInfo[2] & "','" & $gaFileInfo[3] & "','" & $gaFileInfo[4] & "','" & $gaFileInfo[5] & "','" & $gaFileInfo[6] & "','" & $gaFileInfo[7] & "','" & $gaFileInfo[9] & "','" & $gaFileInfo[10] & "','" & $gaFileInfo[11] & "','" & $gaFileInfo[13] & "','" & $gaFileInfo[14] & "','" & $gaFileInfo[15] & "','" & $gaFileInfo[16] & "','" & $gaFileInfo[17] & "','" & $gaFileInfo[18] & "','" & $gaFileInfo[19] & "','" & $gaFileInfo[20] & "','" & $gaFileInfo[21] & "');")
 			Else
-			   _SQLite_Exec(-1,"INSERT INTO filedata (scanid,ruleid,filenameid,status,size,attributes,mtime,ctime,atime,version,crc32,md5,ptime,rattrib,aattrib,sattrib,hattrib,nattrib,dattrib,oattrib,cattrib,tattrib)  values ('" & $giScanId & "', '" & GetRuleIdFromRuleSet($iRuleCounter) & "', '" & GetFilenameIDFromDB(_StringToHex($gaFileInfo[0]),_StringToHex($gaFileInfo[8])) & "','" & $gaFileInfo[1] & "','" & $gaFileInfo[2] & "','" & $gaFileInfo[3] & "','" & $gaFileInfo[4] & "','" & $gaFileInfo[5] & "','" & $gaFileInfo[6] & "','" & $gaFileInfo[7] & "','" & $gaFileInfo[9] & "','" & $gaFileInfo[10] & "','" & $gaFileInfo[11] & "','" & $gaFileInfo[13] & "','" & $gaFileInfo[14] & "','" & $gaFileInfo[15] & "','" & $gaFileInfo[16] & "','" & $gaFileInfo[17] & "','" & $gaFileInfo[18] & "','" & $gaFileInfo[19] & "','" & $gaFileInfo[20] & "','" & $gaFileInfo[21] & "');")
+			   _SQLite_Exec(-1,"INSERT INTO filedata (scanid,ruleid,filenameid,status,size,attributes,mtime,ctime,atime,version,sha1,md5,ptime,rattrib,aattrib,sattrib,hattrib,nattrib,dattrib,oattrib,cattrib,tattrib,volume,links,fileid)  values ('" & $giScanId & "', '" & GetRuleIdFromRuleSet($iRuleCounter) & "', '" & GetFilenameIDFromDB(_StringToHex($gaFileInfo[0]),_StringToHex($gaFileInfo[8])) & "','" & $gaFileInfo[1] & "','" & $gaFileInfo[2] & "','" & $gaFileInfo[3] & "','" & $gaFileInfo[4] & "','" & $gaFileInfo[5] & "','" & $gaFileInfo[6] & "','" & $gaFileInfo[7] & "','" & $gaFileInfo[9] & "','" & $gaFileInfo[10] & "','" & $gaFileInfo[11] & "','" & $gaFileInfo[13] & "','" & $gaFileInfo[14] & "','" & $gaFileInfo[15] & "','" & $gaFileInfo[16] & "','" & $gaFileInfo[17] & "','" & $gaFileInfo[18] & "','" & $gaFileInfo[19] & "','" & $gaFileInfo[20] & "','" & $gaFileInfo[21] & "','" & $gaFileInfo[22] & "','" & $gaFileInfo[23] & "','" & $gaFileInfo[24] & "');")
+
 			EndIf
 
 		 WEnd
@@ -2012,25 +1803,27 @@ Func DoSecondProcess()
    ;flush the buffer
    if $gbMSSQL then BufferedInsertIntoFiledataTable("")
 
+   ;cleanup from hash caclulation in GetFileInfo()
+   _Crypt_Shutdown()
+
    ConsoleWrite("Scan:  " & Round((TimerDiff($ScanTimer) - $iIdleCounter*1000)/1000) & "s" & @CRLF)
    ConsoleWrite("Total: " & Round(TimerDiff($ScanTimer)/1000) & "s" & @CRLF)
 
-   if $gcDEBUGTimeGetFileInfo = True 								then ConsoleWrite("Scan-GetFileInfo:                     " & Round($giDEBUGTimerGetFileInfo) & @CRLF)
+   if $gcDEBUGTimeGetFileInfo 								then ConsoleWrite("Scan-GetFileInfo:                     " & Round($giDEBUGTimerGetFileInfo) & @CRLF)
 
-   if $gcDEBUGTimeGetFileInfo_GetFileInformationByHandle = True		then ConsoleWrite("Scan-GetFileInfo_GetFileInfoByHandle: " & Round($giDEBUGTimerGetFileInfo_GetFileInformationByHandle) & @CRLF)
-   if $gcDEBUGTimeGetFileInfo_FileGetAttrib = True					then ConsoleWrite("Scan-GetFileInfo_FileGetAttrib:       " & Round($giDEBUGTimerGetFileInfo_FileGetAttrib) & @CRLF)
-   if $gcDEBUGTimeGetFileInfo_FileGetTime = True					then ConsoleWrite("Scan-GetFileInfo_FileGetTime:         " & Round($giDEBUGTimerGetFileInfo_FileGetTime) & @CRLF)
-   if $gcDEBUGTimeGetFileInfo_FileGetVersion = True					then ConsoleWrite("Scan-GetFileInfo_FileGetVersion:      " & Round($giDEBUGTimerGetFileInfo_FileGetVersion) & @CRLF)
-   if $gcDEBUGTimeGetFileInfo_FileGetShortName = True				then ConsoleWrite("Scan-GetFileInfo_FileGetShortName:    " & Round($giDEBUGTimerGetFileInfo_FileGetShortName) & @CRLF)
-   if $gcDEBUGTimeGetFileInfo_CalcHashes = True						then ConsoleWrite("Scan-GetFileInfo_CalcHashes:          " & Round($giDEBUGTimerGetFileInfo_CalcHashes) & @CRLF)
+   if $gcDEBUGTimeGetFileInfo_GetFileInformationByHandle	then ConsoleWrite("Scan-GetFileInfo_GetFileInfoByHandle: " & Round($giDEBUGTimerGetFileInfo_GetFileInformationByHandle) & @CRLF)
+   if $gcDEBUGTimeGetFileInfo_FileGetAttrib					then ConsoleWrite("Scan-GetFileInfo_FileGetAttrib:       " & Round($giDEBUGTimerGetFileInfo_FileGetAttrib) & @CRLF)
+   if $gcDEBUGTimeGetFileInfo_FileGetTime					then ConsoleWrite("Scan-GetFileInfo_FileGetTime:         " & Round($giDEBUGTimerGetFileInfo_FileGetTime) & @CRLF)
+   if $gcDEBUGTimeGetFileInfo_FileGetVersion				then ConsoleWrite("Scan-GetFileInfo_FileGetVersion:      " & Round($giDEBUGTimerGetFileInfo_FileGetVersion) & @CRLF)
+   if $gcDEBUGTimeGetFileInfo_FileGetShortName				then ConsoleWrite("Scan-GetFileInfo_FileGetShortName:    " & Round($giDEBUGTimerGetFileInfo_FileGetShortName) & @CRLF)
+   if $gcDEBUGTimeGetFileInfo_CalcHashes					then ConsoleWrite("Scan-GetFileInfo_CalcHashes:          " & Round($giDEBUGTimerGetFileInfo_CalcHashes) & @CRLF)
 
-
-   if $gcDEBUGTimeGetRuleFromRuleSet = True 				then ConsoleWrite("Scan-GetRuleFromRuleSet:              " & Round($giDEBUGTimerGetRuleFromRuleSet) & @CRLF)
-   if $gcDEBUGTimeIsExecutable = True 						then ConsoleWrite("Scan-IsExecutable:                    " & Round($giDEBUGTimerIsExecutable) & @CRLF)
-   if $gcDEBUGTimeIsIncludedByRule = True 					then ConsoleWrite("Scan-IsIncludedByRule:                " & Round($giDEBUGTimerIsIncludedByRule) & @CRLF)
-   if $gcDEBUGTimeIsClimbTargetByRule = True 				then ConsoleWrite("Scan-IsClimbTargetByRule:             " & Round($giDEBUGTimerIsClimbTargetByRule) & @CRLF)
-   if $gcDEBUGTimeBufferedInsertIntoFiledataTable = True 	then ConsoleWrite("Scan-BufferedInsertIntoFiledataTable: " & Round($giDEBUGTimerBufferedInsertIntoFiledataTable) & @CRLF)
-   if $gcDEBUGTimeGetFilenameIDFromDB = True 				then ConsoleWrite("Scan-GetFilenameIDFromDB:             " & Round($giDEBUGTimerGetFilenameIDFromDB) & @CRLF)
+   if $gcDEBUGTimeGetRuleFromRuleSet 				then ConsoleWrite("Scan-GetRuleFromRuleSet:              " & Round($giDEBUGTimerGetRuleFromRuleSet) & @CRLF)
+   if $gcDEBUGTimeIsExecutable 						then ConsoleWrite("Scan-IsExecutable:                    " & Round($giDEBUGTimerIsExecutable) & @CRLF)
+   if $gcDEBUGTimeIsIncludedByRule 					then ConsoleWrite("Scan-IsIncludedByRule:                " & Round($giDEBUGTimerIsIncludedByRule) & @CRLF)
+   if $gcDEBUGTimeIsClimbTargetByRule 				then ConsoleWrite("Scan-IsClimbTargetByRule:             " & Round($giDEBUGTimerIsClimbTargetByRule) & @CRLF)
+   if $gcDEBUGTimeBufferedInsertIntoFiledataTable 	then ConsoleWrite("Scan-BufferedInsertIntoFiledataTable: " & Round($giDEBUGTimerBufferedInsertIntoFiledataTable) & @CRLF)
+   if $gcDEBUGTimeGetFilenameIDFromDB 				then ConsoleWrite("Scan-GetFilenameIDFromDB:             " & Round($giDEBUGTimerGetFilenameIDFromDB) & @CRLF)
 
 EndFunc
 
@@ -2116,7 +1909,7 @@ Func DoShowHelp()
    $sText &= @CRLF
    $sText &= @ScriptName & " /duplicates DB SCANNAME" & @CRLF
    $sText &= @ScriptName & " /duplicates c:\test.sqlite last" & @CRLF
-   $sText &= "Write a list with duplicate files based on size, crc32 and md5 in scan SCANNAME to stdout." & @CRLF
+   $sText &= "Write a list with duplicate files based on size, sha1 and md5 in scan SCANNAME to stdout." & @CRLF
    $sText &= "SCANNAME is either an existing scan or a SPECIAL_SCANNAME. If scan is a SPECIAL_SCANNAME" & @CRLF
    $sText &= "only the first scan of the selected scans is used." & @CRLF
    $sText &= @CRLF
@@ -2222,8 +2015,11 @@ Func DoShowHelp()
    $sText &= "                       only directories" & @CRLF
    $sText &= "IncDirs                include information on directories." & @CRLF
    $sText &= "                       By default no information on directories is included." & @CRLF
-   $sText &= "NoHashes				 no CRC32 and MD5 hashes are calculated. This is faster," & @CRLF
+   $sText &= "NoHashes				 no SHA1 and MD5 hashes are calculated. This is faster," & @CRLF
    $sText &= "                       but changes in a file can not be detected." & @CRLF
+   $sText &= "                       It is the same as NoMD5 AND NoSHA1." & @CRLF
+   $sText &= "NoMD5                  no MD5 hashes are calculated. This is slower than NoSHA1." & @CRLF
+   $sText &= "NoSHA1                 no SHA1 hashes are calculated. This is faster than NoMD5." & @CRLF
    $sText &= "Ign:FILEPROPERTIY      ignore changes to this file property." & @CRLF
    $sText &= "End                    end of rule" & @CRLF
    $sText &= "" & @CRLF
@@ -2247,8 +2043,8 @@ Func DoShowHelp()
    $sText &= '                       ctime     creation time' & @CRLF
    $sText &= '                       atime     access time' & @CRLF
    $sText &= '                       version   file version' & @CRLF
-   $sText &= '                       crc32     crc32 checksum' & @CRLF
-   $sText &= '                       md5       md5 checksum' & @CRLF
+   $sText &= '                       sha1      sha1 hash' & @CRLF
+   $sText &= '                       md5       md5 hash' & @CRLF
    $sText &= '                       rattrib   read only attribute' & @CRLF
    $sText &= '                       aattrib   archive attribute' & @CRLF
    $sText &= '                       sattrib   system attribute' & @CRLF
@@ -2258,8 +2054,10 @@ Func DoShowHelp()
    $sText &= '                       oattrib   offline attribute' & @CRLF
    $sText &= '                       cattrib   compressed attribute' & @CRLF
    $sText &= '                       tattrib   temporary attribute' & @CRLF
+   $sText &= '                       volume    serial number of the volume that contains a file' & @CRLF
+   $sText &= '                       links     number of links to this file' & @CRLF
+   $sText &= '                       fileid    unique identifier that is associated with a file' & @CRLF
    $sText &= '                       e.g.: mtime,size,aattrib,nATTRIB,aAttrib' & @CRLF
-
 
    $sText &= "RULENAME               name of rule" & @CRLF
    $sText &= "                       e.g.: My first Rule" & @CRLF
@@ -2448,13 +2246,13 @@ Func BufferedInsertIntoFiledataTable($sSQLValues = "")
    ;Buffer for sql data inserts into filedata
    ;if $sSQLValues = "" then the buffer will be commited to the database
    ;$sSQLValues is one line in round brackets like:
-   ;"(SCANID,RULEID,FILENAMEID,STATUS,SIZE,ATTRIBUTES,MTIME,CTIME,ATIME,VERSION,CRC32,MD5,PTIME,RATTRIB,AATTRIB,SATTRIB,HATTRIB,NATTRIB,DATTRIB,OATTRIB,CATTRIB,TATTRIB)"
+   ;"(SCANID,RULEID,FILENAMEID,STATUS,SIZE,ATTRIBUTES,MTIME,CTIME,ATIME,VERSION,SHA1,MD5,PTIME,RATTRIB,AATTRIB,SATTRIB,HATTRIB,NATTRIB,DATTRIB,OATTRIB,CATTRIB,TATTRIB,volume,links,fileid)"
    ;---------------------------------------
 
 #cs
-   _SQL_Execute(-1,"INSERT INTO [filedata] ([scanid],[ruleid],[filenameid],[status],[size],[attributes],[mtime],[ctime],[atime],[version],[crc32],[md5],[ptime],[rattrib],[aattrib],[sattrib],[hattrib],[nattrib],[dattrib],[oattrib],[cattrib],[tattrib])  values ('" & $giScanId & "','" & GetRuleIdFromRuleSet($iRuleCounter) & "','" & GetFilenameIDFromDB(_StringToHex($gaFileInfo[0]),_StringToHex($gaFileInfo[8])) & "','" & $gaFileInfo[1] & "','" & $gaFileInfo[2] & "','" & $gaFileInfo[3] & "','" & $gaFileInfo[4] & "','" & $gaFileInfo[5] & "','" & $gaFileInfo[6] & "','" & $gaFileInfo[7] & "','" & $gaFileInfo[9] & "','" & $gaFileInfo[10] & "','" & $gaFileInfo[11] & "','" & $gaFileInfo[13] & "','" & $gaFileInfo[14] & "','" & $gaFileInfo[15] & "','" & $gaFileInfo[16] & "','" & $gaFileInfo[17] & "','" & $gaFileInfo[18] & "','" & $gaFileInfo[19] & "','" & $gaFileInfo[20] & "','" & $gaFileInfo[21] & "');")
+   _SQL_Execute(-1,"INSERT INTO [filedata] ([scanid],[ruleid],[filenameid],[status],[size],[attributes],[mtime],[ctime],[atime],[version],[sha1],[md5],[ptime],[rattrib],[aattrib],[sattrib],[hattrib],[nattrib],[dattrib],[oattrib],[cattrib],[tattrib])  values ('" & $giScanId & "','" & GetRuleIdFromRuleSet($iRuleCounter) & "','" & GetFilenameIDFromDB(_StringToHex($gaFileInfo[0]),_StringToHex($gaFileInfo[8])) & "','" & $gaFileInfo[1] & "','" & $gaFileInfo[2] & "','" & $gaFileInfo[3] & "','" & $gaFileInfo[4] & "','" & $gaFileInfo[5] & "','" & $gaFileInfo[6] & "','" & $gaFileInfo[7] & "','" & $gaFileInfo[9] & "','" & $gaFileInfo[10] & "','" & $gaFileInfo[11] & "','" & $gaFileInfo[13] & "','" & $gaFileInfo[14] & "','" & $gaFileInfo[15] & "','" & $gaFileInfo[16] & "','" & $gaFileInfo[17] & "','" & $gaFileInfo[18] & "','" & $gaFileInfo[19] & "','" & $gaFileInfo[20] & "','" & $gaFileInfo[21] & "');")
    "INSERT INTO [filedata]
-   ([scanid],[ruleid],[filenameid],[status],[size],[attributes],[mtime],[ctime],[atime],[version],[crc32],[md5],[ptime],[rattrib],[aattrib],[sattrib],[hattrib],[nattrib],[dattrib],[oattrib],[cattrib],[tattrib])
+   ([scanid],[ruleid],[filenameid],[status],[size],[attributes],[mtime],[ctime],[atime],[version],[sha1],[md5],[ptime],[rattrib],[aattrib],[sattrib],[hattrib],[nattrib],[dattrib],[oattrib],[cattrib],[tattrib])
    values
    ('" & $giScanId & "','" & GetRuleIdFromRuleSet($iRuleCounter) & "','" & GetFilenameIDFromDB(_StringToHex($gaFileInfo[0]),_StringToHex($gaFileInfo[8])) & "','" & $gaFileInfo[1] & "','" & $gaFileInfo[2] & "','" & $gaFileInfo[3] & "','" & $gaFileInfo[4] & "','" & $gaFileInfo[5] & "','" & $gaFileInfo[6] & "','" & $gaFileInfo[7] & "','" & $gaFileInfo[9] & "','" & $gaFileInfo[10] & "','" & $gaFileInfo[11] & "','" & $gaFileInfo[13] & "','" & $gaFileInfo[14] & "','" & $gaFileInfo[15] & "','" & $gaFileInfo[16] & "','" & $gaFileInfo[17] & "','" & $gaFileInfo[18] & "','" & $gaFileInfo[19] & "','" & $gaFileInfo[20] & "','" & $gaFileInfo[21] & "')
    ;"
@@ -2464,7 +2262,7 @@ Func BufferedInsertIntoFiledataTable($sSQLValues = "")
 
    if $gbMSSQL then
 	  Static local $lssInsertBuffer = ""
-	  Local Const  $lcsInsertBufferDefault = "INSERT INTO [filedata] ([scanid],[ruleid],[filenameid],[status],[size],[attributes],[mtime],[ctime],[atime],[version],[crc32],[md5],[ptime],[rattrib],[aattrib],[sattrib],[hattrib],[nattrib],[dattrib],[oattrib],[cattrib],[tattrib])  values "
+	  Local Const  $lcsInsertBufferDefault = "INSERT INTO [filedata] ([scanid],[ruleid],[filenameid],[status],[size],[attributes],[mtime],[ctime],[atime],[version],[sha1],[md5],[ptime],[rattrib],[aattrib],[sattrib],[hattrib],[nattrib],[dattrib],[oattrib],[cattrib],[tattrib],[volume],[links],[fileid])  values "
 	  ;Static local $lsiHasValues = False
 	  ;Local Const  $lciBufferThreshold = 2*1024*1024
 	  ;Local Const  $lciBufferThreshold = 10*1024
@@ -2477,6 +2275,12 @@ Func BufferedInsertIntoFiledataTable($sSQLValues = "")
 			;force buffer flush to database
 			if $gcDEBUGShowMSSQLInsertBufferFlushes then ConsoleWrite("Insert Buffer: forced flush - " & $lsiBufferValueLines & " lines " & @CRLF)
 			_SQL_Execute(-1,$lssInsertBuffer & ";")
+			#cs
+			if @error then
+			   ConsoleWrite("## MSSQL ERROR:" & _SQL_GetErrMsg() & @CRLF)
+			   FileWrite("sqlerror.log",$lssInsertBuffer & @CRLF)
+			EndIf
+			#ce
 			$lssInsertBuffer = $lcsInsertBufferDefault
 			;$lsiHasValues = False
 			$lsiBufferValueLines = 0
@@ -2488,6 +2292,12 @@ Func BufferedInsertIntoFiledataTable($sSQLValues = "")
 			if $gcDEBUGShowMSSQLInsertBufferFlushes then ConsoleWrite("Insert Buffer: flush - " & $lsiBufferValueLines & " lines " & @CRLF)
 			;ConsoleWrite($lssInsertBuffer & "," & $sSQLValues & ";" & @CRLF)
 			_SQL_Execute(-1,$lssInsertBuffer & "," & $sSQLValues & ";")
+			#cs
+			if @error then
+			   ConsoleWrite("## MSSQL ERROR:" & _SQL_GetErrMsg() & @CRLF)
+			   FileWrite("sqlerror.log",$lssInsertBuffer & @CRLF)
+			EndIf
+			#ce
 			$lssInsertBuffer = $lcsInsertBufferDefault
 			;$lsiHasValues = False
 			$lsiBufferValueLines = 0
@@ -2577,7 +2387,7 @@ Func GetRuleSetFromDB()
 
    dim $gaRuleSet[1][3]			;reset/clear $gaRuleSet
    dim $gaRuleStart[1]   		;reset/clear
-   dim $gaRuleData[1][9]	    ;reset/clear
+   dim $gaRuleData[1][$geRDMax] ;reset/clear
 
 
 
@@ -2611,31 +2421,6 @@ Func GetRuleSetFromDB()
 
 		 ;Output line of rule
 		 ;ConsoleWrite($sTempCfgLine & @CRLF)
-		 #cs
-		 file format config.cfg
-
-		 Rule:RULENAME			;name of rule
-		 IncDirRec:PATH			;directory to include, including all subdirectories
-		 ExcDirRec:PATH			;directory to exclude, including all subdirectories
-		 IncDir:PATH			;directory to include, only this directory
-		 ExcDir:PATH			;directory to exclude, only this directory
-		 IncExt:FILEEXTENTION	;file extention to include
-		 ExcExt:FILEEXTENTION	;file extention to exclude
-		 IncExe					;all executable files, no matter what the extention is
-		 IncAll					;all files, no matter what the extention is aka *.*
-		 ExcExe					;no executable files, no matter what the extention is
-		 ExcAll					;no files, no matter what the extention is aka *.*, only directories
-		 End
-
-		 EmailFrom:EMAILADDRESS			;sender email address
-		 EmailTo:EMAILADDRESS			;recipient email address
-		 EmailSubject:SUBJECT			;email subject
-		 EmailServer:SMTPSERVERNAME		;name of smtp server (hostname or ip-address)
-		 EmailPort:SMTPPORT				;smtp port on SMTPSERVERNAME, defaults to 25
-
-		 #ce
-
-
 
 		 ;strip whitespaces at begin and end of line
 		 $sTempCfgLine = StringStripWS($sTempCfgLine,$STR_STRIPLEADING + $STR_STRIPTRAILING)
@@ -2666,16 +2451,19 @@ Func GetRuleSetFromDB()
 			   redim $gaRuleStart[UBound($gaRuleStart)+1]
 			   $gaRuleStart[$iRuleCount] = UBound($gaRuleSet,1)
 
-			   redim $gaRuleData[UBound($gaRuleData,1)+1][9]
-			   $gaRuleData[$iRuleCount][$gcIncExt] = "."
-			   $gaRuleData[$iRuleCount][$gcExcExt] = "."
-			   $gaRuleData[$iRuleCount][$gcIncExe] = False
-			   $gaRuleData[$iRuleCount][$gcExcExe] = False
-			   $gaRuleData[$iRuleCount][$gcIncAll] = False
-			   $gaRuleData[$iRuleCount][$gcExcAll] = False
-			   $gaRuleData[$iRuleCount][$gcNoHashes] = False
-			   $gaRuleData[$iRuleCount][$gcIncDirs] = False
-			   $gaRuleData[$iRuleCount][$gcHasExcDir] = False
+			   redim $gaRuleData[UBound($gaRuleData,1)+1][$geRDMax]
+			   $gaRuleData[$iRuleCount][$geRD_IncExt] = "."
+			   $gaRuleData[$iRuleCount][$geRD_IncExtLC] = ""
+			   $gaRuleData[$iRuleCount][$geRD_ExcExt] = "."
+			   $gaRuleData[$iRuleCount][$geRD_IncExe] = False
+			   $gaRuleData[$iRuleCount][$geRD_ExcExe] = False
+			   $gaRuleData[$iRuleCount][$geRD_IncAll] = False
+			   $gaRuleData[$iRuleCount][$geRD_ExcAll] = False
+			   $gaRuleData[$iRuleCount][$geRD_NoHashes] = False
+			   $gaRuleData[$iRuleCount][$geRD_NoMD5] = False
+			   $gaRuleData[$iRuleCount][$geRD_NoSHA1] = False
+			   $gaRuleData[$iRuleCount][$geRD_IncDirs] = False
+			   $gaRuleData[$iRuleCount][$geRD_HasExcDir] = False
 
 			   InsertStatementInRuleSet(1,"Rule:",$sTempCfgLine,$iRuleCurrent)
 #cs
@@ -2703,7 +2491,7 @@ Func GetRuleSetFromDB()
 			   $gaRuleSetLineDirStringLenPlusOne[UBound($gaRuleSet,1)-1]=StringLen($gaRuleSet[UBound($gaRuleSet,1)-1][1])+1
 
 			   ;there is a "ExcDirRec:" statement in the rule
-			   $gaRuleData[$iRuleCurrent][$gcHasExcDir]=True
+			   $gaRuleData[$iRuleCurrent][$geRD_HasExcDir]=True
 			Case stringleft($sTempCfgLine,stringlen("IncDir:")) = "IncDir:"
 			   InsertStatementInRuleSet(2,"IncDir:",$sTempCfgLine,$iRuleCurrent)
 
@@ -2728,24 +2516,31 @@ Func GetRuleSetFromDB()
 			   $gaRuleSetLineBackslashCount[UBound($gaRuleSet,1)-1]=@extended
 
 			   ;there is a "ExcDir:" statement in the rule
-			   $gaRuleData[$iRuleCurrent][$gcHasExcDir]=True
+			   $gaRuleData[$iRuleCurrent][$geRD_HasExcDir]=True
 			Case stringleft($sTempCfgLine,stringlen("IncExt:")) = "IncExt:"
-			   $gaRuleData[$iRuleCurrent][$gcIncExt] &= StringTrimLeft($sTempCfgLine,stringlen("IncExt:")) & "."
+			   $gaRuleData[$iRuleCurrent][$geRD_IncExt] &= StringTrimLeft($sTempCfgLine,stringlen("IncExt:")) & "."
+			   $gaRuleData[$iRuleCurrent][$geRD_IncExtLC] &= StringRight(StringTrimLeft($sTempCfgLine,stringlen("IncExt:")),1)
 			Case stringleft($sTempCfgLine,stringlen("ExcExt:")) = "ExcExt:"
-			   $gaRuleData[$iRuleCurrent][$gcExcExt] &= StringTrimLeft($sTempCfgLine,stringlen("ExcExt:")) & "."
+			   $gaRuleData[$iRuleCurrent][$geRD_ExcExt] &= StringTrimLeft($sTempCfgLine,stringlen("ExcExt:")) & "."
 			Case StringStripWS($sTempCfgLine,$STR_STRIPALL ) = "IncExe"
-			   $gaRuleData[$iRuleCurrent][$gcIncExe]=True
+			   $gaRuleData[$iRuleCurrent][$geRD_IncExe]=True
 			Case StringStripWS($sTempCfgLine,$STR_STRIPALL ) = "ExcExe"
-			   $gaRuleData[$iRuleCurrent][$gcExcExe]=True
+			   $gaRuleData[$iRuleCurrent][$geRD_ExcExe]=True
 			Case StringStripWS($sTempCfgLine,$STR_STRIPALL ) = "IncAll"
-			   $gaRuleData[$iRuleCurrent][$gcIncAll]=True
+			   $gaRuleData[$iRuleCurrent][$geRD_IncAll]=True
 			Case StringStripWS($sTempCfgLine,$STR_STRIPALL ) = "ExcAll"
-			   $gaRuleData[$iRuleCurrent][$gcExcAll]=True
+			   $gaRuleData[$iRuleCurrent][$geRD_ExcAll]=True
 			Case StringStripWS($sTempCfgLine,$STR_STRIPALL ) = "IncDirs"
-			   $gaRuleData[$iRuleCurrent][$gcIncDirs]=True
+			   $gaRuleData[$iRuleCurrent][$geRD_IncDirs]=True
 
 			Case StringStripWS($sTempCfgLine,$STR_STRIPALL ) = "NoHashes"
-			   $gaRuleData[$iRuleCurrent][$gcNoHashes]=True
+			   $gaRuleData[$iRuleCurrent][$geRD_NoHashes]=True
+			   $gaRuleData[$iRuleCurrent][$geRD_NoMD5]=True
+			   $gaRuleData[$iRuleCurrent][$geRD_NoSHA1]=True
+			Case StringStripWS($sTempCfgLine,$STR_STRIPALL ) = "NoMD5"
+			   $gaRuleData[$iRuleCurrent][$geRD_NoMD5]=True
+			Case StringStripWS($sTempCfgLine,$STR_STRIPALL ) = "NoSHA1"
+			   $gaRuleData[$iRuleCurrent][$geRD_NoSHA1]=True
 
 
 
@@ -3251,22 +3046,15 @@ Func OpenDBMSSQL($sDBINIFilename)
 
 
    ;create new db structure if needed
-   #cs
-   $bTableExists = False
-   for $sTablename in $aQueryResult
-	  if $sTablename = "config" then
-		 $bTableExists = True
-		 ExitLoop
-	  EndIf
-   Next
-   ;if not $bTableExists then _SQL_Execute(-1,"CREATE TABLE [config] ([linenumber] INTEGER IDENTITY(1,1)  ,[line] VARCHAR NULL  ,CONSTRAINT [config_PRIMARY]  PRIMARY KEY  NONCLUSTERED  ([linenumber])); ")
-   #ce
    _SQL_Execute(-1,"IF OBJECT_ID ('config', 'Table') IS NULL CREATE TABLE [config] ([linenumber] INTEGER IDENTITY(1,1)  ,[line] VARCHAR NULL  ,CONSTRAINT [config_PRIMARY]  PRIMARY KEY  NONCLUSTERED  ([linenumber])); ")
    _SQL_Execute(-1,"IF OBJECT_ID ('scans', 'Table') IS NULL CREATE TABLE [scans] ([scanid] INTEGER IDENTITY(1,1)  ,[scantime] char(14) NULL  ,[valid] INTEGER NULL  DEFAULT 0 ,CONSTRAINT [scans_PRIMARY]  PRIMARY KEY  NONCLUSTERED  ([scanid]));")
    _SQL_Execute(-1,"IF OBJECT_ID ('rules', 'Table') IS NULL CREATE TABLE [rules] ([ruleid] INTEGER IDENTITY(1,1)  ,[rulename] varchar(255)  ,CONSTRAINT [rules_PRIMARY]  PRIMARY KEY  NONCLUSTERED  ([ruleid]));")
    ;_SQL_Execute(-1,"IF OBJECT_ID ('filenames', 'Table') IS NULL CREATE TABLE [filenames] ([filenameid] INTEGER IDENTITY(1,1)  ,[path] varchar(1024) NULL  ,[spath] varchar(512) NULL  );")
    _SQL_Execute(-1,"IF OBJECT_ID ('filenames', 'Table') IS NULL CREATE TABLE [filenames] ([filenameid] INTEGER IDENTITY(1,1)  ,[path] varchar(1024) NOT NULL DEFAULT '' ,[spath] varchar(512) NOT NULL DEFAULT '' ,CONSTRAINT [filenames_PRIMARY]  PRIMARY KEY  NONCLUSTERED  ([path],[spath]) );")
-   _SQL_Execute(-1,"IF OBJECT_ID ('filedata', 'Table') IS NULL CREATE TABLE [filedata] ([scanid] INTEGER NOT NULL  DEFAULT 0 ,[ruleid] INTEGER NOT NULL  DEFAULT 0 ,[filenameid] INTEGER NOT NULL  DEFAULT 0 ,[status] INTEGER NULL  DEFAULT 0 ,[size] INTEGER NULL  DEFAULT 0 ,[attributes] CHAR(1) NULL  ,[mtime] CHAR(14) NULL  ,[ctime] CHAR(14) NULL  ,[atime] CHAR(14) NULL  ,[version] VARCHAR(80) NULL  ,[crc32] varchar(35) NULL  ,[md5] varchar(35) NULL  ,[ptime] INTEGER NULL  ,[rattrib] INTEGER NULL  DEFAULT 0 ,[aattrib] INTEGER NULL  DEFAULT 0 ,[sattrib] INTEGER NULL  DEFAULT 0 ,[hattrib] INTEGER NULL  DEFAULT 0 ,[nattrib] INTEGER NULL  DEFAULT 0 ,[dattrib] INTEGER NULL  DEFAULT 0 ,[oattrib] INTEGER NULL  DEFAULT 0 ,[cattrib] INTEGER NULL  DEFAULT 0 ,[tattrib] INTEGER NULL  DEFAULT 0 ,CONSTRAINT [filedata_PRIMARY]  PRIMARY KEY  NONCLUSTERED  ([scanid],[ruleid],[filenameid]));")
+   _SQL_Execute(-1,"IF OBJECT_ID ('filedata', 'Table') IS NULL CREATE TABLE [filedata] ([scanid] INTEGER NOT NULL  DEFAULT 0 ,[ruleid] INTEGER NOT NULL  DEFAULT 0 ,[filenameid] INTEGER NOT NULL  DEFAULT 0 ,[status] INTEGER NULL  DEFAULT 0 ,[size] BIGINT NULL  DEFAULT 0 ,[attributes] CHAR(1) NULL  ,[mtime] CHAR(14) NULL  ,[ctime] CHAR(14) NULL  ,[atime] CHAR(14) NULL  ,[version] VARCHAR(80) NULL  ,[sha1] varchar(43) NULL  ,[md5] varchar(35) NULL  ,[ptime] INTEGER NULL  ,[rattrib] INTEGER NULL  DEFAULT 0 ,[aattrib] INTEGER NULL  DEFAULT 0 ,[sattrib] INTEGER NULL  DEFAULT 0 ,[hattrib] INTEGER NULL  DEFAULT 0 ,[nattrib] INTEGER NULL  DEFAULT 0 ,[dattrib] INTEGER NULL  DEFAULT 0 ,[oattrib] INTEGER NULL  DEFAULT 0 ,[cattrib] INTEGER NULL  DEFAULT 0 ,[tattrib] INTEGER NULL  DEFAULT 0,[volume] bigint NULL  DEFAULT 0, [links] bigint NULL  DEFAULT 0, [fileid] bigint NULL  DEFAULT 0 ,CONSTRAINT [filedata_PRIMARY]  PRIMARY KEY  NONCLUSTERED  ([scanid],[ruleid],[filenameid]));")
+   ;_SQL_Execute(-1,"IF OBJECT_ID ('filedata', 'Table') IS NULL CREATE TABLE [filedata] ([scanid] INTEGER NOT NULL  DEFAULT 0 ,[ruleid] INTEGER NOT NULL  DEFAULT 0 ,[filenameid] INTEGER NOT NULL  DEFAULT 0 ,[status] INTEGER NULL  DEFAULT 0 ,[size] INTEGER NULL  DEFAULT 0 ,[attributes] CHAR(1) NULL  ,[mtime] CHAR(14) NULL  ,[ctime] CHAR(14) NULL  ,[atime] CHAR(14) NULL  ,[version] VARCHAR(80) NULL  ,[sha1] varchar(43) NULL  ,[md5] varchar(35) NULL  ,[ptime] INTEGER NULL  ,[rattrib] INTEGER NULL  DEFAULT 0 ,[aattrib] INTEGER NULL  DEFAULT 0 ,[sattrib] INTEGER NULL  DEFAULT 0 ,[hattrib] INTEGER NULL  DEFAULT 0 ,[nattrib] INTEGER NULL  DEFAULT 0 ,[dattrib] INTEGER NULL  DEFAULT 0 ,[oattrib] INTEGER NULL  DEFAULT 0 ,[cattrib] INTEGER NULL  DEFAULT 0 ,[tattrib] INTEGER NULL  DEFAULT 0,[volume] INTEGER NULL  DEFAULT 0, [links] INTEGER NULL  DEFAULT 0, [fileid] INTEGER NULL  DEFAULT 0 ,CONSTRAINT [filedata_PRIMARY]  PRIMARY KEY  NONCLUSTERED  ([scanid],[ruleid],[filenameid]));")
+
+
 
 
    Return True
@@ -3310,14 +3098,13 @@ Func OpenDBSQLite($sDBName)
    ;create new db structure if needed
    _SQLite_Exec(-1,"CREATE TABLE IF NOT EXISTS config (linenumber INTEGER PRIMARY KEY AUTOINCREMENT, line );")
 
-   ;_SQLite_Exec(-1,"CREATE TABLE IF NOT EXISTS files (scantime,name,status,size,attributes,mtime,ctime,atime,version,spath,crc32,md5,ptime,rulename, PRIMARY KEY(scantime,name));")
+   ;_SQLite_Exec(-1,"CREATE TABLE IF NOT EXISTS files (scantime,name,status,size,attributes,mtime,ctime,atime,version,spath,sha1,md5,ptime,rulename, PRIMARY KEY(scantime,name));")
    ;_SQLite_Exec(-1,"CREATE TABLE IF NOT EXISTS files (scanid not null,ruleid not null,filenameid not null );")
    _SQLite_Exec(-1,"CREATE TABLE IF NOT EXISTS scans (scanid INTEGER PRIMARY KEY AUTOINCREMENT, scantime, valid INTEGER);")
    _SQLite_Exec(-1,"CREATE TABLE IF NOT EXISTS rules (ruleid INTEGER PRIMARY KEY AUTOINCREMENT, rulename );")
    ;_SQLite_Exec(-1,"CREATE TABLE IF NOT EXISTS filenames (filenameid INTEGER PRIMARY KEY AUTOINCREMENT, path, spath, filename );")
    _SQLite_Exec(-1,"CREATE TABLE IF NOT EXISTS filenames (filenameid INTEGER PRIMARY KEY AUTOINCREMENT, path, spath );")
-   _SQLite_Exec(-1,"CREATE TABLE IF NOT EXISTS filedata (scanid INTEGER NOT NULL,ruleid INTEGER NOT NULL,filenameid INTEGER NOT NULL, status INTEGER,size INTEGER,attributes,mtime,ctime,atime,version,crc32,md5,ptime,rattrib INTEGER,aattrib INTEGER,sattrib INTEGER,hattrib INTEGER,nattrib INTEGER,dattrib INTEGER,oattrib INTEGER,cattrib INTEGER,tattrib INTEGER, PRIMARY KEY(scanid,ruleid,filenameid) );")
-
+   _SQLite_Exec(-1,"CREATE TABLE IF NOT EXISTS filedata (scanid INTEGER NOT NULL,ruleid INTEGER NOT NULL,filenameid INTEGER NOT NULL, status INTEGER,size INTEGER,attributes,mtime,ctime,atime,version,sha1,md5,ptime,rattrib INTEGER,aattrib INTEGER,sattrib INTEGER,hattrib INTEGER,nattrib INTEGER,dattrib INTEGER,oattrib INTEGER,cattrib INTEGER,tattrib INTEGER,volume INTEGER, links INTEGER, fileid INTEGER, PRIMARY KEY(scanid,ruleid,filenameid) );")
    ;_SQLite_Exec(-1,"CREATE INDEX IF NOT EXISTS config_index ON config (linenumber);")
    _SQLite_Exec(-1,"CREATE INDEX IF NOT EXISTS filenames_path ON filenames (path);")
    ;_SQLite_Exec(-1,"CREATE INDEX IF NOT EXISTS filedata_pk ON filedata (scanid,ruleid,filenameid);")
@@ -3492,23 +3279,6 @@ Func IsIncludedByRule($PathOrFile,$iRuleNumber,$iCheckDirs = True)
    ;$PathOrFile is a directory if there is a \ at the ende !
    ;$PathOrFile is a file if there is NO \ at the ende !
 
-   #cs
-	  file format config.cfg
-
-	  Rule:RULENAME				;name of rule
-	  IncDirRec:PATH			;directory to include, including all subdirectories
-	  ExcDirRec:PATH			;directory to exclude, including all subdirectories
-	  IncDir:PATH				;directory to include, only this directory
-	  ExcDir:PATH				;directory to exclude, only this directory
-	  IncExt:FILEEXTENTION		;file extention to include
-	  ExcExt:FILEEXTENTION		;file extention to exclude
-	  IncExe					;all executable files, no matter what the extention is
-	  IncAll					;all files, no matter what the extention is aka *.*
-	  ExcExe					;no executable files, no matter what the extention is
-	  ExcAll					;no files, no matter what the extention is aka *.*, only directories
-	  IncDirs
-	  End
-   #ce
 
    if $gcDEBUGTimeIsIncludedByRule = True then local $iTimer = TimerInit()
    local $iIsIncluded = False
@@ -3557,13 +3327,13 @@ Func IsIncludedByRule($PathOrFile,$iRuleNumber,$iCheckDirs = True)
    ;exclude directory command + "IncDirs"
    ;-------------------------------------
    if $iIsIncluded then
-	  if not $iIsFile and not $gaRuleData[$iRuleNumber][$gcIncDirs] then
+	  if not $iIsFile and not $gaRuleData[$iRuleNumber][$geRD_IncDirs] then
 		 ;"IncDirs"
 		 $iIsIncluded = False
 	  Else
 		 ; Do we already know that this directory is relevant for this rule ?
 		 if $iCheckDirs Then
-			if $gaRuleData[$iRuleNumber][$gcHasExcDir] Then
+			if $gaRuleData[$iRuleNumber][$geRD_HasExcDir] Then
 			   ;there are "ExcDirRec:" or "ExcDir:" statements in this rule
 			   for $i = $gaRuleStart[$iRuleNumber] to $iMax
 				  if $gaRuleSet[$i][2] <> $iRuleNumber then ExitLoop
@@ -3600,17 +3370,17 @@ Func IsIncludedByRule($PathOrFile,$iRuleNumber,$iCheckDirs = True)
 
 		 ;"IncExt:"
 		 $sExtension = StringRight($PathOrFile,StringLen($PathOrFile)-StringInStr($PathOrFile,".",1,-1))
-		 if StringInStr($gaRuleData[$iRuleNumber][$gcIncExt],"." & $sExtension & ".") > 0 then
+		 if StringInStr($gaRuleData[$iRuleNumber][$geRD_IncExt],"." & $sExtension & ".") > 0 then
 			$iIsIncluded = True
 		 EndIf
 
 		 ;"IncExe"
-		 if $gaRuleData[$iRuleNumber][$gcIncExe] = True Then
+		 if $gaRuleData[$iRuleNumber][$geRD_IncExe] = True Then
 			if IsExecutable($PathOrFile) then $iIsIncluded = True
 		 EndIf
 
 		 ; "IncAll"
-		 if $gaRuleData[$iRuleNumber][$gcIncAll] = True Then
+		 if $gaRuleData[$iRuleNumber][$geRD_IncAll] = True Then
 			$iIsIncluded = True
 		 EndIf
 
@@ -3625,17 +3395,17 @@ Func IsIncludedByRule($PathOrFile,$iRuleNumber,$iCheckDirs = True)
 			;"ExcExt:"
 			;Use $sExtension form "IncExt:" above
 			;$sExtension = StringRight($PathOrFile,StringInStr($PathOrFile,".",1,-1))
-			if StringInStr($gaRuleData[$iRuleNumber][$gcExcExt],"." & $sExtension & ".") > 0 then
+			if StringInStr($gaRuleData[$iRuleNumber][$geRD_ExcExt],"." & $sExtension & ".") > 0 then
 			   $iIsIncluded = False
 			EndIf
 
 			;"ExcExe"
-			if $gaRuleData[$iRuleNumber][$gcExcExe] = True Then
+			if $gaRuleData[$iRuleNumber][$geRD_ExcExe] = True Then
 			   if IsExecutable($PathOrFile) then $iIsIncluded = False
 			EndIf
 
 			; "ExcAll"
-			if $gaRuleData[$iRuleNumber][$gcExcAll] = True Then
+			if $gaRuleData[$iRuleNumber][$geRD_ExcAll] = True Then
 			   $iIsIncluded = False
 			EndIf
 		 EndIf
@@ -3656,22 +3426,6 @@ Func IsClimbTargetByRule($sPath,$iRuleNumber)
 
    ;$sPath is a directory with a \ at the ende !
 
-   #cs
-	  file format config.cfg
-
-	  Rule:RULENAME				;name of rule
-	  IncDirRec:PATH			;directory to include, including all subdirectories
-	  ExcDirRec:PATH			;directory to exclude, including all subdirectories
-	  IncDir:PATH				;directory to include, only this directory
-	  ExcDir:PATH				;directory to exclude, only this directory
-	  IncExt:FILEEXTENTION		;file extention to include
-	  ExcExt:FILEEXTENTION		;file extention to exclude
-	  IncExe					;all executable files, no matter what the extention is
-	  IncAll					;all files, no matter what the extention is aka *.*
-	  ExcExe					;no executable files, no matter what the extention is
-	  ExcAll					;no files, no matter what the extention is aka *.*, only directories
-	  End
-   #ce
 
    if $gcDEBUGTimeIsClimbTargetByRule = True then local $iTimer = TimerInit()
    local $iIsClimbTarget = False
@@ -3700,7 +3454,7 @@ Func IsClimbTargetByRule($sPath,$iRuleNumber)
 	 EndSelect
    Next
 
-   if $gaRuleData[$iRuleNumber][$gcHasExcDir] Then
+   if $gaRuleData[$iRuleNumber][$geRD_HasExcDir] Then
 	  ;there are "ExcDirRec:" or "ExcDir:" statements in this rule
 
 	  ;exclude directory command
@@ -3728,6 +3482,8 @@ Func IsClimbTargetByRule($sPath,$iRuleNumber)
    Return $iIsClimbTarget
 EndFunc
 
+
+;----- file related functions -----
 
 Func IsExecutable($Filename)
 
@@ -3766,182 +3522,7 @@ Func IsExecutable($Filename)
 EndFunc
 
 
-Func OutputLineOfFileHistory(ByRef $aQueryResult, $iPrintHeadline)
-
-   ;Simple report writer
-   ;----------------------
-
-
-   ;Output single line of a sql query result
-   ;--------------------------------------------
-   ;"           scantime,name,valid,status,size,attributes,mtime,ctime,atime,version,spath,crc32,md5,ptime,rulename,rattrib,aattrib,sattrib,hattrib,nattrib,dattrib,oattrib,cattrib,tattrib"
-   ;                 0    1      2     3     4        5      6     7     8     9      10    11   12    13       14      15      16      17      18      19     20      21       22      23
-
-
-
-   local $aDesc[] = ["scantime","name","valid","status","size","attributes","mtime","ctime","atime","version","spath","crc32","md5","ptime","rulename","rattrib","aattrib","sattrib","hattrib","nattrib","dattrib","oattrib","cattrib","tattrib"]
-   local $aAttribDesc[] = ["r","a","s","h","n","d","o","c","t"]
-   local $i = 0
-   local $sTemp = ""
-   local $sTempAttrib = ""
-
-   ;$sTemp = _HexToString($aQueryResult[1])
-   ;ConsoleWrite($sTemp & @CRLF)
-
-   if $iPrintHeadline then
-	  $sTemp = StringFormat("%-15s %5s %6s %13s %14s %14s %14s %20s %10s %35s %10s %10s",$aDesc[0],$aDesc[2],$aDesc[3],$aDesc[4],$aDesc[6],$aDesc[7],$aDesc[8],$aDesc[9],$aDesc[11],$aDesc[12],$aDesc[13],"attributes")
-   Else
-	  ;attributes
-	  $sTempAttrib = ""
-	  for $i = 15 to 23
-		 if $aQueryResult[$i] = 1 then $sTempAttrib &= StringUpper($aAttribDesc[$i - 15])
-	  Next
-	  if $sTempAttrib = "" then $sTempAttrib = "-"
-	  ;ConsoleWrite($sTempAttrib & @CRLF)
-
-	  ;$sTemp = StringFormat("%-15s %1s %1s %13s %14s %14s %14s %20s %10s %35s %10s %9s",$aQueryResult[0],$aQueryResult[2],$aQueryResult[3],$aQueryResult[4],$aQueryResult[6],$aQueryResult[7],$aQueryResult[8],$aQueryResult[9],$aQueryResult[11],$aQueryResult[12],$aQueryResult[13],$sTempAttrib)
-	  $sTemp = StringFormat("%-15s %5s %6s %13s %14s %14s %14s %20s %10s %35s %10s %10s",$aQueryResult[0],$aQueryResult[2],$aQueryResult[3],$aQueryResult[4],$aQueryResult[6],$aQueryResult[7],$aQueryResult[8],$aQueryResult[9],$aQueryResult[11],$aQueryResult[12],$aQueryResult[13],$sTempAttrib)
-   EndIf
-   ConsoleWrite($sTemp & @CRLF)
-
-   Return True
-EndFunc
-
-
-Func OutputLineOfQueryResult(ByRef $aQueryResult,$sReportFilename)
-
-   ;Simple report writer
-   ;----------------------
-
-
-   ;Output single line of a sql query result
-   ;--------------------------------------------
-   ;"           scantime,name,status,size,attributes,mtime,ctime,atime,version,spath,crc32,md5,ptime,rulename,rattrib,aattrib,sattrib,hattrib,nattrib,dattrib,oattrib,cattrib,tattrib"
-   ;     old         0    1      2     3       4        5     6    7      8     9      10   11  12      13        14      15      16      17      18      19     20      21       22
-   ;     new        23   24     25    26      27       28    29   30     31    32      33   34  35      36        37      38      39      40      41      42     43      44       45
-
-
-   local $aDesc[] = ["scantime","name","status","size","attributes","mtime","ctime","atime","version","spath","crc32","md5","ptime","rulename","rattrib","aattrib","sattrib","hattrib","nattrib","dattrib","oattrib","cattrib","tattrib"]
-   local $aAttribDesc[] = ["r","a","s","h","n","d","o","c","t"]
-   local $i = 0
-   local $sTempOld = ""
-   local $sTempNew = ""
-   local $iIsNewOrMissing = False
-
-   FileWriteLine($sReportFilename, "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" )
-   if $aQueryResult[1] = "" Then FileWriteLine($sReportFilename, "new          : "  & _HexToString($aQueryResult[24]) )
-
-   if $aQueryResult[24] = "" Then FileWriteLine($sReportFilename,"missing      : "  & _HexToString($aQueryResult[1]) )
-
-   if $aQueryResult[1] = $aQueryResult[24] Then FileWriteLine($sReportFilename,"changed      : "  & _HexToString($aQueryResult[1]) )
-   FileWriteLine($sReportFilename,"-  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -" & @CRLF)
-
-
-   for $i = 0 to 13
-	  $sTempOld = ""
-	  $sTempNew = ""
-	  $sTempOld = $aQueryResult[$i]
-	  $sTempNew = $aQueryResult[$i + 23]
-	  if $sTempOld = "" then $sTempOld = "-"
-	  if $sTempNew = "" then $sTempNew = "-"
-
-	  if $i = 0 Then
-		 if $sTempOld = "-" then $iIsNewOrMissing = True
-		 if $sTempNew = "-" then $iIsNewOrMissing = True
-
-		 if $sTempOld <> "-" then $sTempOld = StringFormat("%4s.%2s.%2s %2s:%2s:%2s",StringMid($sTempOld,1,4),StringMid($sTempOld,5,2),StringMid($sTempOld,7,2),StringMid($sTempOld,9,2),StringMid($sTempOld,11,2),StringMid($sTempOld,13,2))
-		 if $sTempNew <> "-" then $sTempNew = StringFormat("%4s.%2s.%2s %2s:%2s:%2s",StringMid($sTempNew,1,4),StringMid($sTempNew,5,2),StringMid($sTempNew,7,2),StringMid($sTempNew,9,2),StringMid($sTempNew,11,2),StringMid($sTempNew,13,2))
-
-		 FileWriteLine($sReportFilename,StringFormat("%-10s %1s %1s %35s %-35s","","","","expected","observed"))
-		 FileWriteLine($sReportFilename,StringFormat("%-10s %1s %1s %35s %-35s",$aDesc[$i]," "," ",$sTempOld,$sTempNew))
-
-	  ElseIf $i = 1 Then
-	  ElseIf $i = 4 Then
-	  ElseIf $i >= 5 and $i <= 7 Then
-		 if $sTempOld <> "-" then $sTempOld = StringFormat("%4s.%2s.%2s %2s:%2s:%2s",StringMid($sTempOld,1,4),StringMid($sTempOld,5,2),StringMid($sTempOld,7,2),StringMid($sTempOld,9,2),StringMid($sTempOld,11,2),StringMid($sTempOld,13,2))
-		 if $sTempNew <> "-" then $sTempNew = StringFormat("%4s.%2s.%2s %2s:%2s:%2s",StringMid($sTempNew,1,4),StringMid($sTempNew,5,2),StringMid($sTempNew,7,2),StringMid($sTempNew,9,2),StringMid($sTempNew,11,2),StringMid($sTempNew,13,2))
-
-		 if $sTempOld = $sTempNew or $iIsNewOrMissing then
-			FileWriteLine($sReportFilename,StringFormat("%-10s %1s %1s %35s %-35s",$aDesc[$i]," "," ",$sTempOld,$sTempNew))
-		 Else
-			FileWriteLine($sReportFilename,StringFormat("%-10s %1s %1s %35s %-35s",$aDesc[$i]," ","*",$sTempOld,$sTempNew))
-		 EndIf
-
-	  ElseIf $i = 9 Then
-	  ElseIf $i = 13 Then
-	  else
-		 if $sTempOld = $sTempNew or $iIsNewOrMissing or $i = 12  then
-			FileWriteLine($sReportFilename,StringFormat("%-10s %1s %1s %35s %-35s",$aDesc[$i]," "," ",$sTempOld,$sTempNew))
-		 Else
-			FileWriteLine($sReportFilename,StringFormat("%-10s %1s %1s %35s %-35s",$aDesc[$i]," ","*",$sTempOld,$sTempNew))
-		 EndIf
-	  EndIf
-
-   Next
-
-
-   ;attributes
-   $sTempOld = ""
-   $sTempNew = ""
-   for $i = 14 to 22
-	  if $aQueryResult[$i] = 1 then $sTempOld &= StringUpper($aAttribDesc[$i - 14])
-	  if $aQueryResult[$i + 23] = 1 then $sTempNew &= StringUpper($aAttribDesc[$i - 14])
-   Next
-   if $sTempOld = "" then $sTempOld = "-"
-   if $sTempNew = "" then $sTempNew = "-"
-
-   if $sTempOld = $sTempNew or $iIsNewOrMissing Then
-	  FileWriteLine($sReportFilename,StringFormat("%-10s %1s %1s %35s %-35s","attributes"," "," ",$sTempOld,$sTempNew))
-   Else
-	  FileWriteLine($sReportFilename,StringFormat("%-10s %1s %1s %35s %-35s","attributes"," ","*",$sTempOld,$sTempNew))
-   EndIf
-
-
-   $sTempOld = ""
-   $sTempNew = ""
-   $sTempOld = $aQueryResult[9]
-   $sTempNew = $aQueryResult[9 + 23]
-   if $sTempOld = "" then
-	  $sTempOld = "-"
-   Else
-	  $sTempOld = _HexToString($sTempOld)
-   EndIf
-   if $sTempNew = "" then
-	  $sTempNew = "-"
-   Else
-	  $sTempNew = _HexToString($sTempNew)
-   EndIf
-   FileWriteLine($sReportFilename,"")
-   FileWriteLine($sReportFilename,StringFormat("%-10s %1s %1s %s","old path"," "," ",$sTempOld))
-   ;FileWriteLine($sReportFilename,StringFormat("%-15s %1s %s","new path:"," ",$sTempNew))
-   if $sTempOld = $sTempNew or $iIsNewOrMissing then
-	  FileWriteLine($sReportFilename,StringFormat("%-10s %1s %1s %s","new path"," "," ",$sTempNew))
-   Else
-	  FileWriteLine($sReportFilename,StringFormat("%-10s %1s %1s %s","new path"," ","*",$sTempNew))
-   EndIf
-
-   ;FileWriteLine($sReportFilename,"-------------")
-   FileWriteLine($sReportFilename,"")
-
-   Return True
-EndFunc
-
-
-Func OutputLineOfQueryResultHeadline($iRuleNumber,$ReportFilename)
-
-   ;Print rule headline for reports
-   ;-------------------------------
-
-   FileWriteLine($ReportFilename,@crlf & "----------------------------------------------------------------------")
-   FileWriteLine($ReportFilename,"rule     : " & GetRulename($iRuleNumber))
-   FileWriteLine($ReportFilename,"----------------------------------------------------------------------" & @CRLF)
-
-
-   Return True
-EndFunc
-
-
-Func TreeClimberSecondProcess($sStartPath,$iPID,$aRelevantRules)
+Func TreeClimber($sStartPath,$iPID,$aRelevantRules)
 
    ;read any directory entry in $sStartPath and its subdirectories
    ;and scan according to %aRule
@@ -3954,6 +3535,8 @@ Func TreeClimberSecondProcess($sStartPath,$iPID,$aRelevantRules)
    Local $iFilenameId = 0
    Local $sFullPath = ""
 
+   Local $liTimerTreeClimber_MakeValidLastChar = 0
+
    local $iRuleCounter = 0
    local $iRuleCounterMax = 0
 
@@ -3962,6 +3545,8 @@ Func TreeClimberSecondProcess($sStartPath,$iPID,$aRelevantRules)
 
    local $sAllFileExtensionToSearchFor = ""
    local $iFindAllExtensions = False
+
+   local $sFileExtensionLastCharList = ""
 
    ;abort if $sStartPath is not valid (does not exist)
    if not FileExists($sStartPath) Then Return False
@@ -3972,11 +3557,11 @@ Func TreeClimberSecondProcess($sStartPath,$iPID,$aRelevantRules)
    ;only these rules must be checkt on the climbtarget (subdirectory)
    dim $aRelevantRulesForClimbTarget[$iRuleCounterMax+1]
 
-
    ;list every directory we are reading - reading is NOT scanning !!!
    ;ConsoleWrite("TreeClimber: " & $sStartPath & @CRLF)
 
-
+   ;contains True for the unicode of the last character of every included file extension
+   dim $abValidLastChar[65535]
 
 
    ; get fileextensions to search for from all relevant rules. Default is ".*"
@@ -3987,16 +3572,29 @@ Func TreeClimberSecondProcess($sStartPath,$iPID,$aRelevantRules)
 	  if $aRelevantRules[$iRuleCounter] = False then ContinueLoop
 
 	  ;if only one rule has to search for executables, all files must get scanned
-	  if $gaRuleData[$iRuleCounter][$gcIncExe] or $gaRuleData[$iRuleCounter][$gcExcExe] then
+	  if $gaRuleData[$iRuleCounter][$geRD_IncExe] or $gaRuleData[$iRuleCounter][$geRD_ExcExe] then
 		 $sAllFileExtensionToSearchFor = ".*."
 		 $iFindAllExtensions = True
+		 $sFileExtensionLastCharList = ""
 		 ExitLoop
 	  Else
-		 $sAllFileExtensionToSearchFor = $sAllFileExtensionToSearchFor & $gaRuleData[$iRuleCounter][$gcIncExt]
+		 $sAllFileExtensionToSearchFor &= $gaRuleData[$iRuleCounter][$geRD_IncExt]
+
+		 ;populate $abValidLastChar for every file extension in every relevant rule
+		 if $gcDEBUGTimeTreeClimber_MakeValidLastChar	then $liTimerTreeClimber_MakeValidLastChar = TimerInit()
+		 $sFileExtensionLastCharList = $gaRuleData[$iRuleCounter][$geRD_IncExtLC]
+		 While "" <> $sFileExtensionLastCharList
+			$abValidLastChar[AscW(StringLower(StringLeft($sFileExtensionLastCharList,1)))] = True
+			$abValidLastChar[AscW(StringUpper(StringLeft($sFileExtensionLastCharList,1)))] = True
+			$sFileExtensionLastCharList = StringTrimLeft($sFileExtensionLastCharList,1)
+		 WEnd
+		 if $gcDEBUGTimeTreeClimber_MakeValidLastChar	then $giDEBUGTimerTreeClimber_MakeValidLastChar += TimerDiff($liTimerTreeClimber_MakeValidLastChar)
+
 	  EndIf
    Next
    $sAllFileExtensionToSearchFor = StringReplace(StringLower($sAllFileExtensionToSearchFor),"..",".")
 
+   ;ConsoleWrite($sFileExtensionLastCharList & @CRLF)
 
    ; Assign a Local variable the search handle of all files in the current directory.
    $hSearch = FileFindFirstFile($sStartPath & "\*.*")
@@ -4024,11 +3622,11 @@ Func TreeClimberSecondProcess($sStartPath,$iPID,$aRelevantRules)
 
 	  ;has this directory entry a relevant file extension or is it a directory ?
 	  ;consolewrite(StringRight($sFileName,StringLen($sFileName)-StringInStr($sFileName,".",1,-1)) & @CRLF)
-	  if not $iIsDirectory and not $iFindAllExtensions and StringInStr($sAllFileExtensionToSearchFor,"." & StringRight($sFileName,StringLen($sFileName)-StringInStr($sFileName,".",0,-1)) & ".") = 0 then ContinueLoop
-
+	  ;if not $iIsDirectory and not $iFindAllExtensions and StringInStr($sAllFileExtensionToSearchFor,"." & StringRight($sFileName,StringLen($sFileName)-StringInStr($sFileName,".",0,-1)) & ".") = 0 then ContinueLoop
+	  ;if not $iIsDirectory and not $iFindAllExtensions and not IsDeclared("$lab" & StringRight($sFileName,1)) then ContinueLoop
+	  if not $iIsDirectory and not $iFindAllExtensions and not $abValidLastChar[AscW(StringRight($sFileName,1))] then ContinueLoop
 
 	  $sFullPath = $sStartPath & "\" & $sFileName
-
 
 	  ;climb the directory tree downward if needed
 	  if $iIsDirectory Then
@@ -4050,7 +3648,7 @@ Func TreeClimberSecondProcess($sStartPath,$iPID,$aRelevantRules)
 			;count number of "\" in current path
 			StringReplace($sFullPath,"\","")
 			$giCurrentDirBackslashCount = @extended
-			TreeClimberSecondProcess($sFullPath,$iPID,$aRelevantRulesForClimbTarget)
+			TreeClimber($sFullPath,$iPID,$aRelevantRulesForClimbTarget)
 		 EndIf
 	  EndIf
 
@@ -4090,7 +3688,7 @@ Func TreeClimberSecondProcess($sStartPath,$iPID,$aRelevantRules)
 EndFunc
 
 
-Func GetFileInfo( ByRef $gaFileInfo, $sFilename, $iHashes )
+Func GetFileInfo( ByRef $gaFileInfo, $sFilename, $bHashes, $bMD5, $bSHA1 )
 
    ;Retrieves all information about $sFilename
    ;--------------------------------------------
@@ -4175,15 +3773,18 @@ Func GetFileInfo( ByRef $gaFileInfo, $sFilename, $iHashes )
 
 
    ;local const $iBufferSize = 0x20000
-   local const $iBufferSize = 0x100000
+   ;local const $iBufferSize = 0x100000
+   local const $iBufferSize = 512 * 1024
    local $iFileHandle = 0	;Handle of file to process
    local $iFileSize = 0		;Size of file to process
    local $sTempBuffer = ""	;File read buffer
-   local $iCRC32 = 0		;CRC32 value of file
-   local $iMD5CTX = 0		;MD5 interim value
+   local $hMD5 = 0			;MD5 handle/value
+   local $hSHA1 = 0			;SHA1 handle/value
+   local $iEnd = 0			;number of chunks to read from file
    local $iTimer = 0		;Timer
    local $sDirName = ""		;Directory name without trailing "\"
    local $sTempAttribs = ""	;Buffer for directory attributes
+
 
    local $iDEBUGTimerGetFileInfo_GetFileInformationByHandle = 0	;Timer
    local $iDEBUGTimerGetFileInfo_FileGetAttrib = 0				;Timer
@@ -4200,9 +3801,9 @@ Func GetFileInfo( ByRef $gaFileInfo, $sFilename, $iHashes )
    $gaFileInfo[4]  = ""			;file modification timestamp
    $gaFileInfo[5]  = ""			;file creation timestamp
    $gaFileInfo[6]  = ""			;file accessed timestamp
-   $gaFileInfo[7]  = ""			;version
+   $gaFileInfo[7]  = "0.0.0.0"	;version
    $gaFileInfo[8]  = ""			;8.3 short path+name
-   $gaFileInfo[9]  = 0			;crc32
+   $gaFileInfo[9]  = 0			;sha1 hash
    $gaFileInfo[10] = 0			;md5 hash
    $gaFileInfo[11] = 0			;time it took to process the file
    ;$gaFileInfo[12] =	""		;rulename
@@ -4215,6 +3816,9 @@ Func GetFileInfo( ByRef $gaFileInfo, $sFilename, $iHashes )
    $gaFileInfo[19] = 0			;1 if the "O" = OFFLINE attribute is set
    $gaFileInfo[20] = 0			;1 if the "C" = COMPRESSED (NTFS compression, not ZIP compression) attribute is set
    $gaFileInfo[21] = 0			;1 if the "T" = TEMPORARY attribute is set
+   $gaFileInfo[22] = ""			;volume serial
+   $gaFileInfo[23] = 0			;number of links
+   $gaFileInfo[24] = ""			;file id
 
 
    $iTimer = TimerInit()
@@ -4258,25 +3862,30 @@ Func GetFileInfo( ByRef $gaFileInfo, $sFilename, $iHashes )
 			$aInfo[$i] = ""
 		 EndIf
 	  Next
-	  $gaFileInfo[5] = $aInfo[1]
 	  ;ConsoleWrite('Created:       ' & $aInfo[1] & @CRLF)
-	  $gaFileInfo[6] = $aInfo[2]
+	  $gaFileInfo[5] = $aInfo[1]
 	  ;ConsoleWrite('Accessed:      ' & $aInfo[2] & @CRLF)
-	  $gaFileInfo[4] = $aInfo[3]
+	  $gaFileInfo[6] = $aInfo[2]
 	  ;ConsoleWrite('Modified:      ' & $aInfo[3] & @CRLF)
-
-
+	  $gaFileInfo[4] = $aInfo[3]
 	  ;ConsoleWrite('Volume serial: ' & $aInfo[4] & @CRLF)
+	  $gaFileInfo[22] = $aInfo[4]
 	  ;ConsoleWrite('Size:          ' & $aInfo[5] & @CRLF)
 	  $iFileSize = $aInfo[5]
 	  $gaFileInfo[2] = $iFileSize
 	  ;ConsoleWrite('Links:         ' & $aInfo[6] & @CRLF)
+	  $gaFileInfo[23] = $aInfo[6]
 	  ;ConsoleWrite('ID:            ' & $aInfo[7] & @CRLF)
+	  $gaFileInfo[24] = $aInfo[7]
+
+	  ;ConsoleWrite( "Vol:" & $gaFileInfo[22] & " Lnk:" & $gaFileInfo[23] & " ID:" & $gaFileInfo[24] & @CRLF)
+
    Else
 	  ;unable to read file
 	  $gaFileInfo[1] = 1
 	  ;_WinAPI_GetLastError()
 	  ;_WinAPI_GetLastErrorMessage ( )
+	  ConsoleWrite("## WinAPI: " & _WinAPI_GetLastErrorMessage() & @CRLF)
 
 	  ;process directories with standard autoit functions
 	  if StringRight($sFilename,1) = "\" then
@@ -4314,15 +3923,15 @@ Func GetFileInfo( ByRef $gaFileInfo, $sFilename, $iHashes )
 
 
 
-   ; calculate checksums
+   ; calculate hashes
    $iDEBUGTimerGetFileInfo_CalcHashes = TimerInit()
    if not $gaFileInfo[18] Then
-	  ;it큦 not a directory it큦 a file, so md5 and crc32 DO work !
+	  ;it큦 not a directory it큦 a file, so md5 and sha1 DO work !
 
-	  if $iHashes then
-		 ;calculate hashes (CRC32, MD5)
+	  if $bHashes then
+		 ;calculate hashes (SHA1, MD5)
 
-		 ;read file and calculate md5 and crc32
+		 ;read file and calculate md5 and sha1
 		 $iFileHandle = 0
 		 $iFileHandle = FileOpen($sFilename, 16)
 		 if @error or $iFileSize = 0 Then
@@ -4332,18 +3941,19 @@ Func GetFileInfo( ByRef $gaFileInfo, $sFilename, $iHashes )
 			if $iFileSize > 0 then $gaFileInfo[1] = 1
 
 		 Else
-			; ### CRC32 + MD5###
-			$iCRC32 = 0
-			$iMD5CTX = _MD5Init()
+			; ### SHA1 + MD5###
+			$hMD5 = 0
+			$hSHA1 = 0
+			$iEnd = Ceiling($iFileSize / $iBufferSize)
 
-			For $i = 1 To Ceiling($iFileSize / $iBufferSize)
+			For $i = 1 To $iEnd
 			   $sTempBuffer = FileRead($iFileHandle, $iBufferSize)
-			   $iCRC32 = _CRC32($sTempBuffer, BitNot($iCRC32))
-			   _MD5Input($iMD5CTX, $sTempBuffer)
+			   if $bMD5 then  $hMD5 = _Crypt_HashData($sTempBuffer,$CALG_MD5,False,$hMD5)
+			   if $bSHA1 then $hSHA1 = _Crypt_HashData($sTempBuffer,$CALG_SHA1,False,$hSHA1)
 			Next
 
-			$gaFileInfo[9] = $iCRC32
-			$gaFileInfo[10] = _MD5Result($iMD5CTX)
+			if $bSHA1 then  $gaFileInfo[9]  = _Crypt_HashData("",$CALG_SHA1,True,$hSHA1)
+			if $bMD5  then  $gaFileInfo[10] = _Crypt_HashData("",$CALG_MD5,True,$hMD5)
 
 			;close file
 			FileClose($iFileHandle)
@@ -4355,7 +3965,12 @@ Func GetFileInfo( ByRef $gaFileInfo, $sFilename, $iHashes )
 
 
    $iDEBUGTimerGetFileInfo_FileGetVersion = TimerInit()
-   $gaFileInfo[7] = FileGetVersion($sFilename)
+   ;FileGetVersion() is expensive !
+   ;Use a whitelist of file extensions that could have a "fileversion" resource
+   if StringInStr($gsExtWithVersion,StringRight($sFilename,3)) then
+	  $gaFileInfo[7] = FileGetVersion($sFilename)
+	  ;ConsoleWrite("** file version: " & $gaFileInfo[7] & " - " & $sFilename & @CRLF)
+   EndIf
    $giDEBUGTimerGetFileInfo_FileGetVersion += TimerDiff($iDEBUGTimerGetFileInfo_FileGetVersion)
 
    $iDEBUGTimerGetFileInfo_FileGetShortName = TimerInit()
@@ -4369,6 +3984,184 @@ Func GetFileInfo( ByRef $gaFileInfo, $sFilename, $iHashes )
    if $gcDEBUGTimeGetFileInfo = True then $giDEBUGTimerGetFileInfo += $gaFileInfo[11]
 
    return 0
+EndFunc
+
+
+;----- output related functions -----
+
+Func OutputLineOfFileHistory(ByRef $aQueryResult, $iPrintHeadline)
+
+   ;Simple report writer
+   ;----------------------
+
+
+   ;Output single line of a sql query result
+   ;--------------------------------------------
+   ;"           scantime,name,valid,status,size,attributes,mtime,ctime,atime,version,spath,sha1,md5,ptime,rulename,rattrib,aattrib,sattrib,hattrib,nattrib,dattrib,oattrib,cattrib,tattrib,volume,links,fileid"
+   ;                 0    1      2     3     4        5      6     7     8     9      10    11   12    13       14      15      16      17      18      19     20      21       22      23     24    25     26
+
+
+
+   local $aDesc[] = ["scantime","name","valid","status","size","attributes","mtime","ctime","atime","version","spath","sha1","md5","ptime","rulename","rattrib","aattrib","sattrib","hattrib","nattrib","dattrib","oattrib","cattrib","tattrib","volume","links","fileid"]
+   local $aAttribDesc[] = ["r","a","s","h","n","d","o","c","t"]
+   local $i = 0
+   local $sTemp = ""
+   local $sTempAttrib = ""
+
+   ;$sTemp = _HexToString($aQueryResult[1])
+   ;ConsoleWrite($sTemp & @CRLF)
+
+   if $iPrintHeadline then
+	  $sTemp = StringFormat("%-15s %5s %6s %13s %14s %14s %14s %20s %10s %35s %10s %10s",$aDesc[0],$aDesc[2],$aDesc[3],$aDesc[4],$aDesc[6],$aDesc[7],$aDesc[8],$aDesc[9],$aDesc[11],$aDesc[12],$aDesc[13],"attributes")
+   Else
+	  ;attributes
+	  $sTempAttrib = ""
+	  for $i = 15 to 23
+		 if $aQueryResult[$i] = 1 then $sTempAttrib &= StringUpper($aAttribDesc[$i - 15])
+	  Next
+	  if $sTempAttrib = "" then $sTempAttrib = "-"
+	  ;ConsoleWrite($sTempAttrib & @CRLF)
+
+	  ;$sTemp = StringFormat("%-15s %1s %1s %13s %14s %14s %14s %20s %10s %35s %10s %9s",$aQueryResult[0],$aQueryResult[2],$aQueryResult[3],$aQueryResult[4],$aQueryResult[6],$aQueryResult[7],$aQueryResult[8],$aQueryResult[9],$aQueryResult[11],$aQueryResult[12],$aQueryResult[13],$sTempAttrib)
+	  $sTemp = StringFormat("%-15s %5s %6s %13s %14s %14s %14s %20s %10s %35s %10s %10s",$aQueryResult[0],$aQueryResult[2],$aQueryResult[3],$aQueryResult[4],$aQueryResult[6],$aQueryResult[7],$aQueryResult[8],$aQueryResult[9],$aQueryResult[11],$aQueryResult[12],$aQueryResult[13],$sTempAttrib)
+   EndIf
+   ConsoleWrite($sTemp & @CRLF)
+
+   Return True
+EndFunc
+
+
+Func OutputLineOfQueryResult(ByRef $aQueryResult,$sReportFilename)
+
+   ;Simple report writer
+   ;----------------------
+
+
+   ;Output single line of a sql query result
+   ;--------------------------------------------
+   ;"           scantime,name,status,size,attributes,mtime,ctime,atime,version,spath,sha1,md5,ptime,rulename,rattrib,aattrib,sattrib,hattrib,nattrib,dattrib,oattrib,cattrib,tattrib,volume,links,fileid
+   ;     old         0    1      2     3       4        5     6    7      8     9     10   11  12      13        14      15      16      17      18      19     20      21       22      23    24     25
+   ;     new        26   27     28    29      30       31    32   33     34    35     36   37  38      39        40      41      42      43      44      45     46      47       48      49    50     51
+
+
+   local $aDesc[] = ["scantime","name","status","size","attributes","mtime","ctime","atime","version","spath","sha1","md5","ptime","rulename","rattrib","aattrib","sattrib","hattrib","nattrib","dattrib","oattrib","cattrib","tattrib","volume","links","fileid"]
+   local $aAttribDesc[] = ["r","a","s","h","n","d","o","c","t"]
+   local $i = 0
+   local $sTempOld = ""
+   local $sTempNew = ""
+   local $iIsNewOrMissing = False
+
+   FileWriteLine($sReportFilename, "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" )
+   if $aQueryResult[1] = "" Then FileWriteLine($sReportFilename, "new          : "  & _HexToString($aQueryResult[1+26]) )
+
+   if $aQueryResult[1+26] = "" Then FileWriteLine($sReportFilename,"missing      : "  & _HexToString($aQueryResult[1]) )
+
+   if $aQueryResult[1] = $aQueryResult[1+26] Then FileWriteLine($sReportFilename,"changed      : "  & _HexToString($aQueryResult[1]) )
+   FileWriteLine($sReportFilename,"-  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -" & @CRLF)
+
+
+   for $i = 0 to 25
+	  $sTempOld = ""
+	  $sTempNew = ""
+	  $sTempOld = $aQueryResult[$i]
+	  $sTempNew = $aQueryResult[$i + 26]
+	  if $sTempOld = "" then $sTempOld = "-"
+	  if $sTempNew = "" then $sTempNew = "-"
+
+	  if $i = 0 Then
+		 if $sTempOld = "-" then $iIsNewOrMissing = True
+		 if $sTempNew = "-" then $iIsNewOrMissing = True
+
+		 if $sTempOld <> "-" then $sTempOld = StringFormat("%4s.%2s.%2s %2s:%2s:%2s",StringMid($sTempOld,1,4),StringMid($sTempOld,5,2),StringMid($sTempOld,7,2),StringMid($sTempOld,9,2),StringMid($sTempOld,11,2),StringMid($sTempOld,13,2))
+		 if $sTempNew <> "-" then $sTempNew = StringFormat("%4s.%2s.%2s %2s:%2s:%2s",StringMid($sTempNew,1,4),StringMid($sTempNew,5,2),StringMid($sTempNew,7,2),StringMid($sTempNew,9,2),StringMid($sTempNew,11,2),StringMid($sTempNew,13,2))
+
+		 FileWriteLine($sReportFilename,StringFormat("%-10s %1s %1s %43s %-43s","","","","expected","observed"))
+		 FileWriteLine($sReportFilename,StringFormat("%-10s %1s %1s %43s %-43s",$aDesc[$i]," "," ",$sTempOld,$sTempNew))
+
+	  ElseIf $i = 1 Then
+	  ElseIf $i = 4 Then
+	  ElseIf $i >= 5 and $i <= 7 Then
+		 if $sTempOld <> "-" then $sTempOld = StringFormat("%4s.%2s.%2s %2s:%2s:%2s",StringMid($sTempOld,1,4),StringMid($sTempOld,5,2),StringMid($sTempOld,7,2),StringMid($sTempOld,9,2),StringMid($sTempOld,11,2),StringMid($sTempOld,13,2))
+		 if $sTempNew <> "-" then $sTempNew = StringFormat("%4s.%2s.%2s %2s:%2s:%2s",StringMid($sTempNew,1,4),StringMid($sTempNew,5,2),StringMid($sTempNew,7,2),StringMid($sTempNew,9,2),StringMid($sTempNew,11,2),StringMid($sTempNew,13,2))
+
+		 if $sTempOld = $sTempNew or $iIsNewOrMissing then
+			FileWriteLine($sReportFilename,StringFormat("%-10s %1s %1s %43s %-43s",$aDesc[$i]," "," ",$sTempOld,$sTempNew))
+		 Else
+			FileWriteLine($sReportFilename,StringFormat("%-10s %1s %1s %43s %-43s",$aDesc[$i]," ","*",$sTempOld,$sTempNew))
+		 EndIf
+
+	  ElseIf $i = 9 Then
+	  ElseIf $i = 13 Then
+	  ElseIf $i >= 14 and $i <= 22 Then
+	  else
+		 if $sTempOld = $sTempNew or $iIsNewOrMissing or $i = 12  then
+			FileWriteLine($sReportFilename,StringFormat("%-10s %1s %1s %43s %-43s",$aDesc[$i]," "," ",$sTempOld,$sTempNew))
+		 Else
+			FileWriteLine($sReportFilename,StringFormat("%-10s %1s %1s %43s %-43s",$aDesc[$i]," ","*",$sTempOld,$sTempNew))
+		 EndIf
+	  EndIf
+
+   Next
+
+
+   ;attributes
+   $sTempOld = ""
+   $sTempNew = ""
+   for $i = 14 to 22
+	  if $aQueryResult[$i] = 1 then $sTempOld &= StringUpper($aAttribDesc[$i - 14])
+	  if $aQueryResult[$i + 26] = 1 then $sTempNew &= StringUpper($aAttribDesc[$i - 14])
+   Next
+   if $sTempOld = "" then $sTempOld = "-"
+   if $sTempNew = "" then $sTempNew = "-"
+
+   if $sTempOld = $sTempNew or $iIsNewOrMissing Then
+	  FileWriteLine($sReportFilename,StringFormat("%-10s %1s %1s %43s %-43s","attributes"," "," ",$sTempOld,$sTempNew))
+   Else
+	  FileWriteLine($sReportFilename,StringFormat("%-10s %1s %1s %43s %-43s","attributes"," ","*",$sTempOld,$sTempNew))
+   EndIf
+
+
+   $sTempOld = ""
+   $sTempNew = ""
+   $sTempOld = $aQueryResult[9]
+   $sTempNew = $aQueryResult[9 + 26]
+   if $sTempOld = "" then
+	  $sTempOld = "-"
+   Else
+	  $sTempOld = _HexToString($sTempOld)
+   EndIf
+   if $sTempNew = "" then
+	  $sTempNew = "-"
+   Else
+	  $sTempNew = _HexToString($sTempNew)
+   EndIf
+   FileWriteLine($sReportFilename,"")
+   FileWriteLine($sReportFilename,StringFormat("%-10s %1s %1s %s","old path"," "," ",$sTempOld))
+   ;FileWriteLine($sReportFilename,StringFormat("%-15s %1s %s","new path:"," ",$sTempNew))
+   if $sTempOld = $sTempNew or $iIsNewOrMissing then
+	  FileWriteLine($sReportFilename,StringFormat("%-10s %1s %1s %s","new path"," "," ",$sTempNew))
+   Else
+	  FileWriteLine($sReportFilename,StringFormat("%-10s %1s %1s %s","new path"," ","*",$sTempNew))
+   EndIf
+
+   ;FileWriteLine($sReportFilename,"-------------")
+   FileWriteLine($sReportFilename,"")
+
+   Return True
+EndFunc
+
+
+Func OutputLineOfQueryResultHeadline($iRuleNumber,$ReportFilename)
+
+   ;Print rule headline for reports
+   ;-------------------------------
+
+   FileWriteLine($ReportFilename,@crlf & "----------------------------------------------------------------------")
+   FileWriteLine($ReportFilename,"rule     : " & GetRulename($iRuleNumber))
+   FileWriteLine($ReportFilename,"----------------------------------------------------------------------" & @CRLF)
+
+
+   Return True
 EndFunc
 
 
@@ -4414,7 +4207,9 @@ Func MakeReportSection2and3($sTempSQL,ByRef $iHasRuleHeader,$sReportFilename,$sR
    if not $gbMSSQL then _SQLite_QueryFinalize($hQuery)
 EndFunc
 
+
 ;----- tool functions -----
+
 Func GetDirWithBackslash($sDirName)
 
    ;Ensure a directory name has a backslash at the end
@@ -4427,6 +4222,7 @@ Func GetDirWithBackslash($sDirName)
    EndIf
 
 EndFunc
+
 
 ;----- mailer functions -----
 
@@ -4553,7 +4349,7 @@ EndIf
 EndFunc
 
 
-Func MyErrFunc()
+Func SmtpMailErrFunc()
     local $HexNumber = Hex($goMyError.number, 8)
     $goMyRet[0] = $HexNumber
     $goMyRet[1] = StringStripWS($goMyError.description, 3)

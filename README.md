@@ -4,21 +4,21 @@ Spot the Difference (STD) is a poor mans file integrity checker written in AutoI
 ## Features
 * command line tool for windows
 * allways to slow, but not that bad
-* SQLite support for scan results
 * MS SQL server support for scan results
+* SQLite support for scan results
 * report file changes per email
 * find doublicate files in scan database, based on file content not name
 * get change history of a file
-* uses md5 and crc32 to detect changes within a file
+* uses md5 and sha1 to detect changes within a file
 * each directory and file is only read once, even if the directory is included in multiple scan rules
 
 
 ## Prerequisites
-sqlite.dll in searchpath or the same directory as STD.exe
+MS SQL Server [express] database
 
 **or**
 
-MS SQL Server [express] database
+sqlite.dll in searchpath or the same directory as STD.exe
 
 
 ## Invocation
@@ -107,7 +107,7 @@ or a *SPECIAL_SCANNAME*
 ```
 STD.exe /duplicates c:\test.sqlite last
 ```
-Write a list with duplicate files based on size, crc32 and md5 in scan *SCANNAME* to stdout.
+Write a list with duplicate files based on size, sha1 and md5 in scan *SCANNAME* to stdout.
 *SCANNAME* is either an existing scan or a *SPECIAL_SCANNAME*. If scan is a *SPECIAL_SCANNAME*
 only the first scan of the selected scans is used.
 
@@ -250,7 +250,7 @@ mtime        *                 2017.01.08 12:36:57 2014.12.13 23:20:50
 ctime                          2017.01.08 12:36:57 2017.01.08 12:36:57
 atime        *                 2017.01.08 12:36:57 2017.01.08 12:37:38
 version                                    0.0.0.0 0.0.0.0
-crc32        *                                   0 3373118432
+sha1        *                                   0 3373118432
 md5          *                                   0 0x4C95398A7AAA9742921C3B7CE9778FD9
 ptime                                            2 3808
 attributes                                       A A
@@ -307,7 +307,9 @@ End
 |IncAll|                 all files, no matter what the extention is aka \*.\*|
 |ExcAll|                 no files, no matter what the extention is aka \*.\*, only directories
 |IncDirs|                include information on directories. By default no information on directories is included.|
-|NoHashes|				 no CRC32 and MD5 hashes are calculated. This is faster,but changes in a file can not be detected.|
+|NoHashes|				 no SHA1 and MD5 hashes are calculated. This is faster,but changes in a file can not be detected. It is the same as *NoMD5* AND *NoSHA1*|
+|NoMD5|				     no MD5 hashes are calculated. This is slower than NoSHA1.|
+|NoSHA1|				 no SHA1 hashes are calculated. This is faster than NoMD5.|
 |Ign:*FILEPROPERTIY*|      ignore changes to this file property.|
 |End|                    end of rule|
 ```
@@ -341,7 +343,7 @@ End
 |ctime|     creation time|
 |atime|     access time|
 |version|   file version|
-|crc32|     crc32 checksum|
+|sha1|      sha1 checksum|
 |md5|       md5 checksum|
 |rattrib|   read only attribute|
 |aattrib|   archive attribute|
@@ -352,6 +354,9 @@ End
 |oattrib|   offline attribute|
 |cattrib|   compressed attribute|
 |tattrib|   temporary attribute|
+|volume|	serial number of the volume that contains a file|
+|links|		number of links to this file|
+|fileid|    unique identifier that is associated with a file|
 
 
 ##### CONFIGFILE Example
