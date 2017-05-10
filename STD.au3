@@ -23,8 +23,8 @@
 ;Set file infos
 
 ;Versioning: "Incompatible changes to DB"."new feature"."bug fix"."minor fix"
-#pragma compile(ProductVersion,"5.0.0.0")
-#pragma compile(FileVersion,"5.0.0.0")
+#pragma compile(ProductVersion,"5.0.0.1")
+#pragma compile(FileVersion,"5.0.0.1")
 
 #pragma compile(FileDescription,"Spot The Difference")
 #pragma compile(ProductName,"Spot The Difference")
@@ -3535,7 +3535,7 @@ Func TreeClimber($sStartPath,$iPID,$aRelevantRules)
    Local $iFilenameId = 0
    Local $sFullPath = ""
 
-   Local $liTimerTreeClimber_MakeValidLastChar = 0
+   ;Local $liTimerTreeClimber_MakeValidLastChar = 0
 
    local $iRuleCounter = 0
    local $iRuleCounterMax = 0
@@ -3546,7 +3546,7 @@ Func TreeClimber($sStartPath,$iPID,$aRelevantRules)
    local $sAllFileExtensionToSearchFor = ""
    local $iFindAllExtensions = False
 
-   local $sFileExtensionLastCharList = ""
+   ;local $sFileExtensionLastCharList = ""
 
    ;abort if $sStartPath is not valid (does not exist)
    if not FileExists($sStartPath) Then Return False
@@ -3561,7 +3561,7 @@ Func TreeClimber($sStartPath,$iPID,$aRelevantRules)
    ;ConsoleWrite("TreeClimber: " & $sStartPath & @CRLF)
 
    ;contains True for the unicode of the last character of every included file extension
-   dim $abValidLastChar[65535]
+   ;dim $abValidLastChar[65535]
 
 
    ; get fileextensions to search for from all relevant rules. Default is ".*"
@@ -3575,11 +3575,12 @@ Func TreeClimber($sStartPath,$iPID,$aRelevantRules)
 	  if $gaRuleData[$iRuleCounter][$geRD_IncExe] or $gaRuleData[$iRuleCounter][$geRD_ExcExe] then
 		 $sAllFileExtensionToSearchFor = ".*."
 		 $iFindAllExtensions = True
-		 $sFileExtensionLastCharList = ""
+		 ;$sFileExtensionLastCharList = ""
 		 ExitLoop
 	  Else
 		 $sAllFileExtensionToSearchFor &= $gaRuleData[$iRuleCounter][$geRD_IncExt]
 
+#cs
 		 ;populate $abValidLastChar for every file extension in every relevant rule
 		 if $gcDEBUGTimeTreeClimber_MakeValidLastChar	then $liTimerTreeClimber_MakeValidLastChar = TimerInit()
 		 $sFileExtensionLastCharList = $gaRuleData[$iRuleCounter][$geRD_IncExtLC]
@@ -3589,7 +3590,7 @@ Func TreeClimber($sStartPath,$iPID,$aRelevantRules)
 			$sFileExtensionLastCharList = StringTrimLeft($sFileExtensionLastCharList,1)
 		 WEnd
 		 if $gcDEBUGTimeTreeClimber_MakeValidLastChar	then $giDEBUGTimerTreeClimber_MakeValidLastChar += TimerDiff($liTimerTreeClimber_MakeValidLastChar)
-
+#ce
 	  EndIf
    Next
    $sAllFileExtensionToSearchFor = StringReplace(StringLower($sAllFileExtensionToSearchFor),"..",".")
@@ -3622,9 +3623,9 @@ Func TreeClimber($sStartPath,$iPID,$aRelevantRules)
 
 	  ;has this directory entry a relevant file extension or is it a directory ?
 	  ;consolewrite(StringRight($sFileName,StringLen($sFileName)-StringInStr($sFileName,".",1,-1)) & @CRLF)
-	  ;if not $iIsDirectory and not $iFindAllExtensions and StringInStr($sAllFileExtensionToSearchFor,"." & StringRight($sFileName,StringLen($sFileName)-StringInStr($sFileName,".",0,-1)) & ".") = 0 then ContinueLoop
+	  if not $iIsDirectory and not $iFindAllExtensions and StringInStr($sAllFileExtensionToSearchFor,"." & StringRight($sFileName,StringLen($sFileName)-StringInStr($sFileName,".",0,-1)) & ".") = 0 then ContinueLoop
 	  ;if not $iIsDirectory and not $iFindAllExtensions and not IsDeclared("$lab" & StringRight($sFileName,1)) then ContinueLoop
-	  if not $iIsDirectory and not $iFindAllExtensions and not $abValidLastChar[AscW(StringRight($sFileName,1))] then ContinueLoop
+	  ;if not $iIsDirectory and not $iFindAllExtensions and not $abValidLastChar[AscW(StringRight($sFileName,1))] then ContinueLoop
 
 	  $sFullPath = $sStartPath & "\" & $sFileName
 

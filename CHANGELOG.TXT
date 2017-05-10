@@ -9,6 +9,7 @@ Changelog
 			DoReport(): HTML-Report inline in eMail
 			DoExportScan(): in CSV fileid is not displayed as char !
 
+5.0.0.1		TreeClimber(): remove $abValidLastChar mechanism. It is to slow for some use cases!
 
 5.0.0.0		move changelog and todo list to CHANGELOG.TXT
 			GetFileInfo(),OpenDBMSSQL(),DoGetFileinfosOfRelevantFiles(),OutputLineOfQueryResult():
