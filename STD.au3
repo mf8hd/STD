@@ -23,8 +23,8 @@
 ;Set file infos
 
 ;Versioning: "Incompatible changes to DB"."new feature"."bug fix"."minor fix"
-#pragma compile(ProductVersion,"5.0.0.1")
-#pragma compile(FileVersion,"5.0.0.1")
+#pragma compile(ProductVersion,"5.0.0.2")
+#pragma compile(FileVersion,"5.0.0.2")
 
 #pragma compile(FileDescription,"Spot The Difference")
 #pragma compile(ProductName,"Spot The Difference")
@@ -60,7 +60,8 @@ Opt("MustDeclareVars", 1)
 
 ;Constants
 global const $gcVersion = FileGetVersion(@ScriptName,"ProductVersion")
-global const $gcScannameLimit = 65535				;max number of scannames resturnd from the DB
+global const $gcScannameLimit = 65535					;max number of scannames resturnd from the DB
+global const $gcUseAllFileExtensionToSearchFor = False	;use the $sAllFileExtensionToSearchFor mechanism in TreeClimber()
 
 ;Debug
 global const $gcDEBUG = False						;master switch for debug output
@@ -69,7 +70,7 @@ global $gcDEBUGOnlyShowScanBuffer = True			;show only "searching" and buffersize
 global $gcDEBUGShowVisitedDirectories = False		;show visited directories during scan !
 global $gcDEBUGDoNotStartSecondProcess = False		;run only the list process and do not start the scan process
 global $gcDEBUGRunWithoutCompilation = False		;force the program to run, without beeing compiled
-global $gcDEBUGShowEmptyScanBuffer = True			;show "*** searching ***" if the scan process is waiting for the list process
+global $gcDEBUGShowEmptyScanBuffer = False			;show "*** searching ***" if the scan process is waiting for the list process
 global $gcDEBUGShowMSSQLDeleteSQLCode = False		;show SQL statement for MSSQL version of /delete
 global $gcDEBUGShowMSSQLInsertBufferFlushes = False	;show when BufferedInsertIntoFiledataTable() flushes the buffer
 
@@ -1727,6 +1728,12 @@ Func DoGetFileinfosOfRelevantFiles()
 
 
    local $sFullPath = ""				;directory or filename read from stdin
+
+   local $sLastFullPath = ""			;data and settings for previous line from $sInputBuffer
+   local $bLastNoHashes = False			; dito
+   local $bLastNoMD5 = False			; dito
+   local $bLastNoSHA1 = False			; dito
+
    local $sInputBuffer = ""				;buffer for stdin
    local $iRuleCounter = 0
    local $iRuleCounterMax = 0
@@ -1773,13 +1780,25 @@ Func DoGetFileinfosOfRelevantFiles()
 			$sFullPath = StringTrimLeft($sFullPath,5)
 
 			;get the file information
-		    GetFileInfo($gaFileInfo,$sFullPath,Not $gaRuleData[$iRuleCounter][$geRD_NoHashes],Not $gaRuleData[$iRuleCounter][$geRD_NoMD5],Not $gaRuleData[$iRuleCounter][$geRD_NoSHA1])
+			if $sLastFullPath == $sFullPath and $bLastNoHashes = $gaRuleData[$iRuleCounter][$geRD_NoHashes] and $bLastNoMD5 = $gaRuleData[$iRuleCounter][$geRD_NoMD5] and $bLastNoSHA1 = $gaRuleData[$iRuleCounter][$geRD_NoSHA1] then
+			else
+			   GetFileInfo($gaFileInfo,$sFullPath,Not $gaRuleData[$iRuleCounter][$geRD_NoHashes],Not $gaRuleData[$iRuleCounter][$geRD_NoMD5],Not $gaRuleData[$iRuleCounter][$geRD_NoSHA1])
+
+			   ;remember current values
+			   $sLastFullPath = $sFullPath
+			   $bLastNoHashes = $gaRuleData[$iRuleCounter][$geRD_NoHashes]
+			   $bLastNoMD5 = $gaRuleData[$iRuleCounter][$geRD_NoMD5]
+			   $bLastNoSHA1 = $gaRuleData[$iRuleCounter][$geRD_NoSHA1]
+			EndIf
 
 			;list every file or directory we scan - reading is NOT scanning !!!
-			$sTempText = GetRulename($iRuleCounter) & " : " & $sFullPath
+			;$sTempText = GetRulename($iRuleCounter) & " : " & $sFullPath
 			;$sTempText = OEM2ANSI($sTempText) ; translate from OEM to ANSI
 			;DllCall('user32.dll','Int','OemToChar','str',$sTempText,'str','') ; translate from OEM to ANSI
-			if not $gcDEBUGOnlyShowScanBuffer then ConsoleWrite($sTempText & @CRLF)
+			if not $gcDEBUGOnlyShowScanBuffer then
+			   $sTempText = GetRulename($iRuleCounter) & " : " & $sFullPath
+			   ConsoleWrite($sTempText & @CRLF)
+			EndIf
 
 			if $gbMSSQL then
 			   BufferedInsertIntoFiledataTable("('" & $giScanId & "','" & GetRuleIdFromRuleSet($iRuleCounter) & "','" & GetFilenameIDFromDB(_StringToHex($gaFileInfo[0]),_StringToHex($gaFileInfo[8])) & "','" & $gaFileInfo[1] & "','" & $gaFileInfo[2] & "','" & $gaFileInfo[3] & "','" & $gaFileInfo[4] & "','" & $gaFileInfo[5] & "','" & $gaFileInfo[6] & "','" & $gaFileInfo[7] & "','" & $gaFileInfo[9] & "','" & $gaFileInfo[10] & "','" & $gaFileInfo[11] & "','" & $gaFileInfo[13] & "','" & $gaFileInfo[14] & "','" & $gaFileInfo[15] & "','" & $gaFileInfo[16] & "','" & $gaFileInfo[17] & "','" & $gaFileInfo[18] & "','" & $gaFileInfo[19] & "','" & $gaFileInfo[20] & "','" & $gaFileInfo[21] & "','" & $gaFileInfo[22] & "','" & $gaFileInfo[23] & "','" & $gaFileInfo[24] & "')")
@@ -3563,37 +3582,38 @@ Func TreeClimber($sStartPath,$iPID,$aRelevantRules)
    ;contains True for the unicode of the last character of every included file extension
    ;dim $abValidLastChar[65535]
 
+   if $gcUseAllFileExtensionToSearchFor then
+	  ; get fileextensions to search for from all relevant rules. Default is ".*"
+	  $sAllFileExtensionToSearchFor = "."
+	  for $iRuleCounter = 1 to $iRuleCounterMax
 
-   ; get fileextensions to search for from all relevant rules. Default is ".*"
-   $sAllFileExtensionToSearchFor = "."
-   for $iRuleCounter = 1 to $iRuleCounterMax
+		 ;check only relevant rules for this directory
+		 if $aRelevantRules[$iRuleCounter] = False then ContinueLoop
 
-	  ;check only relevant rules for this directory
-	  if $aRelevantRules[$iRuleCounter] = False then ContinueLoop
-
-	  ;if only one rule has to search for executables, all files must get scanned
-	  if $gaRuleData[$iRuleCounter][$geRD_IncExe] or $gaRuleData[$iRuleCounter][$geRD_ExcExe] then
-		 $sAllFileExtensionToSearchFor = ".*."
-		 $iFindAllExtensions = True
-		 ;$sFileExtensionLastCharList = ""
-		 ExitLoop
-	  Else
-		 $sAllFileExtensionToSearchFor &= $gaRuleData[$iRuleCounter][$geRD_IncExt]
+		 ;if only one rule has to search for executables, all files must get scanned
+		 if $gaRuleData[$iRuleCounter][$geRD_IncExe] or $gaRuleData[$iRuleCounter][$geRD_ExcExe] then
+			$sAllFileExtensionToSearchFor = ".*."
+			$iFindAllExtensions = True
+			;$sFileExtensionLastCharList = ""
+			ExitLoop
+		 Else
+			$sAllFileExtensionToSearchFor &= $gaRuleData[$iRuleCounter][$geRD_IncExt]
 
 #cs
-		 ;populate $abValidLastChar for every file extension in every relevant rule
-		 if $gcDEBUGTimeTreeClimber_MakeValidLastChar	then $liTimerTreeClimber_MakeValidLastChar = TimerInit()
-		 $sFileExtensionLastCharList = $gaRuleData[$iRuleCounter][$geRD_IncExtLC]
-		 While "" <> $sFileExtensionLastCharList
-			$abValidLastChar[AscW(StringLower(StringLeft($sFileExtensionLastCharList,1)))] = True
-			$abValidLastChar[AscW(StringUpper(StringLeft($sFileExtensionLastCharList,1)))] = True
-			$sFileExtensionLastCharList = StringTrimLeft($sFileExtensionLastCharList,1)
-		 WEnd
-		 if $gcDEBUGTimeTreeClimber_MakeValidLastChar	then $giDEBUGTimerTreeClimber_MakeValidLastChar += TimerDiff($liTimerTreeClimber_MakeValidLastChar)
+			;populate $abValidLastChar for every file extension in every relevant rule
+			if $gcDEBUGTimeTreeClimber_MakeValidLastChar	then $liTimerTreeClimber_MakeValidLastChar = TimerInit()
+			$sFileExtensionLastCharList = $gaRuleData[$iRuleCounter][$geRD_IncExtLC]
+			While "" <> $sFileExtensionLastCharList
+			   $abValidLastChar[AscW(StringLower(StringLeft($sFileExtensionLastCharList,1)))] = True
+			   $abValidLastChar[AscW(StringUpper(StringLeft($sFileExtensionLastCharList,1)))] = True
+			   $sFileExtensionLastCharList = StringTrimLeft($sFileExtensionLastCharList,1)
+			WEnd
+			if $gcDEBUGTimeTreeClimber_MakeValidLastChar	then $giDEBUGTimerTreeClimber_MakeValidLastChar += TimerDiff($liTimerTreeClimber_MakeValidLastChar)
 #ce
-	  EndIf
-   Next
-   $sAllFileExtensionToSearchFor = StringReplace(StringLower($sAllFileExtensionToSearchFor),"..",".")
+		 EndIf
+	  Next
+	  $sAllFileExtensionToSearchFor = StringReplace(StringLower($sAllFileExtensionToSearchFor),"..",".")
+   EndIf
 
    ;ConsoleWrite($sFileExtensionLastCharList & @CRLF)
 
@@ -3623,7 +3643,9 @@ Func TreeClimber($sStartPath,$iPID,$aRelevantRules)
 
 	  ;has this directory entry a relevant file extension or is it a directory ?
 	  ;consolewrite(StringRight($sFileName,StringLen($sFileName)-StringInStr($sFileName,".",1,-1)) & @CRLF)
-	  if not $iIsDirectory and not $iFindAllExtensions and StringInStr($sAllFileExtensionToSearchFor,"." & StringRight($sFileName,StringLen($sFileName)-StringInStr($sFileName,".",0,-1)) & ".") = 0 then ContinueLoop
+	  if $gcUseAllFileExtensionToSearchFor then
+		 if not $iIsDirectory and not $iFindAllExtensions and StringInStr($sAllFileExtensionToSearchFor,"." & StringRight($sFileName,StringLen($sFileName)-StringInStr($sFileName,".",0,-1)) & ".") = 0 then ContinueLoop
+	  endif
 	  ;if not $iIsDirectory and not $iFindAllExtensions and not IsDeclared("$lab" & StringRight($sFileName,1)) then ContinueLoop
 	  ;if not $iIsDirectory and not $iFindAllExtensions and not $abValidLastChar[AscW(StringRight($sFileName,1))] then ContinueLoop
 
