@@ -9,7 +9,10 @@ Changelog
 			DoReport(): HTML-Report inline in eMail
 			DoExportScan(): in CSV fileid is not displayed as char ! Store as HEX ?
 
-5.0.0.2		TreeClimber(): deaktivate $sAllFileExtensionToSearchFor mechanism.  It is to slow for some use cases!
+5.0.0.3		TreeClimber(): activate $sAllFileExtensionToSearchFor mechanism, with unneccesary loop removed
+			TreeClimber(): don´t FileExists() on every directory
+
+5.0.0.2		TreeClimber(): deactivate $sAllFileExtensionToSearchFor mechanism.  It is to slow for some use cases!
 			DoGetFileinfosOfRelevantFiles(): call GetFileInfo() only if necessary
 
 5.0.0.1		TreeClimber(): remove $abValidLastChar mechanism. It is to slow for some use cases!

@@ -23,8 +23,8 @@
 ;Set file infos
 
 ;Versioning: "Incompatible changes to DB"."new feature"."bug fix"."minor fix"
-#pragma compile(ProductVersion,"5.0.0.2")
-#pragma compile(FileVersion,"5.0.0.2")
+#pragma compile(ProductVersion,"5.0.0.3")
+#pragma compile(FileVersion,"5.0.0.3")
 
 #pragma compile(FileDescription,"Spot The Difference")
 #pragma compile(ProductName,"Spot The Difference")
@@ -60,8 +60,8 @@ Opt("MustDeclareVars", 1)
 
 ;Constants
 global const $gcVersion = FileGetVersion(@ScriptName,"ProductVersion")
-global const $gcScannameLimit = 65535					;max number of scannames resturnd from the DB
-global const $gcUseAllFileExtensionToSearchFor = False	;use the $sAllFileExtensionToSearchFor mechanism in TreeClimber()
+global const $gcScannameLimit = 65535				;max number of scannames resturnd from the DB
+global const $gcCheckIfEveryDirExists = False		;do a FileExists() on every directory TreeClimber() visits.
 
 ;Debug
 global const $gcDEBUG = False						;master switch for debug output
@@ -1620,11 +1620,20 @@ Func DoGetListOfRelevantFiles($sDBName)
    local $ScanTimer = TimerInit()
    local $iRuleCounter = 0
    local $aAllIncDirs[1]				;all the root directries we have to include
+   local $iIsClimbTarget = False
+
 
    GetRuleSetFromDB()
 
    ;only these rules must be checkt on the climbtarget (subdirectory)
    dim $aRelevantRulesForClimbTarget[UBound($gaRuleStart,1)]
+
+   ;only these file extensions must be checkt in the climbtarget (subdirectory)
+   local $sRelevantFileExtensionsForClimbTarget = ""
+
+   ;ALL file extensions must be checkt in the climbtarget (subdirectory)
+   local $iFindAllExtensionsForClimbTarget = False
+
 
    ;make a unique list ($aAllIncDirs) of only the top most dirs from the "IncDirRec:" and "IncDir:" statements in the ruleset
 
@@ -1676,6 +1685,14 @@ Func DoGetListOfRelevantFiles($sDBName)
    ;process all dirs in $aAllIncDirs
    for $i=1 to UBound($aAllIncDirs,1)-1
 	  ;ConsoleWrite($aAllIncDirs[$i] & "\" & @CRLF)
+
+	  ; get fileextensions to search for from all relevant rules. Default is ".*"
+	  $sRelevantFileExtensionsForClimbTarget = "."
+	  $iFindAllExtensionsForClimbTarget = False
+
+	  $iIsClimbTarget = False
+
+	  ; check which rules and file extesions are relevant for the directory (a.k.a. ClimbTarget)
 	  for $iRuleCounter = 1 to UBound($gaRuleStart,1)-1
 		 ;ConsoleWrite($iRuleCounter & @CRLF)
 		 ;_ArrayDisplay($gaRuleStart)
@@ -1683,15 +1700,31 @@ Func DoGetListOfRelevantFiles($sDBName)
 
 		 if IsClimbTargetByRule($aAllIncDirs[$i] & "\",$iRuleCounter) then
 			$aRelevantRulesForClimbTarget[$iRuleCounter] = True
+			$iIsClimbTarget = True
+
+			;if any rule has to search for executables, all files must get scanned
+			if $gaRuleData[$iRuleCounter][$geRD_IncExe] or $gaRuleData[$iRuleCounter][$geRD_ExcExe] then
+			   $sRelevantFileExtensionsForClimbTarget = ".*."
+			   $iFindAllExtensionsForClimbTarget = True
+			Else
+			   $sRelevantFileExtensionsForClimbTarget &= $gaRuleData[$iRuleCounter][$geRD_IncExt]
+			EndIf
+
+
 		 Else
 			$aRelevantRulesForClimbTarget[$iRuleCounter] = False
 		 EndIf
 	  Next
+
+	  $sRelevantFileExtensionsForClimbTarget = StringReplace(StringLower($sRelevantFileExtensionsForClimbTarget),"..",".")
+
+
 	  ;_ArrayDisplay($aRelevantRulesForClimbTarget)
 	  ;_ArrayDisplay($aAllIncDirs)
-	  if Not $gcDEBUGDoNotStartSecondProcess then
+	  if $iIsClimbTarget and Not $gcDEBUGDoNotStartSecondProcess then
 
-		 TreeClimber($aAllIncDirs[$i],$iPID,$aRelevantRulesForClimbTarget)
+		 TreeClimber($aAllIncDirs[$i],$iPID,$aRelevantRulesForClimbTarget,$sRelevantFileExtensionsForClimbTarget,$iFindAllExtensionsForClimbTarget)
+
 	  EndIf
    Next
 
@@ -3541,7 +3574,7 @@ Func IsExecutable($Filename)
 EndFunc
 
 
-Func TreeClimber($sStartPath,$iPID,$aRelevantRules)
+Func TreeClimber($sStartPath,$iPID,$aRelevantRules,$sRelevantFileExtensions,$iFindAllExtensions)
 
    ;read any directory entry in $sStartPath and its subdirectories
    ;and scan according to %aRule
@@ -3562,13 +3595,13 @@ Func TreeClimber($sStartPath,$iPID,$aRelevantRules)
    Local $hSearch = 0
    Local $sFileName = ""
 
-   local $sAllFileExtensionToSearchFor = ""
-   local $iFindAllExtensions = False
+   ;local $sAllFileExtensionToSearchFor = ""
+   ;local $iFindAllExtensions = False
 
    ;local $sFileExtensionLastCharList = ""
 
    ;abort if $sStartPath is not valid (does not exist)
-   if not FileExists($sStartPath) Then Return False
+   if $gcCheckIfEveryDirExists and not FileExists($sStartPath) Then Return False
 
    ; how many rules are there in the ruleset
    $iRuleCounterMax = GetNumberOfRulesFromRuleSet()
@@ -3576,44 +3609,17 @@ Func TreeClimber($sStartPath,$iPID,$aRelevantRules)
    ;only these rules must be checkt on the climbtarget (subdirectory)
    dim $aRelevantRulesForClimbTarget[$iRuleCounterMax+1]
 
+   ;only these file extensions must be checkt in the climbtarget (subdirectory)
+   local $sRelevantFileExtensionsForClimbTarget = ""
+
+   ;ALL file extensions must be checkt in the climbtarget (subdirectory)
+   local $iFindAllExtensionsForClimbTarget = False
+
    ;list every directory we are reading - reading is NOT scanning !!!
    ;ConsoleWrite("TreeClimber: " & $sStartPath & @CRLF)
 
    ;contains True for the unicode of the last character of every included file extension
    ;dim $abValidLastChar[65535]
-
-   if $gcUseAllFileExtensionToSearchFor then
-	  ; get fileextensions to search for from all relevant rules. Default is ".*"
-	  $sAllFileExtensionToSearchFor = "."
-	  for $iRuleCounter = 1 to $iRuleCounterMax
-
-		 ;check only relevant rules for this directory
-		 if $aRelevantRules[$iRuleCounter] = False then ContinueLoop
-
-		 ;if only one rule has to search for executables, all files must get scanned
-		 if $gaRuleData[$iRuleCounter][$geRD_IncExe] or $gaRuleData[$iRuleCounter][$geRD_ExcExe] then
-			$sAllFileExtensionToSearchFor = ".*."
-			$iFindAllExtensions = True
-			;$sFileExtensionLastCharList = ""
-			ExitLoop
-		 Else
-			$sAllFileExtensionToSearchFor &= $gaRuleData[$iRuleCounter][$geRD_IncExt]
-
-#cs
-			;populate $abValidLastChar for every file extension in every relevant rule
-			if $gcDEBUGTimeTreeClimber_MakeValidLastChar	then $liTimerTreeClimber_MakeValidLastChar = TimerInit()
-			$sFileExtensionLastCharList = $gaRuleData[$iRuleCounter][$geRD_IncExtLC]
-			While "" <> $sFileExtensionLastCharList
-			   $abValidLastChar[AscW(StringLower(StringLeft($sFileExtensionLastCharList,1)))] = True
-			   $abValidLastChar[AscW(StringUpper(StringLeft($sFileExtensionLastCharList,1)))] = True
-			   $sFileExtensionLastCharList = StringTrimLeft($sFileExtensionLastCharList,1)
-			WEnd
-			if $gcDEBUGTimeTreeClimber_MakeValidLastChar	then $giDEBUGTimerTreeClimber_MakeValidLastChar += TimerDiff($liTimerTreeClimber_MakeValidLastChar)
-#ce
-		 EndIf
-	  Next
-	  $sAllFileExtensionToSearchFor = StringReplace(StringLower($sAllFileExtensionToSearchFor),"..",".")
-   EndIf
 
    ;ConsoleWrite($sFileExtensionLastCharList & @CRLF)
 
@@ -3643,9 +3649,7 @@ Func TreeClimber($sStartPath,$iPID,$aRelevantRules)
 
 	  ;has this directory entry a relevant file extension or is it a directory ?
 	  ;consolewrite(StringRight($sFileName,StringLen($sFileName)-StringInStr($sFileName,".",1,-1)) & @CRLF)
-	  if $gcUseAllFileExtensionToSearchFor then
-		 if not $iIsDirectory and not $iFindAllExtensions and StringInStr($sAllFileExtensionToSearchFor,"." & StringRight($sFileName,StringLen($sFileName)-StringInStr($sFileName,".",0,-1)) & ".") = 0 then ContinueLoop
-	  endif
+	  if not $iIsDirectory and not $iFindAllExtensions and StringInStr($sRelevantFileExtensions,"." & StringRight($sFileName,StringLen($sFileName)-StringInStr($sFileName,".",0,-1)) & ".") = 0 then ContinueLoop
 	  ;if not $iIsDirectory and not $iFindAllExtensions and not IsDeclared("$lab" & StringRight($sFileName,1)) then ContinueLoop
 	  ;if not $iIsDirectory and not $iFindAllExtensions and not $abValidLastChar[AscW(StringRight($sFileName,1))] then ContinueLoop
 
@@ -3654,24 +3658,42 @@ Func TreeClimber($sStartPath,$iPID,$aRelevantRules)
 	  ;climb the directory tree downward if needed
 	  if $iIsDirectory Then
 		 $iIsClimbTarget = False
-		 ; check all the rules on this directory
+
+		 ; get fileextensions to search for from all relevant rules. Default is ".*"
+		 $sRelevantFileExtensionsForClimbTarget = "."
+		 $iFindAllExtensionsForClimbTarget = False
+
+		 ; check which rule and file extesions are relevant for the directory (a.k.a. ClimbTarget)
 		 for $iRuleCounter = 1 to $iRuleCounterMax
 			;ConsoleWrite("TreeClimber: " & $sFullPath & "\" & " : " & $iIsClimbTarget & @CRLF)
 			if IsClimbTargetByRule($sFullPath & "\",$iRuleCounter) then
 			   $aRelevantRulesForClimbTarget[$iRuleCounter] = True
 			   $iIsClimbTarget = True
+
+			   ;if any rule has to search for executables, all files must get scanned
+			   if $gaRuleData[$iRuleCounter][$geRD_IncExe] or $gaRuleData[$iRuleCounter][$geRD_ExcExe] then
+				  $sRelevantFileExtensionsForClimbTarget = ".*."
+				  $iFindAllExtensionsForClimbTarget = True
+			   Else
+				  $sRelevantFileExtensionsForClimbTarget &= $gaRuleData[$iRuleCounter][$geRD_IncExt]
+			   EndIf
+
 			else
 			   $aRelevantRulesForClimbTarget[$iRuleCounter] = False
 			EndIf
 		 Next
 
+		 $sRelevantFileExtensionsForClimbTarget = StringReplace(StringLower($sRelevantFileExtensionsForClimbTarget),"..",".")
+
+
 		 if $iIsClimbTarget Then
-			if $gcDEBUGShowVisitedDirectories = True then ConsoleWrite("** visited **" & $sFullPath & @CRLF)
+			if $gcDEBUGShowVisitedDirectories then ConsoleWrite("** visited **" & $sFullPath & @CRLF)
 
 			;count number of "\" in current path
 			StringReplace($sFullPath,"\","")
 			$giCurrentDirBackslashCount = @extended
-			TreeClimber($sFullPath,$iPID,$aRelevantRulesForClimbTarget)
+			TreeClimber($sFullPath,$iPID,$aRelevantRulesForClimbTarget,$sRelevantFileExtensionsForClimbTarget,$iFindAllExtensionsForClimbTarget)
+
 		 EndIf
 	  EndIf
 
@@ -3679,7 +3701,7 @@ Func TreeClimber($sStartPath,$iPID,$aRelevantRules)
 	  for $iRuleCounter = 1 to $iRuleCounterMax
 
 		 ;check only relevant rules for this directory
-		 if $aRelevantRules[$iRuleCounter] = False then ContinueLoop
+		 if not $aRelevantRules[$iRuleCounter] then ContinueLoop
 
 		 ;check if current directory entry should be scanned according to the current rule
 		 if $iIsDirectory Then
